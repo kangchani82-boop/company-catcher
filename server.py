@@ -138,15 +138,29 @@ def increment_usage(model: str):
 
 
 # ── AI 호출 함수 ────────────────────────────────────────────────────────────
-GEMINI_MODEL_IDS = {
-    "flash": "gemini-2.5-flash-preview-05-20",
-    "pro":   "gemini-2.5-pro-preview-05-06",
+# 무료 API 일일 한도 (2026 기준)
+GEMINI_LIMITS = {
+    "flash":      {"rpm": 10, "rpd": 500},
+    "flash-lite": {"rpm": 15, "rpd": 1000},
+    "pro":        {"rpm":  5, "rpd": 100},
+    "article":    {"rpm": 10, "rpd": 100},   # Gemini 3.1 Pro Preview (기사 초안 전용)
 }
 
-# 모델별 fallback 순서
+# 모델별 fallback 순서 (404 시 자동 시도)
 GEMINI_FALLBACKS = {
-    "flash": ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"],
-    "pro":   ["gemini-2.5-pro-preview-05-06",   "gemini-2.0-pro-exp", "gemini-1.5-pro"],
+    "flash":      ["gemini-2.5-flash-preview-05-20",
+                   "gemini-2.5-flash",
+                   "gemini-2.0-flash"],
+    "flash-lite": ["gemini-2.5-flash-lite-preview-06-17",
+                   "gemini-2.5-flash-lite",
+                   "gemini-2.5-flash-8b",
+                   "gemini-2.0-flash-lite"],
+    "pro":        ["gemini-2.5-pro-preview-05-06",
+                   "gemini-2.5-pro",
+                   "gemini-2.0-pro-exp"],
+    "article":    ["gemini-3.1-pro-preview",
+                   "gemini-2.5-pro-preview-05-06",
+                   "gemini-2.5-pro"],
 }
 
 
@@ -355,18 +369,56 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── /api/report_types ─────────────────────────────────────────────
+        # 소프트코딩: DB의 report_type_meta + 실제 수집 현황 합산 반환
+        if path == "/api/report_types":
+            try:
+                db = get_db()
+                # report_type_meta 등록 유형
+                meta_rows = db.execute("""
+                    SELECT * FROM report_type_meta ORDER BY sort_order
+                """).fetchall()
+                # 실제 DB에 수집된 유형별 건수
+                counts = {r["report_type"]: r["cnt"] for r in db.execute("""
+                    SELECT report_type,
+                           COUNT(*) as cnt
+                    FROM reports
+                    WHERE biz_content IS NOT NULL AND LENGTH(biz_content) > 100
+                    GROUP BY report_type
+                """).fetchall()}
+                # 합산
+                result = []
+                for m in meta_rows:
+                    tc = m["type_code"]
+                    result.append({
+                        **dict(m),
+                        "count": counts.get(tc, 0),
+                        "has_data": counts.get(tc, 0) > 0,
+                    })
+                # 메타에 없지만 실제 수집된 유형 추가 (레거시 등)
+                meta_codes = {m["type_code"] for m in meta_rows}
+                for tc, cnt in counts.items():
+                    if tc not in meta_codes:
+                        result.append({
+                            "type_code": tc, "label": tc, "short_label": tc,
+                            "year": None, "quarter": None,
+                            "count": cnt, "has_data": True, "is_active": 1,
+                        })
+                self._json({"report_types": result})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── /api/dart/latest_type ─────────────────────────────────────────
         if path == "/api/dart/latest_type":
             try:
                 db = get_db()
-                # 가장 최근 rcept_dt를 기준으로 보고서 유형 결정
+                # 가장 최근 rcept_dt를 기준으로 보고서 유형 결정 (동적)
                 row = db.execute("""
                     SELECT report_type, MAX(rcept_dt) as latest_dt
                     FROM reports
                     WHERE rcept_no != ''
-                      AND ((raw_text IS NOT NULL AND raw_text != '')
-                        OR (biz_content IS NOT NULL AND biz_content != ''))
-                      AND report_type IN ('2025_annual','2025_q3','2025_h1','2025_q1')
+                      AND biz_content IS NOT NULL AND LENGTH(biz_content) > 100
                     GROUP BY report_type
                     ORDER BY latest_dt DESC
                     LIMIT 1
@@ -385,9 +437,10 @@ class DartHandler(BaseHTTPRequestHandler):
                 usage = load_ai_usage()
                 self._json({
                     "date":   usage["date"],
-                    "flash":  {"used": usage.get("flash_used",  0), "limit": 1500},
-                    "pro":    {"used": usage.get("pro_used",    0), "limit": 25},
-                    "sonnet": {"used": usage.get("sonnet_used", 0), "limit": None},
+                    "flash":      {"used": usage.get("flash_used",      0), "limit": 500},
+                    "flash-lite": {"used": usage.get("flash_lite_used", 0), "limit": 1000},
+                    "pro":        {"used": usage.get("pro_used",        0), "limit": 100},
+                    "sonnet":     {"used": usage.get("sonnet_used",     0), "limit": None},
                 })
             except Exception as e:
                 self._json({"error": str(e)}, 500)
@@ -537,6 +590,227 @@ class DartHandler(BaseHTTPRequestHandler):
                 "gemini_hint":  (gemini_key[:8] + "…")  if gemini_key  else "",
                 "claude_hint":  (claude_key[:10] + "…") if claude_key  else "",
             })
+            return
+
+        # ── /api/search ───────────────────────────────────────────────────
+        # FTS5 전문 검색: 기업명 + 사업내용 키워드
+        if path == "/api/search":
+            try:
+                db = get_db()
+                q       = (qs.get("q",      [None])[0] or "").strip()
+                rtype   = (qs.get("type",   [None])[0] or "").strip()
+                sector  = (qs.get("sector", [None])[0] or "").strip()
+                limit   = int(qs.get("limit",  [20])[0])
+                offset  = int(qs.get("offset", [0])[0])
+
+                if not q:
+                    self._json({"error": "q(검색어) 필수"}, 400)
+                    return
+
+                # FTS5 쿼리 — 기업명 OR 사업내용
+                fts_q = q.replace('"', '""')
+                where_extra = ""
+                params_extra = []
+                if rtype:
+                    where_extra += " AND r.report_type = ?"
+                    params_extra.append(rtype)
+
+                rows = db.execute(f"""
+                    SELECT r.id, r.corp_code, r.corp_name, r.report_type,
+                           r.report_name, r.rcept_dt,
+                           LENGTH(r.biz_content) as biz_len,
+                           snippet(reports_fts, 2, '<mark>', '</mark>', '...', 32) as snippet
+                    FROM reports_fts f
+                    JOIN reports r ON r.id = f.rowid
+                    WHERE reports_fts MATCH ?
+                      {where_extra}
+                    ORDER BY rank
+                    LIMIT ? OFFSET ?
+                """, [f'"{fts_q}"'] + params_extra + [limit, offset]).fetchall()
+
+                # 전체 수 (근사)
+                total_row = db.execute(f"""
+                    SELECT COUNT(*) FROM reports_fts f
+                    JOIN reports r ON r.id = f.rowid
+                    WHERE reports_fts MATCH ?
+                    {where_extra}
+                """, [f'"{fts_q}"'] + params_extra).fetchone()
+                total = total_row[0] if total_row else 0
+
+                self._json({
+                    "results": [dict(r) for r in rows],
+                    "total": total,
+                    "query": q,
+                    "offset": offset,
+                    "limit": limit,
+                })
+            except Exception as e:
+                log.exception("search error")
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/alerts ────────────────────────────────────────────────────
+        # 변화 알림 목록 (심각도순)
+        if path == "/api/alerts":
+            try:
+                db = get_db()
+                min_sev  = int(qs.get("min_severity", [3])[0])
+                status   = (qs.get("status", ["new"])[0] or "new").strip()
+                lead_type= (qs.get("lead_type",[None])[0] or "").strip()
+                limit    = int(qs.get("limit",  [50])[0])
+                offset   = int(qs.get("offset", [0])[0])
+
+                where = ["severity >= ?", "status = ?"]
+                params = [min_sev, status]
+                if lead_type:
+                    where.append("lead_type = ?")
+                    params.append(lead_type)
+
+                where_sql = " AND ".join(where)
+                try:
+                    total = db.execute(
+                        f"SELECT COUNT(*) FROM story_leads WHERE {where_sql}", params
+                    ).fetchone()[0]
+                    rows = db.execute(
+                        f"SELECT * FROM story_leads WHERE {where_sql} "
+                        f"ORDER BY severity DESC, created_at DESC LIMIT ? OFFSET ?",
+                        params + [limit, offset]
+                    ).fetchall()
+                    items = [dict(r) for r in rows]
+                except Exception:
+                    total, items = 0, []
+
+                # 심각도별 통계
+                try:
+                    stats = db.execute("""
+                        SELECT severity, lead_type, status, COUNT(*) as cnt
+                        FROM story_leads
+                        GROUP BY severity, lead_type, status
+                        ORDER BY severity DESC
+                    """).fetchall()
+                    stats_list = [dict(r) for r in stats]
+                except Exception:
+                    stats_list = []
+
+                self._json({
+                    "alerts": items,
+                    "total": total,
+                    "stats": stats_list,
+                    "offset": offset,
+                    "limit": limit,
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/leads ─────────────────────────────────────────────────────
+        if path == "/api/leads":
+            try:
+                db = get_db()
+                corp_code = (qs.get("corp_code",[None])[0] or "").strip()
+                status    = (qs.get("status",  [None])[0] or "").strip()
+                lead_type = (qs.get("type",    [None])[0] or "").strip()
+                min_sev   = int(qs.get("min_severity",[1])[0])
+                limit     = int(qs.get("limit", [30])[0])
+                offset    = int(qs.get("offset",[0])[0])
+
+                where = ["severity >= ?"]
+                params = [min_sev]
+                if corp_code:
+                    where.append("corp_code = ?"); params.append(corp_code)
+                if status:
+                    where.append("status = ?"); params.append(status)
+                if lead_type:
+                    where.append("lead_type = ?"); params.append(lead_type)
+
+                where_sql = " AND ".join(where)
+                try:
+                    total = db.execute(
+                        f"SELECT COUNT(*) FROM story_leads WHERE {where_sql}", params
+                    ).fetchone()[0]
+                    rows = db.execute(
+                        f"SELECT * FROM story_leads WHERE {where_sql} "
+                        f"ORDER BY severity DESC, created_at DESC LIMIT ? OFFSET ?",
+                        params + [limit, offset]
+                    ).fetchall()
+                    self._json({"leads": [dict(r) for r in rows], "total": total})
+                except Exception:
+                    self._json({"leads": [], "total": 0})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/articles ──────────────────────────────────────────────────
+        if path == "/api/articles":
+            try:
+                db = get_db()
+                corp_code = (qs.get("corp_code",[None])[0] or "").strip()
+                status    = (qs.get("status",  [None])[0] or "").strip()
+                limit     = int(qs.get("limit", [20])[0])
+                offset    = int(qs.get("offset",[0])[0])
+
+                where = []
+                params = []
+                if corp_code:
+                    where.append("corp_code = ?"); params.append(corp_code)
+                if status:
+                    where.append("status = ?"); params.append(status)
+
+                where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+                try:
+                    total = db.execute(
+                        f"SELECT COUNT(*) FROM article_drafts {where_sql}", params
+                    ).fetchone()[0]
+                    rows = db.execute(
+                        f"SELECT id, lead_id, corp_code, corp_name, headline, subheadline, "
+                        f"style, model, word_count, status, created_at, "
+                        f"SUBSTR(content, 1, 300) as content_preview "
+                        f"FROM article_drafts {where_sql} "
+                        f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                        params + [limit, offset]
+                    ).fetchall()
+                    self._json({"articles": [dict(r) for r in rows], "total": total})
+                except Exception:
+                    self._json({"articles": [], "total": 0})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/stats/dashboard ───────────────────────────────────────────
+        if path == "/api/stats/dashboard":
+            try:
+                db = get_db()
+                def safe(sql, params=[], default=0):
+                    try: return db.execute(sql, params).fetchone()[0]
+                    except: return default
+
+                self._json({
+                    "reports":       safe("SELECT COUNT(*) FROM reports WHERE biz_content IS NOT NULL"),
+                    "companies":     safe("SELECT COUNT(DISTINCT corp_code) FROM reports WHERE biz_content IS NOT NULL"),
+                    "comparisons":   safe("SELECT COUNT(*) FROM ai_comparisons WHERE status='ok'"),
+                    "supply_chain":  safe("SELECT COUNT(*) FROM supply_chain"),
+                    "story_leads":   safe("SELECT COUNT(*) FROM story_leads"),
+                    "leads_new":     safe("SELECT COUNT(*) FROM story_leads WHERE status='new'"),
+                    "leads_high":    safe("SELECT COUNT(*) FROM story_leads WHERE severity >= 4"),
+                    "articles":      safe("SELECT COUNT(*) FROM article_drafts"),
+                    "report_types":  [dict(r) for r in db.execute(
+                        "SELECT type_code, label, short_label, is_active FROM report_type_meta ORDER BY sort_order"
+                    ).fetchall()],
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/alert_rules ──────────────────────────────────────────────
+        if path == "/api/alert_rules":
+            try:
+                db = get_db()
+                rows = db.execute(
+                    "SELECT * FROM alert_rules ORDER BY severity DESC, rule_code"
+                ).fetchall()
+                self._json({"rules": [dict(r) for r in rows]})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
             return
 
         # ── /api/ai/comparisons ──────────────────────────────────────────

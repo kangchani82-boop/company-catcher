@@ -1,23 +1,30 @@
 """
 scripts/batch_compare.py
 ────────────────────────
-전체 기업 대상 Gemini 2.5 Flash AI 비교 분석 배치 실행기
+전체 기업 대상 Gemini AI 비교 분석 배치 실행기
 biz_content(2. 사업의 내용)만 사용하여 두 기간 보고서를 비교
 
 실행 예시:
   python scripts/batch_compare.py                          # 2025_annual vs 2025_q1, 1000개
   python scripts/batch_compare.py --limit 500              # 500개만
   python scripts/batch_compare.py --type-a 2025_annual --type-b 2025_h1
-  python scripts/batch_compare.py --model flash --delay 5  # 5초 간격
+  python scripts/batch_compare.py --model flash            # flash(기본) | flash-lite
   python scripts/batch_compare.py --all                    # 기존 결과 덮어쓰기
   python scripts/batch_compare.py --resume 1000            # 1000번째부터 재개
 
 결과 저장:
   data/dart/dart_reports.db → ai_comparisons 테이블
 
-일일 한도:
-  Gemini 2.5 Flash 무료: 1,500 RPD / 15 RPM
-  권장: --limit 1000 (약 70분 소요)
+무료 API 일일 한도 (Gemini 무료):
+  Gemini 2.5 Flash      : 10 RPM / 500 RPD  → 딜레이 6초
+  Gemini 2.5 Flash-Lite : 15 RPM / 1,000 RPD → 딜레이 4초
+  Gemini 2.5 Pro        :  5 RPM / 100 RPD
+  Gemini 3.1 Pro Preview: 10 RPM / 100 RPD  (기사 초안 전용)
+
+전략:
+  - flash 모드: Flash 우선 → 429 시 Flash-Lite 자동 전환 (합산 1,500 RPD)
+  - flash-lite 모드: Flash-Lite 전용 (1,000 RPD)
+  - 권장: --limit 1000 flash 모드 (약 100분 소요)
 """
 
 import io
@@ -48,10 +55,35 @@ if ENV_PATH.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k.strip(), v.strip())
 
-# ── Gemini 모델 fallback 순서 ────────────────────────────────────────────────
+# ── Gemini 모델 설정 ────────────────────────────────────────────────────────
+# 무료 API 한도 (2026 기준)
+GEMINI_LIMITS = {
+    "flash":      {"rpm": 10, "rpd": 500,   "delay": 6.5},
+    "flash-lite": {"rpm": 15, "rpd": 1000,  "delay": 4.5},
+    "pro":        {"rpm":  5, "rpd": 100,   "delay": 12.5},
+    "article":    {"rpm": 10, "rpd": 100,   "delay": 6.5},  # 3.1 Pro Preview (기사 초안)
+}
+
+# fallback 순서 (404 시 자동 시도)
 GEMINI_FALLBACKS = {
-    "flash": ["gemini-2.5-flash-preview-05-20", "gemini-2.0-flash", "gemini-1.5-flash"],
-    "pro":   ["gemini-2.5-pro-preview-05-06",   "gemini-2.0-pro-exp", "gemini-1.5-pro"],
+    "flash":      ["gemini-2.5-flash-preview-05-20",
+                   "gemini-2.5-flash",
+                   "gemini-2.0-flash"],
+    "flash-lite": ["gemini-2.5-flash-lite-preview-06-17",
+                   "gemini-2.5-flash-lite",
+                   "gemini-2.5-flash-8b",
+                   "gemini-2.0-flash-lite"],
+    "pro":        ["gemini-2.5-pro-preview-05-06",
+                   "gemini-2.5-pro",
+                   "gemini-2.0-pro-exp"],
+    "article":    ["gemini-3.1-pro-preview",
+                   "gemini-2.5-pro-preview-05-06",
+                   "gemini-2.5-pro"],
+}
+
+# flash → quota 초과 시 자동 전환할 모델
+FALLBACK_ON_QUOTA = {
+    "flash": "flash-lite",
 }
 
 # ── 보고서 유형 표시명 ────────────────────────────────────────────────────────
@@ -147,43 +179,53 @@ def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
 
 
 # ─── AI 호출 ─────────────────────────────────────────────────────────────────
-def call_gemini(model_type: str, prompt: str, timeout: int = 120) -> str:
+def call_gemini(model_type: str, prompt: str, timeout: int = 120):
+    """Gemini API 호출. (result_text, used_model_name, used_model_type) 반환.
+    429 시 FALLBACK_ON_QUOTA 에 따라 다음 모델 타입으로 전환."""
     api_key = os.environ.get("GEMINI_API_KEY", "")
     if not api_key:
         raise ValueError("GEMINI_API_KEY가 .env에 없습니다")
 
-    candidates = GEMINI_FALLBACKS.get(model_type, GEMINI_FALLBACKS["flash"])
-    last_err = None
+    types_to_try = [model_type]
+    if model_type in FALLBACK_ON_QUOTA:
+        types_to_try.append(FALLBACK_ON_QUOTA[model_type])
 
-    for model_name in candidates:
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:generateContent?key={api_key}"
-        )
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
-        }).encode("utf-8")
+    for mtype in types_to_try:
+        candidates = GEMINI_FALLBACKS.get(mtype, GEMINI_FALLBACKS["flash"])
+        last_err = None
 
-        req = urllib.request.Request(
-            url, data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            return data["candidates"][0]["content"]["parts"][0]["text"], model_name
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            if e.code == 404:
-                last_err = f"모델 없음: {model_name}"
-                continue
-            if e.code == 429:
-                raise RuntimeError(f"할당량 초과(429): {body[:300]}")
-            raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"네트워크 오류: {e.reason}")
+        for model_name in candidates:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={api_key}"
+            )
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return data["candidates"][0]["content"]["parts"][0]["text"], model_name, mtype
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code == 404:
+                    last_err = f"모델 없음: {model_name}"
+                    continue
+                if e.code == 429:
+                    # 이 타입 할당량 초과 → 다음 fallback 타입으로
+                    print(f"  ⚠ {mtype} 할당량 초과(429) → {FALLBACK_ON_QUOTA.get(mtype, '없음')}으로 전환")
+                    last_err = f"할당량 초과({mtype})"
+                    break  # inner loop 탈출 → 다음 mtype 시도
+                raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
+            except urllib.error.URLError as e:
+                raise RuntimeError(f"네트워크 오류: {e.reason}")
 
     raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
 
@@ -237,14 +279,14 @@ def main():
                         choices=["2025_annual","2025_q3","2025_h1","2025_q1"],
                         help="비교 대상 보고서 유형 (기본: 2025_q1)")
     parser.add_argument("--model",   default="flash",
-                        choices=["flash","pro"],
-                        help="AI 모델 (기본: flash)")
+                        choices=["flash", "flash-lite", "pro"],
+                        help="AI 모델: flash(기본,500RPD) | flash-lite(1000RPD) | pro(100RPD)")
     parser.add_argument("--limit",   type=int, default=1000,
                         help="처리할 최대 기업 수 (기본: 1000)")
     parser.add_argument("--resume",  type=int, default=0,
                         help="N번째 기업부터 재개 (기본: 0 = 처음부터)")
-    parser.add_argument("--delay",   type=float, default=4.5,
-                        help="요청 간격(초) — 15RPM 한도 준수 (기본: 4.5)")
+    parser.add_argument("--delay",   type=float, default=0,
+                        help="요청 간격(초) — 0=모델 기본값 자동 사용 (기본: 0)")
     parser.add_argument("--all",     action="store_true",
                         help="이미 분석된 기업도 재분석(덮어쓰기)")
     parser.add_argument("--dry-run", action="store_true",
@@ -265,15 +307,31 @@ def main():
 
     label_a = TYPE_LABELS.get(args.type_a, args.type_a)
     label_b = TYPE_LABELS.get(args.type_b, args.type_b)
+
+    # 딜레이: 명시 지정 없으면 모델 기본값
+    limit_info = GEMINI_LIMITS.get(args.model, GEMINI_LIMITS["flash"])
+    delay = args.delay if args.delay > 0 else limit_info["delay"]
+    rpd   = limit_info["rpd"]
+    # flash 모드는 flash-lite로 자동 전환되므로 합산 RPD 표시
+    if args.model == "flash":
+        fallback_rpd = GEMINI_LIMITS.get("flash-lite", {}).get("rpd", 0)
+        rpd_display = f"{rpd}+{fallback_rpd}(lite)={rpd+fallback_rpd}"
+    else:
+        rpd_display = str(rpd)
+
     print(f"\n{'='*60}")
     print(f"배치 AI 비교 분석 시작")
-    print(f"  비교 조합: {label_a}  vs  {label_b}")
-    print(f"  모델     : Gemini {args.model}")
-    print(f"  한도     : {args.limit}개 / {args.delay}초 간격")
+    print(f"  비교 조합 : {label_a}  vs  {label_b}")
+    print(f"  모델      : Gemini {args.model.upper()}")
+    print(f"  일일 한도 : {rpd_display} RPD")
+    print(f"  요청 간격 : {delay}초")
+    print(f"  처리 한도 : {args.limit}개")
+    est = args.limit * delay / 60
+    print(f"  예상 시간 : {est:.0f}분")
     if args.resume:
-        print(f"  재개위치 : {args.resume}번째부터")
+        print(f"  재개위치  : {args.resume}번째부터")
     if args.all:
-        print(f"  모드     : 덮어쓰기 (--all)")
+        print(f"  모드      : 덮어쓰기 (--all)")
     print(f"{'='*60}\n")
 
     # 두 보고서 유형 모두 있는 기업 조회
@@ -376,7 +434,7 @@ def main():
 
         # API 호출
         try:
-            result_text, used_model = call_gemini(args.model, prompt, timeout=120)
+            result_text, used_model, used_type = call_gemini(args.model, prompt, timeout=120)
             save_result(db, corp_code, corp_name, rid_a, rid_b,
                         args.type_a, args.type_b, args.model,
                         result_text, len(biz_a), len(biz_b))
@@ -386,12 +444,12 @@ def main():
             avg_sec = elapsed / processed
             remain  = (min(args.limit, total_eligible) - processed) * avg_sec
             eta_min = remain / 60
+            type_tag = f"[{used_type}]" if used_type != args.model else ""
             print(
                 f"  [{processed:4d}/{min(args.limit, total_eligible):4d}] "
-                f"{corp_name[:20]:<20} ✓  "
+                f"{corp_name[:18]:<18} ✓  "
                 f"({len(biz_a)//1000}K+{len(biz_b)//1000}K자)  "
-                f"모델:{used_model.split('-')[1]}  "
-                f"남은시간≈{eta_min:.0f}분"
+                f"{type_tag}  남은≈{eta_min:.0f}분"
             )
 
         except RuntimeError as e:
@@ -399,17 +457,17 @@ def main():
             save_error(db, corp_code, corp_name, rid_a, rid_b,
                        args.type_a, args.type_b, args.model, err_msg)
             errors += 1
-            print(f"  [{processed:4d}] {corp_name[:20]:<20} ✗  {err_msg[:80]}")
+            print(f"  [{processed:4d}] {corp_name[:18]:<18} ✗  {err_msg[:80]}")
 
-            # 할당량 초과 → 중단
-            if "429" in err_msg or "할당량 초과" in err_msg:
-                print("\n⚠ 일일 할당량 초과! 내일 --resume 옵션으로 재개하세요.")
-                print(f"  재개 명령어: python scripts/batch_compare.py --resume {args.resume + processed}")
+            # 모든 fallback 포함 할당량 초과 → 중단
+            if "할당량 초과" in err_msg and "flash-lite" in err_msg:
+                print("\n⚠ Flash + Flash-Lite 모두 할당량 초과! 내일 재개하세요.")
+                print(f"  재개: python scripts/batch_compare.py --resume {args.resume + processed}")
                 break
 
-        # 속도 제한 (15 RPM = 4초/req)
+        # 속도 제한 준수
         if processed < min(args.limit, total_eligible):
-            time.sleep(args.delay)
+            time.sleep(delay)
 
     # 최종 요약
     elapsed_total = time.time() - start_time
