@@ -166,15 +166,31 @@ GEMINI_FALLBACKS = {
 }
 
 
+def _get_gemini_keys() -> list:
+    """파싱1 + 파싱2 API 키 목록 반환"""
+    keys = []
+    k1 = os.environ.get("GEMINI_API_KEY", "").strip()
+    k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
+    if k1: keys.append(k1)
+    if k2: keys.append(k2)
+    return keys
+
+_srv_key_idx = 0
+
 def call_gemini(model_type: str, prompt: str) -> str:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
+    global _srv_key_idx
+    keys = _get_gemini_keys()
+    if not keys:
         raise ValueError("GEMINI_API_KEY가 .env에 설정되지 않았습니다")
 
     candidates = GEMINI_FALLBACKS.get(model_type, GEMINI_FALLBACKS["flash"])
     last_err = None
 
     for model_name in candidates:
+        # 라운드로빈으로 키 선택
+        api_key = keys[_srv_key_idx % len(keys)]
+        _srv_key_idx += 1
+
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model_name}:generateContent?key={api_key}"
@@ -192,7 +208,8 @@ def call_gemini(model_type: str, prompt: str) -> str:
         try:
             with urllib.request.urlopen(req, timeout=120) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-            log.info(f"Gemini 사용 모델: {model_name}")
+            key_label = f"파싱{keys.index(api_key)+1}"
+            log.info(f"Gemini 사용 모델: {model_name} ({key_label})")
             return data["candidates"][0]["content"]["parts"][0]["text"]
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace")
@@ -200,6 +217,18 @@ def call_gemini(model_type: str, prompt: str) -> str:
                 log.warning(f"Gemini 모델 없음({model_name}), 다음 시도...")
                 last_err = f"모델 없음: {model_name}"
                 continue
+            if e.code == 429 and len(keys) > 1:
+                # 다른 키로 재시도
+                alt_key = keys[(keys.index(api_key) + 1) % len(keys)]
+                alt_url = url.replace(api_key, alt_key)
+                alt_req = urllib.request.Request(alt_url, data=payload,
+                    headers={"Content-Type": "application/json"}, method="POST")
+                try:
+                    with urllib.request.urlopen(alt_req, timeout=120) as r2:
+                        d2 = json.loads(r2.read().decode("utf-8"))
+                    return d2["candidates"][0]["content"]["parts"][0]["text"]
+                except Exception:
+                    pass
             raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:400]}")
 
     raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
@@ -347,9 +376,13 @@ def _build_article_prompt(lead, ai_result: str) -> str:
 
 
 def _call_gemini_article(prompt: str, timeout: int = 120) -> tuple:
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
+    global _srv_key_idx
+    keys = _get_gemini_keys()
+    if not keys:
         raise ValueError("GEMINI_API_KEY 없음")
+    # 라운드로빈으로 키 선택
+    api_key = keys[_srv_key_idx % len(keys)]
+    _srv_key_idx += 1
     last_err = None
     for model_name in _ARTICLE_MODELS:
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"

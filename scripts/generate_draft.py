@@ -68,15 +68,36 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
-# ── Gemini API 호출 ───────────────────────────────────────────────────────────
+# ── Gemini API 호출 (듀얼 키 지원) ───────────────────────────────────────────
+def _get_draft_keys() -> list:
+    """파싱1 + 파싱2 키 목록"""
+    keys = []
+    k1 = os.environ.get("GEMINI_API_KEY", "").strip()
+    k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
+    if k1: keys.append(k1)
+    if k2: keys.append(k2)
+    return keys
+
+_draft_key_idx = 0
+
 def call_gemini_article(prompt: str, timeout: int = 120) -> tuple[str, str]:
-    """기사 초안 생성. (text, model_name) 반환."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
+    """기사 초안 생성. (text, model_name) 반환. 파싱1/파싱2 라운드로빈."""
+    global _draft_key_idx
+    keys = _get_draft_keys()
+    if not keys:
         raise ValueError("GEMINI_API_KEY 없음 — .env 확인")
 
     last_err = None
+    exhausted = set()
+
     for model_name in ARTICLE_MODELS:
+        # 소진되지 않은 키 선택
+        available = [k for k in keys if k not in exhausted]
+        if not available:
+            available = keys
+        api_key = available[_draft_key_idx % len(available)]
+        _draft_key_idx += 1
+
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{model_name}:generateContent?key={api_key}"
@@ -85,7 +106,7 @@ def call_gemini_article(prompt: str, timeout: int = 120) -> tuple[str, str]:
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {
                 "maxOutputTokens": 4096,
-                "temperature": 0.7,   # 기사는 약간 높게
+                "temperature": 0.7,
             },
         }).encode("utf-8")
 
@@ -104,7 +125,20 @@ def call_gemini_article(prompt: str, timeout: int = 120) -> tuple[str, str]:
                 last_err = f"모델 없음: {model_name}"
                 continue
             if e.code == 429:
-                raise RuntimeError(f"API 할당량 초과(429) — 내일 다시 시도하세요. ({model_name})")
+                exhausted.add(api_key)
+                # 다른 키로 즉시 재시도
+                alt_keys = [k for k in keys if k not in exhausted]
+                if alt_keys:
+                    alt_url = url.replace(api_key, alt_keys[0])
+                    alt_req = urllib.request.Request(alt_url, data=payload,
+                        headers={"Content-Type": "application/json"}, method="POST")
+                    try:
+                        with urllib.request.urlopen(alt_req, timeout=timeout) as r2:
+                            d2 = json.loads(r2.read().decode("utf-8"))
+                        return d2["candidates"][0]["content"]["parts"][0]["text"], model_name
+                    except Exception:
+                        pass
+                raise RuntimeError(f"API 할당량 초과(429) — 두 키 모두 소진. 내일 다시 시도하세요.")
             raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
         except urllib.error.URLError as e:
             raise RuntimeError(f"네트워크 오류: {e.reason}")

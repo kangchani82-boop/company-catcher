@@ -193,23 +193,59 @@ def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
           error_msg[:500], datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
 
 
+# ─── 듀얼 API 키 관리 ────────────────────────────────────────────────────────
+# 파싱1 + 파싱2 라운드로빈으로 합산 RPD 2배 활용
+_key_index = 0  # 전역 키 인덱스 (라운드로빈)
+
+def _get_api_keys() -> list[str]:
+    """사용 가능한 Gemini API 키 목록 반환 (파싱1, 파싱2)"""
+    keys = []
+    k1 = os.environ.get("GEMINI_API_KEY", "").strip()
+    k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
+    if k1: keys.append(k1)
+    if k2: keys.append(k2)
+    if not keys:
+        raise ValueError("GEMINI_API_KEY 또는 GEMINI_API_KEY_2 가 .env에 없습니다")
+    return keys
+
+def _next_api_key(quota_exhausted_key: str | None = None) -> str:
+    """라운드로빈으로 다음 API 키 반환. quota_exhausted_key 는 건너뜀."""
+    global _key_index
+    keys = _get_api_keys()
+    if len(keys) == 1:
+        return keys[0]
+    # quota 소진된 키 제외
+    available = [k for k in keys if k != quota_exhausted_key]
+    if not available:
+        available = keys  # 모두 소진 시 그냥 시도
+    key = available[_key_index % len(available)]
+    _key_index += 1
+    return key
+
+
 # ─── AI 호출 ─────────────────────────────────────────────────────────────────
 def call_gemini(model_type: str, prompt: str, timeout: int = 120):
     """Gemini API 호출. (result_text, used_model_name, used_model_type) 반환.
-    429 시 FALLBACK_ON_QUOTA 에 따라 다음 모델 타입으로 전환."""
-    api_key = os.environ.get("GEMINI_API_KEY", "")
-    if not api_key:
-        raise ValueError("GEMINI_API_KEY가 .env에 없습니다")
+    파싱1/파싱2 라운드로빈 + 429 시 다른 키 자동 전환 + fallback 모델 타입 전환."""
+    keys = _get_api_keys()
+    key_labels = {keys[0]: "파싱1"}
+    if len(keys) > 1: key_labels[keys[1]] = "파싱2"
 
     types_to_try = [model_type]
     if model_type in FALLBACK_ON_QUOTA:
         types_to_try.append(FALLBACK_ON_QUOTA[model_type])
+
+    exhausted_key = None
 
     for mtype in types_to_try:
         candidates = GEMINI_FALLBACKS.get(mtype, GEMINI_FALLBACKS["flash"])
         last_err = None
 
         for model_name in candidates:
+            # 라운드로빈으로 키 선택 (소진 키 제외)
+            api_key = _next_api_key(exhausted_key)
+            label   = key_labels.get(api_key, "키")
+
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{model_name}:generateContent?key={api_key}"
@@ -234,8 +270,38 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
                     last_err = f"모델 없음: {model_name}"
                     continue
                 if e.code == 429:
-                    # 이 타입 할당량 초과 → 다음 fallback 타입으로
-                    print(f"  ⚠ {mtype} 할당량 초과(429) → {FALLBACK_ON_QUOTA.get(mtype, '없음')}으로 전환")
+                    # 현재 키 할당량 초과 → 다른 키로 전환 시도
+                    other_keys = [k for k in keys if k != api_key]
+                    if other_keys:
+                        print(f"  ⚠ {label} 429 → 다른 키로 전환")
+                        exhausted_key = api_key
+                        # 다른 키로 같은 모델 즉시 재시도
+                        alt_key = other_keys[0]
+                        alt_label = key_labels.get(alt_key, "키")
+                        alt_url = (
+                            f"https://generativelanguage.googleapis.com/v1beta/models/"
+                            f"{model_name}:generateContent?key={alt_key}"
+                        )
+                        alt_req = urllib.request.Request(
+                            alt_url, data=payload,
+                            headers={"Content-Type": "application/json"},
+                            method="POST",
+                        )
+                        try:
+                            with urllib.request.urlopen(alt_req, timeout=timeout) as resp2:
+                                data2 = json.loads(resp2.read().decode("utf-8"))
+                            print(f"    ✓ {alt_label}로 성공")
+                            return data2["candidates"][0]["content"]["parts"][0]["text"], model_name, mtype
+                        except urllib.error.HTTPError as e2:
+                            if e2.code == 429:
+                                print(f"  ⚠ {alt_label}도 429 → 모델 타입 전환")
+                                last_err = f"두 키 모두 할당량 초과({mtype})"
+                                break
+                            raise RuntimeError(f"Gemini API 오류 {e2.code} ({alt_label})")
+                        except Exception:
+                            pass
+                    else:
+                        print(f"  ⚠ {label} 429 → {FALLBACK_ON_QUOTA.get(mtype,'없음')}으로 전환")
                     last_err = f"할당량 초과({mtype})"
                     break  # inner loop 탈출 → 다음 mtype 시도
                 raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
