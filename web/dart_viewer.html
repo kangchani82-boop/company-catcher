@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Company Catcher — DART 공시 뷰어</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 /* ── 기본 ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -712,6 +713,10 @@ header h1 span { color: var(--accent); }
     <span>비교분석 <b id="st-cmp">-</b></span>
     <span onclick="openArticlesPanel()" style="cursor:pointer;text-decoration:underline dotted;"
           title="기사 초안 목록 열기">기사초안 <b id="st-articles">-</b></span>
+    <span id="dashboard-toggle-btn" onclick="toggleDashboard()"
+          style="cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:2px 8px;
+                 font-size:11px;color:var(--txt2);transition:all .15s;user-select:none;"
+          title="현황 대시보드 열기/닫기">📊 대시보드</span>
   </div>
 
   <!-- 취재 단서 알림 배지 -->
@@ -747,6 +752,25 @@ header h1 span { color: var(--accent); }
       style="margin-left:auto;background:none;border:none;color:var(--txt2);font-size:18px;cursor:pointer;">✕</button>
   </div>
   <div id="articles-list" style="padding:8px;"></div>
+</div>
+
+<!-- 📊 현황 대시보드 (접을 수 있는 섹션) -->
+<div id="dashboard-section" style="flex-shrink:0;border-bottom:1px solid var(--border);
+  background:var(--panel);display:none;">
+  <div style="display:flex;gap:16px;padding:12px 16px;align-items:flex-start;flex-wrap:wrap;">
+    <div style="flex:1;min-width:200px;">
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">취재단서 긴급도 분포</div>
+      <div style="position:relative;height:200px;">
+        <canvas id="chart-severity"></canvas>
+      </div>
+    </div>
+    <div style="flex:2;min-width:280px;">
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">비교분석 일별 현황 (최근 14일)</div>
+      <div style="position:relative;height:200px;">
+        <canvas id="chart-daily"></canvas>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="layout">
@@ -2159,6 +2183,136 @@ function fmtLen(n) {
 
 // ── 초기 모델 선택 표시 ───────────────────────────────────────────────────
 markSelectedModel();
+
+// ── 📊 현황 대시보드 ─────────────────────────────────────────────────────────
+let dashboardLoaded = false;
+let chartSeverity = null;
+let chartDaily    = null;
+
+function toggleDashboard() {
+  const section = document.getElementById('dashboard-section');
+  const btn     = document.getElementById('dashboard-toggle-btn');
+  const isOpen  = section.style.display !== 'none';
+  if (isOpen) {
+    section.style.display = 'none';
+    btn.style.color = '';
+    btn.style.background = '';
+    btn.style.borderColor = '';
+  } else {
+    section.style.display = 'block';
+    btn.style.color = 'var(--txt)';
+    btn.style.background = 'rgba(37,99,235,.12)';
+    btn.style.borderColor = 'var(--accent)';
+    if (!dashboardLoaded) loadDashboard();
+  }
+}
+
+async function loadDashboard() {
+  dashboardLoaded = true;
+  try {
+    const [leadsResp, compsResp] = await Promise.all([
+      fetch('/api/leads?limit=1000'),
+      fetch('/api/ai/comparisons?limit=1000'),
+    ]);
+    const leadsData = leadsResp.ok ? await leadsResp.json() : {};
+    const compsData = compsResp.ok ? await compsResp.json() : {};
+
+    renderSeverityChart(leadsData.leads || []);
+    renderDailyChart(compsData.comparisons || []);
+  } catch (e) {
+    console.error('Dashboard load error:', e);
+  }
+}
+
+function renderSeverityChart(leads) {
+  const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+  leads.forEach(l => { if (counts[l.severity] !== undefined) counts[l.severity]++; });
+
+  const ctx = document.getElementById('chart-severity');
+  if (!ctx) return;
+  if (chartSeverity) chartSeverity.destroy();
+
+  chartSeverity = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['긴급(5)', '높음(4)', '보통(3)', '낮음(2)', '참고(1)'],
+      datasets: [{
+        data: [counts[5], counts[4], counts[3], counts[2], counts[1]],
+        backgroundColor: ['#ef4444','#f97316','#eab308','#3b82f6','#6b7280'],
+        borderColor: '#161b22',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 }
+        }
+      }
+    }
+  });
+}
+
+function renderDailyChart(comps) {
+  // 일별 비교분석 건수 집계 (최근 14일)
+  const dayCounts = {};
+  const now = new Date();
+  for (let i = 13; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().substring(0, 10);
+    dayCounts[key] = 0;
+  }
+  comps.forEach(c => {
+    if (c.analyzed_at) {
+      const day = String(c.analyzed_at).substring(0, 10);
+      if (dayCounts[day] !== undefined) dayCounts[day]++;
+    }
+  });
+
+  const labels = Object.keys(dayCounts).map(d => d.substring(5)); // MM-DD
+  const data   = Object.values(dayCounts);
+
+  const ctx = document.getElementById('chart-daily');
+  if (!ctx) return;
+  if (chartDaily) chartDaily.destroy();
+
+  chartDaily = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: '비교분석 건수',
+        data,
+        backgroundColor: 'rgba(37,99,235,.6)',
+        borderColor: '#2563eb',
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#8b949e', font: { size: 10 } },
+          grid: { color: 'rgba(48,54,61,.4)' }
+        },
+        y: {
+          ticks: { color: '#8b949e', font: { size: 10 }, precision: 0 },
+          grid: { color: 'rgba(48,54,61,.4)' },
+          beginAtZero: true,
+        }
+      }
+    }
+  });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비교 분석 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .comp-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all .15s; margin-bottom: 8px; }
+    .comp-card:hover { background: var(--bg3); border-color: var(--acc); }
+    .comp-route { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--txt1); margin-bottom: 6px; flex-wrap: wrap; }
+    .comp-route-arrow { color: var(--acc); font-size: 16px; }
+    .comp-preview { font-size: 12px; color: var(--txt2); line-height: 1.6;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+      margin-bottom: 8px; }
+    .comp-footer { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--txt2); flex-wrap: wrap; }
+    .type-tag { background: var(--bg4); color: var(--acc); border: 1px solid rgba(91,106,240,.3); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
+    .modal-md-body { font-size: 13px; color: var(--txt1); line-height: 1.9; background: var(--bg3); border-radius: 8px; padding: 16px; }
+    .modal-md-body h4 { margin: 12px 0 6px; color: var(--txt1); }
+    .modal-md-body strong { color: var(--txt1); font-weight: 600; }
+    .modal-md-body em { color: var(--acc); font-style: normal; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="page-wrap">
+    <div class="page-title">
+      <span>📊 AI 비교 분석</span>
+      <span class="count" id="total-count"></span>
+    </div>
+
+    <!-- 검색/필터 바 -->
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="기업명 검색..." oninput="onSearchInput()">
+      <select id="sort-select" onchange="onFilterChange()">
+        <option value="recent">최신순</option>
+        <option value="relevant">관련순</option>
+      </select>
+      <select id="type-filter" onchange="onFilterChange()">
+        <option value="">전체 유형</option>
+        <option value="2025_annual__2025_q1">사업보고서 → 1분기</option>
+        <option value="2025_annual__2025_h1">사업보고서 → 반기</option>
+        <option value="2025_annual__2025_q3">사업보고서 → 3분기</option>
+        <option value="2025_q1__2025_h1">1분기 → 반기</option>
+        <option value="2025_h1__2025_q3">반기 → 3분기</option>
+      </select>
+    </div>
+
+    <!-- 목록 -->
+    <div id="comp-grid">
+      <div class="loading">로딩 중...</div>
+    </div>
+
+    <!-- 페이지네이션 -->
+    <div id="pagination-container"></div>
+  </div>
+</div>
+
+<!-- 상세 모달 -->
+<div id="comp-modal" style="display:none;" class="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box" style="width:860px;max-width:98vw;" onclick="event.stopPropagation()">
+    <div class="modal-header" id="comp-modal-header">
+      <div>
+        <div class="modal-title" id="comp-modal-title"></div>
+        <div style="font-size:11px;color:var(--txt2);margin-top:3px;" id="comp-modal-meta"></div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('comp-modal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="comp-modal-body" class="modal-md-body">
+        <div class="loading">로딩 중...</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button style="background:var(--bg3);color:var(--txt1);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer;"
+          onclick="document.getElementById('comp-modal').style.display='none'">닫기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  initPage('comparisons');
+
+  const PER_PAGE = 20;
+  let currentPage = 1;
+  let totalItems  = 0;
+  let searchTimer = null;
+
+  // 보고서 유형 한글 라벨
+  const TYPE_LABELS = {
+    '2025_annual': '2025 사업보고서',
+    '2025_q1':     '2025 1분기',
+    '2025_h1':     '2025 반기',
+    '2025_q3':     '2025 3분기',
+  };
+  function typeLabel(t) { return TYPE_LABELS[t] || t; }
+
+  // ── URL 파라미터 ──────────────────────────────────────────────────────────
+  function getUrlParams() {
+    const p = new URLSearchParams(location.search);
+    return {
+      page:  parseInt(p.get('page') || '1'),
+      q:     p.get('q')    || '',
+      sort:  p.get('sort') || 'recent',
+      type:  p.get('type') || '',
+      id:    p.get('id')   || '',
+    };
+  }
+
+  function pushUrl(params) {
+    const p = new URLSearchParams();
+    if (params.page > 1) p.set('page', params.page);
+    if (params.q)        p.set('q',    params.q);
+    if (params.sort && params.sort !== 'recent') p.set('sort', params.sort);
+    if (params.type)     p.set('type', params.type);
+    history.pushState(null, '', location.pathname + (p.toString() ? '?' + p : ''));
+  }
+
+  function loadFromUrl() {
+    const p = getUrlParams();
+    currentPage = p.page;
+    document.getElementById('search-input').value  = p.q;
+    document.getElementById('sort-select').value   = p.sort;
+    document.getElementById('type-filter').value   = p.type;
+    // 직접 ID 접근 지원 (?id=N)
+    if (p.id) {
+      fetchComparisons();
+      openComparisonById(parseInt(p.id));
+    } else {
+      fetchComparisons();
+    }
+  }
+
+  // ── 이벤트 ────────────────────────────────────────────────────────────────
+  function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { currentPage = 1; fetchComparisons(true); }, 350);
+  }
+
+  function onFilterChange() {
+    currentPage = 1;
+    fetchComparisons(true);
+  }
+
+  function goPage(p) {
+    currentPage = p;
+    fetchComparisons(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── API 호출 ─────────────────────────────────────────────────────────────
+  async function fetchComparisons(updateUrl = false) {
+    const q      = document.getElementById('search-input').value.trim();
+    const sort   = document.getElementById('sort-select').value;
+    const typeVal = document.getElementById('type-filter').value;
+    const offset = (currentPage - 1) * PER_PAGE;
+
+    if (updateUrl) pushUrl({ page: currentPage, q, sort, type: typeVal });
+
+    const params = new URLSearchParams({ limit: PER_PAGE, offset, sort });
+    if (q) params.set('q', q);
+    // type 필터 파싱 (format: "type_a__type_b")
+    if (typeVal && typeVal.includes('__')) {
+      const [ta, tb] = typeVal.split('__');
+      params.set('type_a', ta);
+      params.set('type_b', tb);
+    }
+
+    const grid = document.getElementById('comp-grid');
+    grid.innerHTML = '<div class="loading">로딩 중...</div>';
+
+    try {
+      const resp = await fetch(`${API}/api/ai/comparisons?${params}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+
+      totalItems = data.total || 0;
+      const items = data.comparisons || [];
+
+      document.getElementById('total-count').textContent = `총 ${totalItems.toLocaleString()}건`;
+
+      if (!items.length) {
+        grid.innerHTML = `<div class="empty"><div class="empty-icon">📊</div>비교 분석 결과가 없습니다<br><small style="margin-top:8px;display:block;">배치 분석을 실행하세요: python scripts/batch_compare.py</small></div>`;
+        document.getElementById('pagination-container').innerHTML = '';
+        return;
+      }
+
+      grid.innerHTML = items.map(renderCompCard).join('');
+      renderPagination('pagination-container', totalItems, currentPage, PER_PAGE, 'goPage');
+    } catch (e) {
+      grid.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div>${escHtml(e.message)}</div>`;
+    }
+  }
+
+  // ── 카드 렌더링 ───────────────────────────────────────────────────────────
+  function renderCompCard(item) {
+    const preview = (item.result_preview || '').substring(0, 200);
+    const charA = item.char_count_a ? `${Math.round(item.char_count_a/1000)}K자` : '';
+    const charB = item.char_count_b ? `${Math.round(item.char_count_b/1000)}K자` : '';
+    return `
+      <div class="comp-card" onclick="openComparison(${item.id})">
+        <div class="card-header" style="margin-bottom:6px;">
+          <span class="corp-badge">${escHtml(item.corp_name || '')}</span>
+          <span class="type-badge">${escHtml(item.model || 'flash')}</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(item.analyzed_at)}</span>
+        </div>
+        <div class="comp-route">
+          <span class="type-tag">${escHtml(typeLabel(item.report_type_a))}</span>
+          <span class="comp-route-arrow">→</span>
+          <span class="type-tag">${escHtml(typeLabel(item.report_type_b))}</span>
+        </div>
+        ${preview ? `<div class="comp-preview">${escHtml(preview)}</div>` : ''}
+        <div class="comp-footer">
+          ${charA ? `<span>A: ${charA}</span>` : ''}
+          ${charB ? `<span>· B: ${charB}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  // ── 상세 모달 ─────────────────────────────────────────────────────────────
+  async function openComparison(compId) {
+    const modal = document.getElementById('comp-modal');
+    modal.style.display = 'flex';
+    document.getElementById('comp-modal-body').innerHTML = '<div class="loading">로딩 중...</div>';
+    document.getElementById('comp-modal-title').textContent = '...';
+    document.getElementById('comp-modal-meta').textContent  = '';
+    await loadComparisonDetail(compId);
+  }
+
+  async function openComparisonById(compId) {
+    if (!compId) return;
+    openComparison(compId);
+  }
+
+  async function loadComparisonDetail(compId) {
+    try {
+      const resp = await fetch(`${API}/api/ai/comparison_detail?id=${compId}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+      renderCompModal(data);
+    } catch (e) {
+      document.getElementById('comp-modal-body').innerHTML =
+        `<div class="empty">오류: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderCompModal(comp) {
+    const ta = typeLabel(comp.report_type_a);
+    const tb = typeLabel(comp.report_type_b);
+    const charA = comp.char_count_a ? `${Math.round(comp.char_count_a/1000)}K자` : '';
+    const charB = comp.char_count_b ? `${Math.round(comp.char_count_b/1000)}K자` : '';
+
+    document.getElementById('comp-modal-title').innerHTML =
+      `${escHtml(comp.corp_name || '')} — ${escHtml(ta)} → ${escHtml(tb)}`;
+    document.getElementById('comp-modal-meta').innerHTML =
+      `모델: ${escHtml(comp.model || 'flash')} · ` +
+      `${charA ? 'A:' + charA + ' · ' : ''}${charB ? 'B:' + charB + ' · ' : ''}` +
+      `분석일시: ${fmtDate(comp.analyzed_at)}`;
+
+    const result = comp.result || '분석 결과가 없습니다.';
+    document.getElementById('comp-modal-body').innerHTML = renderMarkdown(result);
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('comp-modal')) {
+      document.getElementById('comp-modal').style.display = 'none';
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('comp-modal').style.display = 'none';
+  });
+
+  // ── 초기 로드 ────────────────────────────────────────────────────────────
+  loadFromUrl();
+  window.addEventListener('popstate', loadFromUrl);
+</script>
+</body>
+</html>

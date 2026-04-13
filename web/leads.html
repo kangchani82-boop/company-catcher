@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>취재 단서 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    /* 페이지 추가 스타일 */
+    .sev-badge-5 { background: rgba(231,76,60,.25);  color: #e74c3c; border: 1px solid rgba(231,76,60,.5);  font-weight:700; }
+    .sev-badge-4 { background: rgba(230,126,34,.25); color: #e67e22; border: 1px solid rgba(230,126,34,.5); font-weight:700; }
+    .sev-badge-3 { background: rgba(241,196,15,.25); color: #f1c40f; border: 1px solid rgba(241,196,15,.5); font-weight:700; }
+    .sev-badge-2 { background: rgba(52,152,219,.25); color: #3498db; border: 1px solid rgba(52,152,219,.5); font-weight:700; }
+    .sev-badge-1 { background: rgba(160,160,160,.2); color: #aaa;    border: 1px solid rgba(160,160,160,.4); font-weight:700; }
+    .lead-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .evidence-line { font-size: 11px; color: var(--txt2); border-left: 2px solid var(--border); padding-left: 8px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .modal-section { margin-bottom: 14px; }
+    .modal-section-title { font-size: 11px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .modal-evidence { background: var(--bg3); border-left: 3px solid var(--acc); border-radius: 0 6px 6px 0; padding: 10px 14px; font-size: 12px; color: var(--txt1); line-height: 1.7; }
+    .modal-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .btn-primary { background: var(--acc); color: #fff; border: none; border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer; font-weight: 600; transition: background .15s; }
+    .btn-primary:hover { background: var(--acc2); }
+    .btn-secondary { background: var(--bg3); color: var(--txt1); border: 1px solid var(--border); border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer; transition: background .15s; }
+    .btn-secondary:hover { background: var(--bg4); }
+    .btn-danger { background: none; color: #e74c3c; border: 1px solid rgba(231,76,60,.4); border-radius: 8px; padding: 9px 18px; font-size: 13px; cursor: pointer; transition: background .15s; }
+    .btn-danger:hover { background: rgba(231,76,60,.1); }
+    .detail-meta { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--txt2); margin-bottom: 12px; }
+    .detail-meta strong { color: var(--txt1); }
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; font-size: 12px; color: var(--txt2); }
+    .filter-row label { display: flex; align-items: center; gap: 4px; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="page-wrap">
+    <div class="page-title">
+      <span>🚨 취재 단서</span>
+      <span class="count" id="total-count"></span>
+    </div>
+
+    <!-- 검색/정렬 바 -->
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="기업명, 제목, 요약, 근거 검색..." oninput="onSearchInput()">
+      <select id="sort-select" onchange="onFilterChange()">
+        <option value="recent">최신순</option>
+        <option value="severity">긴급도순</option>
+        <option value="relevant">관련순</option>
+      </select>
+    </div>
+
+    <!-- 필터 행 -->
+    <div class="filter-row">
+      <label>최소 긴급도:
+        <select id="sev-filter" onchange="onFilterChange()">
+          <option value="1">전체 (1+)</option>
+          <option value="2">2 이상</option>
+          <option value="3">3 이상</option>
+          <option value="4">4 이상</option>
+          <option value="5">5 (긴급)</option>
+        </select>
+      </label>
+      <label>유형:
+        <select id="type-filter" onchange="onFilterChange()">
+          <option value="">전체</option>
+          <option value="biz_new_mega">신규사업</option>
+          <option value="market_share_surge">시장점유율</option>
+          <option value="regulation_risk">규제리스크</option>
+          <option value="numeric_surge">수치급등</option>
+          <option value="supply_chain_change">공급망변화</option>
+          <option value="management_change">경영진변화</option>
+          <option value="strategy_change">신사업진출</option>
+          <option value="market_shift">시장변화</option>
+          <option value="risk_alert">리스크경보</option>
+          <option value="numeric_change">수치급변</option>
+          <option value="supply_chain">공급망변화(구)</option>
+        </select>
+      </label>
+      <label>상태:
+        <select id="status-filter" onchange="onFilterChange()">
+          <option value="">전체</option>
+          <option value="new">신규</option>
+          <option value="reviewing">검토중</option>
+          <option value="drafted">초안완료</option>
+          <option value="published">게재완료</option>
+          <option value="archived">보관</option>
+        </select>
+      </label>
+    </div>
+
+    <!-- 리드 목록 -->
+    <div class="lead-grid" id="leads-grid">
+      <div class="loading">로딩 중...</div>
+    </div>
+
+    <!-- 페이지네이션 -->
+    <div id="pagination-container"></div>
+  </div>
+</div>
+
+<!-- 상세 모달 -->
+<div id="lead-modal" style="display:none;" class="modal-overlay" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <div class="modal-header" id="modal-header">
+      <div>
+        <div class="modal-title" id="modal-title"></div>
+        <div style="font-size:11px;color:var(--txt2);margin-top:3px;" id="modal-corp"></div>
+      </div>
+      <button class="modal-close" onclick="document.getElementById('lead-modal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  // ── 초기화 ──────────────────────────────────────────────────────────────
+  initPage('leads');
+
+  const PER_PAGE = 20;
+  let currentPage = 1;
+  let totalItems  = 0;
+  let searchTimer = null;
+
+  // ── URL 파라미터 관리 ────────────────────────────────────────────────────
+  function getUrlParams() {
+    const p = new URLSearchParams(location.search);
+    return {
+      page:   parseInt(p.get('page')   || '1'),
+      q:      p.get('q')      || '',
+      sort:   p.get('sort')   || 'recent',
+      sev:    p.get('sev')    || '1',
+      type:   p.get('type')   || '',
+      status: p.get('status') || '',
+    };
+  }
+
+  function pushUrl(params) {
+    const p = new URLSearchParams();
+    if (params.page && params.page > 1) p.set('page', params.page);
+    if (params.q)      p.set('q',      params.q);
+    if (params.sort && params.sort !== 'recent') p.set('sort', params.sort);
+    if (params.sev && params.sev !== '1')    p.set('sev',    params.sev);
+    if (params.type)   p.set('type',   params.type);
+    if (params.status) p.set('status', params.status);
+    const newUrl = location.pathname + (p.toString() ? '?' + p.toString() : '');
+    history.pushState(null, '', newUrl);
+  }
+
+  function loadFromUrl() {
+    const p = getUrlParams();
+    currentPage = p.page;
+    document.getElementById('search-input').value = p.q;
+    document.getElementById('sort-select').value   = p.sort;
+    document.getElementById('sev-filter').value    = p.sev;
+    document.getElementById('type-filter').value   = p.type;
+    document.getElementById('status-filter').value = p.status;
+    fetchLeads();
+  }
+
+  // ── 이벤트 핸들러 ────────────────────────────────────────────────────────
+  function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { currentPage = 1; fetchLeads(true); }, 350);
+  }
+
+  function onFilterChange() {
+    currentPage = 1;
+    fetchLeads(true);
+  }
+
+  function goPage(p) {
+    currentPage = p;
+    fetchLeads(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── API 호출 ─────────────────────────────────────────────────────────────
+  async function fetchLeads(updateUrl = false) {
+    const q      = document.getElementById('search-input').value.trim();
+    const sort   = document.getElementById('sort-select').value;
+    const sev    = document.getElementById('sev-filter').value;
+    const type   = document.getElementById('type-filter').value;
+    const status = document.getElementById('status-filter').value;
+    const offset = (currentPage - 1) * PER_PAGE;
+
+    if (updateUrl) pushUrl({ page: currentPage, q, sort, sev, type, status });
+
+    const params = new URLSearchParams({
+      limit: PER_PAGE, offset,
+      min_severity: sev,
+      sort,
+    });
+    if (q)      params.set('q',    q);
+    if (type)   params.set('type', type);
+    if (status) params.set('status', status);
+
+    const grid = document.getElementById('leads-grid');
+    grid.innerHTML = '<div class="loading">로딩 중...</div>';
+
+    try {
+      const resp = await fetch(`${API}/api/leads?${params}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+
+      totalItems = data.total || 0;
+      const leads = data.leads || [];
+
+      document.getElementById('total-count').textContent = `총 ${totalItems.toLocaleString()}건`;
+
+      if (!leads.length) {
+        grid.innerHTML = `<div class="empty"><div class="empty-icon">🔍</div>취재 단서가 없습니다</div>`;
+        document.getElementById('pagination-container').innerHTML = '';
+        return;
+      }
+
+      grid.innerHTML = leads.map(renderLeadCard).join('');
+      renderPagination('pagination-container', totalItems, currentPage, PER_PAGE, 'goPage');
+    } catch (e) {
+      grid.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div>${escHtml(e.message)}</div>`;
+    }
+  }
+
+  // ── 카드 렌더링 ───────────────────────────────────────────────────────────
+  const LEAD_TYPE_KO_LOCAL = {
+    biz_new_mega:        '신규사업',
+    market_share_surge:  '시장점유율',
+    regulation_risk:     '규제리스크',
+    numeric_surge:       '수치급등',
+    supply_chain_change: '공급망변화',
+    management_change:   '경영진변화',
+    strategy_change:     '신사업진출',
+    market_shift:        '시장변화',
+    risk_alert:          '리스크경보',
+    numeric_change:      '수치급변',
+    supply_chain:        '공급망변화',
+  };
+
+  function sevBadge(sev) {
+    const icons = { 5: '🔴', 4: '🟠', 3: '🟡', 2: '🔵', 1: '⚪' };
+    const icon = icons[sev] || '⬛';
+    return `<span class="badge sev-badge-${sev}">${icon} ${sev}</span>`;
+  }
+
+  function renderLeadCard(lead) {
+    const typeLabel = LEAD_TYPE_KO_LOCAL[lead.lead_type] || lead.lead_type || '';
+    const summary   = (lead.summary || '').substring(0, 120);
+    const evidence  = (lead.evidence || '').substring(0, 80);
+    return `
+      <div class="card" onclick="openLead(${lead.id})">
+        <div class="card-header">
+          ${sevBadge(lead.severity)}
+          <span class="type-badge">${escHtml(typeLabel)}</span>
+          <span class="corp-badge">${escHtml(lead.corp_name || '')}</span>
+          ${leadStatusBadge(lead.status || 'new')}
+          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(lead.created_at)}</span>
+        </div>
+        <div class="card-title">${escHtml(lead.title || '')}</div>
+        ${summary ? `<div class="card-preview" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(summary)}</div>` : ''}
+        ${evidence ? `<div class="evidence-line">${escHtml(evidence)}</div>` : ''}
+      </div>`;
+  }
+
+  // ── 상세 모달 ─────────────────────────────────────────────────────────────
+  async function openLead(leadId) {
+    const modal = document.getElementById('lead-modal');
+    modal.style.display = 'flex';
+    document.getElementById('modal-body').innerHTML = '<div class="loading">로딩 중...</div>';
+    document.getElementById('modal-title').textContent = '...';
+    document.getElementById('modal-corp').textContent  = '';
+
+    try {
+      const resp = await fetch(`${API}/api/leads/${leadId}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+      const lead = data.lead;
+      renderLeadModal(lead);
+    } catch (e) {
+      document.getElementById('modal-body').innerHTML =
+        `<div class="empty">오류: ${escHtml(e.message)}</div>`;
+    }
+  }
+
+  function renderLeadModal(lead) {
+    const typeLabel = LEAD_TYPE_KO_LOCAL[lead.lead_type] || lead.lead_type || '';
+
+    // 헤더
+    const hdr = document.getElementById('modal-header');
+    const sevColors = { 5: '#e74c3c', 4: '#e67e22', 3: '#f1c40f', 2: '#3498db', 1: '#888' };
+    hdr.style.borderBottom = `2px solid ${sevColors[lead.severity] || '#5b6af0'}`;
+    document.getElementById('modal-title').innerHTML =
+      `${sevBadge(lead.severity)} ${escHtml(lead.title || '(제목 없음)')}`;
+    document.getElementById('modal-corp').innerHTML =
+      `<span class="corp-badge">${escHtml(lead.corp_name || '')}</span>
+       <span class="type-badge" style="margin-left:4px;">${escHtml(typeLabel)}</span>
+       ${leadStatusBadge(lead.status || 'new')}`;
+
+    // 키워드
+    let kw = '';
+    try { kw = JSON.parse(lead.keywords || '[]').join(', '); } catch { kw = lead.keywords || ''; }
+
+    // 초안 목록
+    const drafts = lead.drafts || [];
+    const draftsHtml = drafts.length
+      ? `<div class="modal-section">
+           <div class="modal-section-title">기존 초안 (${drafts.length}건)</div>
+           ${drafts.map(d => `
+             <div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--border);">
+               ${articleStatusBadge(d.status)}
+               <span style="margin-left:6px;">${escHtml(d.headline || '')}</span>
+               <span style="color:var(--txt2);font-size:11px;margin-left:8px;">${fmtDate(d.created_at)}</span>
+             </div>`).join('')}
+         </div>`
+      : '';
+
+    document.getElementById('modal-body').innerHTML = `
+      <div class="detail-meta">
+        <span><strong>기업코드</strong> ${escHtml(lead.corp_code || '')}</span>
+        ${lead.comparison_id ? `<span><strong>비교분석 ID</strong> <a href="/comparisons.html?id=${lead.comparison_id}" style="color:var(--acc);text-decoration:none;font-weight:700;" title="비교분석 보기">#${lead.comparison_id}</a></span>` : ''}
+        <span><strong>감지일시</strong> ${fmtDate(lead.created_at)}</span>
+        ${kw ? `<span><strong>키워드</strong> ${escHtml(kw)}</span>` : ''}
+      </div>
+
+      ${lead.summary ? `
+        <div class="modal-section">
+          <div class="modal-section-title">핵심 요약</div>
+          <div style="font-size:13px;line-height:1.7;color:var(--txt1);">${escHtml(lead.summary)}</div>
+        </div>` : ''}
+
+      ${lead.evidence ? `
+        <div class="modal-section">
+          <div class="modal-section-title">근거 문장</div>
+          <div class="modal-evidence">${escHtml(lead.evidence)}</div>
+        </div>` : ''}
+
+      ${draftsHtml}
+
+      <div class="modal-actions">
+        <button class="btn-primary" id="draft-btn"
+          onclick="generateDraftFromLead(${lead.id}, '${escHtml(lead.corp_name||'')}', this)">
+          ✍ 기사 초안 생성
+        </button>
+        ${lead.comparison_id ? `
+          <button class="btn-secondary"
+            onclick="location.href='/comparisons.html?id=${lead.comparison_id}'">
+            📊 비교분석 보기
+          </button>` : ''}
+        <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
+          ${newsSearchLinks(lead.corp_name || '', lead.title || '')}
+        </div>
+      </div>
+
+      <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
+        <div class="modal-section-title">상태 변경</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          ${['new','reviewing','drafted','published','archived'].map(s =>
+            `<button class="act-btn act-btn-primary" onclick="updateLeadStatus(${lead.id},'${s}')">${leadStatusBadge(s)}</button>`
+          ).join('')}
+        </div>
+      </div>
+
+      ${lead.comparison_id ? `
+        <div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+          <a href="/comparisons.html?id=${lead.comparison_id}"
+             style="display:inline-flex;align-items:center;gap:6px;
+                    background:var(--bg3);color:var(--acc);
+                    border:1px solid rgba(91,106,240,.4);border-radius:8px;
+                    padding:8px 16px;font-size:13px;text-decoration:none;font-weight:600;
+                    transition:background .15s;"
+             onmouseover="this.style.background='rgba(91,106,240,.12)'"
+             onmouseout="this.style.background='var(--bg3)'">
+            🔗 비교분석 원문 보기
+          </a>
+        </div>` : ''}
+      `;
+  }
+
+  async function updateLeadStatus(leadId, status) {
+    try {
+      const resp = await fetch(`${API}/api/leads/${leadId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+        body: JSON.stringify({ status }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error || '오류');
+      fetchLeads();
+      alert(`상태 변경: ${status}`);
+    } catch (e) {
+      alert(`오류: ${e.message}`);
+    }
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('lead-modal')) {
+      document.getElementById('lead-modal').style.display = 'none';
+    }
+  }
+
+  // ── 키보드 ESC 닫기 ─────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('lead-modal').style.display = 'none';
+  });
+
+  // ── 초기 로드 ────────────────────────────────────────────────────────────
+  loadFromUrl();
+  window.addEventListener('popstate', loadFromUrl);
+</script>
+</body>
+</html>

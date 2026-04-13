@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기사 초안 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .art-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all .15s; margin-bottom: 8px; }
+    .art-card:hover { background: var(--bg3); border-color: var(--acc); }
+    .art-headline { font-size: 14px; font-weight: 700; color: var(--txt1); margin-bottom: 4px; line-height: 1.4; }
+    .art-sub { font-size: 12px; color: var(--txt2); margin-bottom: 6px; }
+    .art-preview { font-size: 12px; color: var(--txt2); line-height: 1.6; margin-bottom: 8px;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .art-footer { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--txt2); flex-wrap: wrap; }
+    .status-flow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .status-flow-arrow { color: var(--txt2); font-size: 12px; }
+
+    /* 풀스크린 모달 오버레이 */
+    #article-modal {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85); z-index: 1000;
+      display: none; align-items: center; justify-content: center;
+    }
+    .art-modal-box {
+      background: var(--bg2); border-radius: 12px;
+      width: 860px; max-width: 96vw; max-height: 92vh;
+      overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.6);
+      display: flex; flex-direction: column;
+    }
+    .art-modal-header {
+      background: linear-gradient(135deg,#e67e22,#d35400);
+      border-radius: 12px 12px 0 0; padding: 16px 20px;
+      display: flex; align-items: flex-start; gap: 12px;
+      position: sticky; top: 0; z-index: 2;
+    }
+    .art-modal-header-info { flex: 1; min-width: 0; }
+    .art-modal-corpus { font-size: 11px; color: rgba(255,255,255,.8); margin-top: 4px; }
+    .art-headline-input {
+      font-size: 16px; font-weight: 700; color: #fff;
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.3);
+      border-radius: 6px; padding: 5px 10px; width: 100%;
+      font-family: inherit; outline: none; margin-top: 4px;
+    }
+    .art-headline-input:focus { border-color: rgba(255,255,255,.7); background: rgba(255,255,255,.2); }
+    .art-modal-body { padding: 20px; }
+    .art-modal-content {
+      font-size: 13px; color: var(--txt1); line-height: 1.9;
+      background: var(--bg3); border-radius: 8px; padding: 16px;
+      margin-bottom: 12px; min-height: 120px;
+    }
+    .art-modal-content h4 { margin: 10px 0 5px; color: var(--txt1); font-size: 14px; }
+    .art-modal-content strong { color: var(--txt1); font-weight: 700; }
+    .art-modal-content em { color: var(--acc); font-style: normal; }
+    .status-flow-label {
+      font-size: 11px; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 6px;
+    }
+    .sf-btn {
+      font-size: 12px; border-radius: 6px; padding: 6px 12px;
+      border: 1px solid; background: none; cursor: pointer;
+      font-weight: 600; transition: all .15s;
+    }
+    .sf-btn-next { color: #2ecc71; border-color: #2ecc71; }
+    .sf-btn-next:hover { background: rgba(46,204,113,.15); }
+    .sf-btn-back { color: #e67e22; border-color: #e67e22; }
+    .sf-btn-back:hover { background: rgba(230,126,34,.15); }
+    .sf-btn-disabled { color: var(--txt2); border-color: var(--border); cursor: default; opacity: .6; }
+    .art-modal-footer {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      padding-top: 12px; border-top: 1px solid var(--border);
+    }
+    .art-modal-footer .news-links { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+    .btn-copy {
+      background: var(--acc); color: #fff; border: none; border-radius: 8px;
+      padding: 8px 16px; font-size: 12px; cursor: pointer; font-weight: 600;
+    }
+    .btn-copy:hover { background: var(--acc2); }
+    .btn-close-modal {
+      background: var(--bg3); color: var(--txt1); border: 1px solid var(--border);
+      border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer;
+    }
+    .btn-close-modal:hover { background: var(--bg4); }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div class="page-wrap">
+    <div class="page-title">
+      <span>✍ 기사 초안</span>
+      <span class="count" id="total-count"></span>
+    </div>
+
+    <!-- 검색/정렬 바 -->
+    <div class="search-bar">
+      <input type="text" id="search-input" placeholder="기업명, 제목, 부제 검색..." oninput="onSearchInput()">
+      <select id="sort-select" onchange="onFilterChange()">
+        <option value="recent">최신순</option>
+        <option value="relevant">관련순</option>
+      </select>
+      <select id="status-filter" onchange="onFilterChange()">
+        <option value="">전체 상태</option>
+        <option value="draft">초안</option>
+        <option value="editing">편집중</option>
+        <option value="ready">게재가능</option>
+        <option value="published">게재완료</option>
+        <option value="rejected">반려</option>
+      </select>
+    </div>
+
+    <!-- 기사 목록 -->
+    <div id="articles-grid">
+      <div class="loading">로딩 중...</div>
+    </div>
+
+    <!-- 페이지네이션 -->
+    <div id="pagination-container"></div>
+  </div>
+</div>
+
+<!-- 기사 상세 모달 (풀스크린 오버레이) -->
+<div id="article-modal" onclick="closeModal(event)">
+  <div class="art-modal-box" onclick="event.stopPropagation()">
+    <!-- 헤더 -->
+    <div class="art-modal-header">
+      <span style="font-size:20px;flex-shrink:0;">✍</span>
+      <div class="art-modal-header-info">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px;">
+          <span id="art-modal-status-badge"></span>
+          <span id="art-modal-corp" style="font-size:12px;color:rgba(255,255,255,.9);font-weight:600;"></span>
+          <span id="art-modal-model" style="font-size:11px;color:rgba(255,255,255,.6);"></span>
+        </div>
+        <input type="text" class="art-headline-input" id="art-modal-headline" placeholder="제목 없음">
+        <div class="art-modal-corpus" id="art-modal-byline">파이낸스코프 고종민 기자</div>
+      </div>
+      <button class="modal-close" style="color:#fff;flex-shrink:0;"
+        onclick="document.getElementById('article-modal').style.display='none'">✕</button>
+    </div>
+
+    <!-- 본문 -->
+    <div class="art-modal-body">
+      <!-- 부제 -->
+      <div id="art-modal-sub" style="background:var(--bg3);border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13px;color:var(--txt2);display:none;"></div>
+
+      <!-- 기사 내용 (마크다운 렌더링) -->
+      <div class="art-modal-content" id="art-modal-body-content"></div>
+
+      <!-- 편집 메모 -->
+      <div id="art-modal-note" style="background:rgba(255,193,7,.08);border:1px solid rgba(255,193,7,.25);border-radius:6px;padding:8px 12px;font-size:11px;margin-bottom:12px;display:none;">
+        <b style="color:#f39c12;">📋 편집 메모</b> <span id="art-modal-note-text"></span>
+      </div>
+
+      <!-- 상태 변경 흐름 버튼 -->
+      <div style="margin-bottom:14px;">
+        <div class="status-flow-label">상태 변경</div>
+        <div class="status-flow" id="status-flow-btns"></div>
+      </div>
+
+      <!-- 하단 액션 -->
+      <div class="art-modal-footer">
+        <button class="btn-copy" onclick="copyArticle()">📋 복사</button>
+        <button class="btn-close-modal"
+          onclick="document.getElementById('article-modal').style.display='none'">닫기</button>
+        <div class="news-links" id="art-modal-news-links"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  initPage('articles');
+
+  const PER_PAGE = 20;
+  let currentPage = 1;
+  let totalItems  = 0;
+  let searchTimer = null;
+  let currentArticleId = null;
+  let currentCorpName  = '';
+
+  // ── URL 파라미터 ──────────────────────────────────────────────────────────
+  function getUrlParams() {
+    const p = new URLSearchParams(location.search);
+    return {
+      page:   parseInt(p.get('page') || '1'),
+      q:      p.get('q')      || '',
+      sort:   p.get('sort')   || 'recent',
+      status: p.get('status') || '',
+    };
+  }
+
+  function pushUrl(params) {
+    const p = new URLSearchParams();
+    if (params.page > 1) p.set('page', params.page);
+    if (params.q)        p.set('q',    params.q);
+    if (params.sort && params.sort !== 'recent') p.set('sort', params.sort);
+    if (params.status)   p.set('status', params.status);
+    history.pushState(null, '', location.pathname + (p.toString() ? '?' + p : ''));
+  }
+
+  function loadFromUrl() {
+    const p = getUrlParams();
+    currentPage = p.page;
+    document.getElementById('search-input').value  = p.q;
+    document.getElementById('sort-select').value   = p.sort;
+    document.getElementById('status-filter').value = p.status;
+    fetchArticles();
+  }
+
+  // ── 이벤트 ────────────────────────────────────────────────────────────────
+  function onSearchInput() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => { currentPage = 1; fetchArticles(true); }, 350);
+  }
+
+  function onFilterChange() {
+    currentPage = 1;
+    fetchArticles(true);
+  }
+
+  function goPage(p) {
+    currentPage = p;
+    fetchArticles(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── API 호출 ─────────────────────────────────────────────────────────────
+  async function fetchArticles(updateUrl = false) {
+    const q      = document.getElementById('search-input').value.trim();
+    const sort   = document.getElementById('sort-select').value;
+    const status = document.getElementById('status-filter').value;
+    const offset = (currentPage - 1) * PER_PAGE;
+
+    if (updateUrl) pushUrl({ page: currentPage, q, sort, status });
+
+    const params = new URLSearchParams({ limit: PER_PAGE, offset, sort });
+    if (q)      params.set('q',      q);
+    if (status) params.set('status', status);
+
+    const grid = document.getElementById('articles-grid');
+    grid.innerHTML = '<div class="loading">로딩 중...</div>';
+
+    try {
+      const resp = await fetch(`${API}/api/articles?${params}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+
+      totalItems = data.total || 0;
+      const articles = data.articles || [];
+
+      document.getElementById('total-count').textContent = `총 ${totalItems.toLocaleString()}건`;
+
+      if (!articles.length) {
+        grid.innerHTML = `<div class="empty"><div class="empty-icon">📄</div>기사 초안이 없습니다</div>`;
+        document.getElementById('pagination-container').innerHTML = '';
+        return;
+      }
+
+      grid.innerHTML = articles.map(renderArticleCard).join('');
+      renderPagination('pagination-container', totalItems, currentPage, PER_PAGE, 'goPage');
+    } catch (e) {
+      grid.innerHTML = `<div class="empty"><div class="empty-icon">⚠</div>${escHtml(e.message)}</div>`;
+    }
+  }
+
+  // ── 카드 렌더링 ───────────────────────────────────────────────────────────
+  function renderArticleCard(art) {
+    const preview = (art.content_preview || '').substring(0, 150);
+    const wordCount = art.word_count ? `${art.word_count}단어` : '';
+    const charCount = art.char_count ? `${art.char_count}자` : '';
+    return `
+      <div class="art-card" onclick="openArticle(${art.id})">
+        <div class="card-header" style="margin-bottom:6px;">
+          ${articleStatusBadge(art.status || 'draft')}
+          <span class="corp-badge">${escHtml(art.corp_name || '')}</span>
+          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(art.created_at)}</span>
+        </div>
+        <div class="art-headline">${escHtml(art.headline || '(제목 없음)')}</div>
+        ${art.subheadline ? `<div class="art-sub">${escHtml(art.subheadline)}</div>` : ''}
+        ${preview ? `<div class="art-preview">${escHtml(preview)}</div>` : ''}
+        <div class="art-footer">
+          <span>${escHtml(art.model || '')}</span>
+          ${wordCount ? `<span>· ${wordCount}</span>` : ''}
+          ${charCount ? `<span>· ${charCount}</span>` : ''}
+        </div>
+      </div>`;
+  }
+
+  // ── 상세 모달 ─────────────────────────────────────────────────────────────
+  async function openArticle(artId) {
+    currentArticleId = artId;
+    const modal = document.getElementById('article-modal');
+    modal.style.display = 'flex';
+    document.getElementById('art-modal-headline').value = '로딩 중...';
+    document.getElementById('art-modal-body-content').innerHTML = '<div class="loading">로딩 중...</div>';
+    document.getElementById('art-modal-status-badge').innerHTML = '';
+    document.getElementById('art-modal-corp').textContent = '';
+    document.getElementById('art-modal-model').textContent = '';
+    document.getElementById('status-flow-btns').innerHTML = '';
+
+    try {
+      const resp = await fetch(`${API}/api/articles/${artId}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+      const art = data.article;
+      renderArticleModal(art);
+    } catch (e) {
+      document.getElementById('art-modal-body-content').textContent = `오류: ${e.message}`;
+    }
+  }
+
+  function renderArticleModal(art) {
+    currentCorpName = art.corp_name || '';
+
+    // 헤더 정보
+    document.getElementById('art-modal-status-badge').innerHTML = articleStatusBadge(art.status || 'draft');
+    document.getElementById('art-modal-corp').textContent = art.corp_name || '';
+    document.getElementById('art-modal-model').textContent = art.model || '';
+    document.getElementById('art-modal-headline').value = art.headline || '';
+    document.getElementById('art-modal-byline').textContent =
+      `${art.corp_name || ''} · ${art.model || ''} · 파이낸스코프 고종민 기자`;
+
+    // 부제
+    const subEl = document.getElementById('art-modal-sub');
+    if (art.subheadline) {
+      subEl.textContent = art.subheadline;
+      subEl.style.display = 'block';
+    } else {
+      subEl.style.display = 'none';
+    }
+
+    // 기사 본문 (마크다운 렌더링)
+    const bodyEl = document.getElementById('art-modal-body-content');
+    bodyEl.innerHTML = renderMarkdown(art.content || '');
+
+    // 편집 메모
+    const noteEl   = document.getElementById('art-modal-note');
+    const noteText = document.getElementById('art-modal-note-text');
+    if (art.editor_note) {
+      noteText.textContent = art.editor_note;
+      noteEl.style.display = 'block';
+    } else {
+      noteEl.style.display = 'none';
+    }
+
+    // 상태 흐름 버튼 (조건부)
+    renderStatusFlowBtns(art);
+
+    // G/N 뉴스 검색 링크
+    const newsLinksEl = document.getElementById('art-modal-news-links');
+    newsLinksEl.innerHTML = newsSearchLinks(art.corp_name || '', art.headline || '');
+  }
+
+  function renderStatusFlowBtns(art) {
+    const flowEl = document.getElementById('status-flow-btns');
+    const status = art.status || 'draft';
+    let html = '';
+
+    if (status === 'draft') {
+      html = `<button class="sf-btn sf-btn-next"
+        onclick="updateArticleStatus(${art.id}, 'review')">📝 검토중으로 변경</button>`;
+    } else if (status === 'review') {
+      html = `
+        <button class="sf-btn sf-btn-next"
+          onclick="updateArticleStatus(${art.id}, 'published')">✅ 발행 완료</button>
+        <button class="sf-btn sf-btn-back"
+          onclick="updateArticleStatus(${art.id}, 'draft')">↩ 초안으로 되돌리기</button>`;
+    } else if (status === 'published') {
+      html = `<button class="sf-btn sf-btn-disabled" disabled>📰 발행됨</button>`;
+    } else {
+      // editing, ready, rejected 등 기존 상태 — 전체 흐름 버튼 제공
+      const flow = [
+        { v: 'draft',     label: '📝 초안' },
+        { v: 'editing',   label: '✏ 편집중' },
+        { v: 'ready',     label: '✅ 게재가능' },
+        { v: 'published', label: '🗞 게재완료' },
+        { v: 'rejected',  label: '❌ 반려' },
+      ];
+      html = flow.map((f, i) => `
+        ${i > 0 && i < 4 ? '<span class="status-flow-arrow">→</span>' : ''}
+        <button class="sf-btn ${status === f.v ? 'sf-btn-disabled' : 'sf-btn-next'}"
+          ${status === f.v ? 'disabled' : `onclick="updateArticleStatus(${art.id}, '${f.v}')"`}
+          style="font-size:11px;">${f.label}</button>
+      `).join('');
+    }
+
+    flowEl.innerHTML = html;
+  }
+
+  async function updateArticleStatus(artId, status) {
+    try {
+      const resp = await fetch(`${API}/api/articles/${artId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+        body: JSON.stringify({ status }),
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error || '오류');
+      // 모달 갱신
+      openArticle(artId);
+      fetchArticles();
+    } catch (e) {
+      alert(`오류: ${e.message}`);
+    }
+  }
+
+  function copyArticle() {
+    const bodyEl = document.getElementById('art-modal-body-content');
+    const headline = document.getElementById('art-modal-headline')?.value || '';
+    const content = bodyEl ? bodyEl.innerText : '';
+    const full = headline ? `${headline}\n\n${content}` : content;
+    navigator.clipboard.writeText(full).then(() => alert('클립보드에 복사되었습니다.'));
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('article-modal')) {
+      document.getElementById('article-modal').style.display = 'none';
+    }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') document.getElementById('article-modal').style.display = 'none';
+  });
+
+  // ── 초기 로드 ────────────────────────────────────────────────────────────
+  loadFromUrl();
+  window.addEventListener('popstate', loadFromUrl);
+</script>
+</body>
+</html>

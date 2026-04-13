@@ -8,23 +8,24 @@ biz_content(2. 사업의 내용)만 사용하여 두 기간 보고서를 비교
   python scripts/batch_compare.py                          # 2025_annual vs 2025_q1, 1000개
   python scripts/batch_compare.py --limit 500              # 500개만
   python scripts/batch_compare.py --type-a 2025_annual --type-b 2025_h1
-  python scripts/batch_compare.py --model flash            # flash(기본) | flash-lite
+  python scripts/batch_compare.py --model flash            # flash | flash-lite | pro
   python scripts/batch_compare.py --all                    # 기존 결과 덮어쓰기
   python scripts/batch_compare.py --resume 1000            # 1000번째부터 재개
+  python scripts/batch_compare.py --workers 2              # 병렬 2워커 (키 분리)
 
 결과 저장:
   data/dart/dart_reports.db → ai_comparisons 테이블
 
 무료 API 일일 한도 (Gemini 무료):
   Gemini 2.5 Flash      : 10 RPM / 500 RPD  → 딜레이 6초
-  Gemini 2.5 Flash-Lite : 15 RPM / 1,000 RPD → 딜레이 4초
+  Gemini 2.5 Flash-Lite : 15 RPM / 1,000 RPD → 딜레이 4초  ← Flash-Lite 최고 RPD (2키 합산 2,000)
   Gemini 2.5 Pro        :  5 RPM / 100 RPD
   Gemini 3.1 Pro Preview: 10 RPM / 100 RPD  (기사 초안 전용)
 
 전략:
   - flash 모드: Flash 우선 → 429 시 Flash-Lite 자동 전환 (합산 1,500 RPD)
-  - flash-lite 모드: Flash-Lite 전용 (1,000 RPD)
-  - 권장: --limit 1000 flash 모드 (약 100분 소요)
+  - flash-lite 모드: Flash-Lite 전용 (키당 1,000 RPD / 2키 합산 2,000 RPD)
+  - 권장: --workers 2 --model flash-lite (약 100분 소요, 합산 2,000 RPD)
 """
 
 import io
@@ -35,8 +36,10 @@ import sqlite3
 import sys
 import time
 import argparse
+import threading
 import urllib.request
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 
@@ -95,13 +98,28 @@ TYPE_LABELS = {
 }
 
 
+# ─── 스레드 안전 락 ──────────────────────────────────────────────────────────
+_db_lock      = threading.Lock()   # DB 쓰기 락
+_print_lock   = threading.Lock()   # print 락
+_counter_lock = threading.Lock()   # 진행 카운터 락
+
+# 워커별 마지막 호출 시각 (per-key rate limit)
+_last_call_time: dict[int, float] = {}  # key_index → timestamp
+
+
+def _tprint(*args, **kwargs):
+    """스레드 안전 print"""
+    with _print_lock:
+        print(*args, **kwargs)
+
+
 # ─── DB ─────────────────────────────────────────────────────────────────────
 def get_db() -> sqlite3.Connection:
-    db = sqlite3.connect(str(DB_PATH), timeout=30)  # 30초 대기 후 재시도
+    db = sqlite3.connect(str(DB_PATH), timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
-    db.execute("PRAGMA busy_timeout=30000")   # 30초 동안 잠금 재시도
+    db.execute("PRAGMA busy_timeout=30000")
     return db
 
 
@@ -153,7 +171,7 @@ def _db_execute_with_retry(db: sqlite3.Connection, sql: str, params: list, retri
         except sqlite3.OperationalError as e:
             if "locked" in str(e) and attempt < retries - 1:
                 wait = 2 ** attempt  # 1, 2, 4, 8, 16초
-                print(f"  ⚠ DB 잠금 — {wait}초 후 재시도 ({attempt+1}/{retries})")
+                _tprint(f"  ⚠ DB 잠금 — {wait}초 후 재시도 ({attempt+1}/{retries})")
                 time.sleep(wait)
             else:
                 raise
@@ -195,9 +213,9 @@ def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
 
 # ─── 듀얼 API 키 관리 ────────────────────────────────────────────────────────
 # 파싱1 + 파싱2 라운드로빈으로 합산 RPD 2배 활용
-_key_index = 0  # 전역 키 인덱스 (라운드로빈)
+_key_index = 0  # 전역 키 인덱스 (라운드로빈, 단일워커 전용)
 
-def _get_api_keys() -> list[str]:
+def _get_api_keys() -> list:
     """사용 가능한 Gemini API 키 목록 반환 (파싱1, 파싱2)"""
     keys = []
     k1 = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -209,7 +227,7 @@ def _get_api_keys() -> list[str]:
     return keys
 
 def _next_api_key(quota_exhausted_key: str | None = None) -> str:
-    """라운드로빈으로 다음 API 키 반환. quota_exhausted_key 는 건너뜀."""
+    """라운드로빈으로 다음 API 키 반환. quota_exhausted_key 는 건너뜀. (단일워커용)"""
     global _key_index
     keys = _get_api_keys()
     if len(keys) == 1:
@@ -223,7 +241,54 @@ def _next_api_key(quota_exhausted_key: str | None = None) -> str:
     return key
 
 
-# ─── AI 호출 ─────────────────────────────────────────────────────────────────
+# ─── 워커 전용 API 호출 (병렬 모드) ────────────────────────────────────────
+def call_gemini_with_key(model_type: str, prompt: str, api_key: str,
+                         key_label: str, timeout: int = 120):
+    """지정된 API 키로 Gemini 호출. (result_text, used_model_name, used_model_type) 반환."""
+    types_to_try = [model_type]
+    if model_type in FALLBACK_ON_QUOTA:
+        types_to_try.append(FALLBACK_ON_QUOTA[model_type])
+
+    for mtype in types_to_try:
+        candidates = GEMINI_FALLBACKS.get(mtype, GEMINI_FALLBACKS["flash"])
+        last_err = None
+
+        for model_name in candidates:
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={api_key}"
+            )
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                url, data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return data["candidates"][0]["content"]["parts"][0]["text"], model_name, mtype
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code == 404:
+                    last_err = f"모델 없음: {model_name}"
+                    continue
+                if e.code == 429:
+                    _tprint(f"  ⚠ [{key_label}] 429 — {mtype}→{FALLBACK_ON_QUOTA.get(mtype,'없음')} 전환 시도")
+                    last_err = f"할당량 초과({mtype})"
+                    break  # 다음 mtype 시도
+                raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
+            except urllib.error.URLError as e:
+                raise RuntimeError(f"네트워크 오류: {e.reason}")
+
+    raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
+
+
+# ─── AI 호출 (단일워커/라운드로빈 모드) ────────────────────────────────────
 def call_gemini(model_type: str, prompt: str, timeout: int = 120):
     """Gemini API 호출. (result_text, used_model_name, used_model_type) 반환.
     파싱1/파싱2 라운드로빈 + 429 시 다른 키 자동 전환 + fallback 모델 타입 전환."""
@@ -350,6 +415,113 @@ def build_prompt(reports: list) -> str:
 분석은 한국어로 작성하고, 각 항목마다 보고서 원문의 구체적인 표현·수치를 근거로 제시해주세요."""
 
 
+# ─── 단일 태스크 처리 (병렬 워커용) ───────────────────────────────────────
+def process_task(task: dict) -> dict:
+    """단일 기업 비교 분석 태스크. 병렬 워커에서 호출됨.
+
+    task 키:
+      corp_code, corp_name, rid_a, rid_b,
+      type_a, type_b, model, key_idx, key_label, delay,
+      overwrite, total_limit
+    """
+    corp_code  = task["corp_code"]
+    corp_name  = task["corp_name"]
+    rid_a      = task["rid_a"]
+    rid_b      = task["rid_b"]
+    type_a     = task["type_a"]
+    type_b     = task["type_b"]
+    model      = task["model"]
+    key_idx    = task["key_idx"]
+    key_label  = task["key_label"]
+    delay      = task["delay"]
+    task_num   = task["task_num"]
+    total      = task["total"]
+
+    # 워커 전용 DB 연결 (스레드 로컬)
+    db = get_db()
+
+    # 이미 완료된 기업 건너뜀
+    if not task["overwrite"] and already_done(db, corp_code, type_a, type_b, model):
+        return {"status": "skipped", "corp_name": corp_name, "task_num": task_num}
+
+    # biz_content 로드
+    rr_a = db.execute(
+        "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_a]
+    ).fetchone()
+    rr_b = db.execute(
+        "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_b]
+    ).fetchone()
+
+    if not rr_a or not rr_b:
+        return {"status": "no_report", "corp_name": corp_name, "task_num": task_num}
+
+    biz_a = (rr_a["biz_content"] or "").strip()[:60000]
+    biz_b = (rr_b["biz_content"] or "").strip()[:60000]
+
+    def fmt_dt(dt):
+        if dt and len(dt) == 8:
+            return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
+        return dt or ""
+
+    reports = [
+        {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
+         "content": biz_a},
+        {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
+         "content": biz_b},
+    ]
+    prompt = build_prompt(reports)
+
+    # 워커별 딜레이 (per-key rate limit)
+    now = time.time()
+    with _counter_lock:
+        last = _last_call_time.get(key_idx, 0)
+        wait = delay - (now - last)
+        if wait > 0:
+            _last_call_time[key_idx] = now + wait
+        else:
+            _last_call_time[key_idx] = now
+    if wait > 0:
+        time.sleep(wait)
+
+    # API 호출 (워커 전용 키)
+    keys = _get_api_keys()
+    api_key = keys[key_idx % len(keys)]
+
+    try:
+        result_text, used_model, used_type = call_gemini_with_key(
+            model, prompt, api_key, key_label, timeout=120
+        )
+        with _db_lock:
+            save_result(db, corp_code, corp_name, rid_a, rid_b,
+                        type_a, type_b, model,
+                        result_text, len(biz_a), len(biz_b))
+        return {
+            "status": "ok",
+            "corp_name": corp_name,
+            "task_num": task_num,
+            "total": total,
+            "biz_a": len(biz_a),
+            "biz_b": len(biz_b),
+            "used_type": used_type,
+            "model": model,
+            "key_label": key_label,
+            "key_idx": key_idx,
+        }
+    except RuntimeError as e:
+        err_msg = str(e)
+        with _db_lock:
+            save_error(db, corp_code, corp_name, rid_a, rid_b,
+                       type_a, type_b, model, err_msg)
+        return {
+            "status": "error",
+            "corp_name": corp_name,
+            "task_num": task_num,
+            "error": err_msg,
+            "key_idx": key_idx,
+            "key_label": key_label,
+        }
+
+
 # ─── 메인 ─────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="배치 AI 비교 분석")
@@ -361,7 +533,7 @@ def main():
                         help="비교 대상 보고서 유형 (기본: 2025_q1)")
     parser.add_argument("--model",   default="flash",
                         choices=["flash", "flash-lite", "pro"],
-                        help="AI 모델: flash(기본,500RPD) | flash-lite(1000RPD) | pro(100RPD)")
+                        help="AI 모델: flash(기본,500RPD) | flash-lite(최고RPD,1000/키,2키=2000) | pro(100RPD)")
     parser.add_argument("--limit",   type=int, default=1000,
                         help="처리할 최대 기업 수 (기본: 1000)")
     parser.add_argument("--resume",  type=int, default=0,
@@ -372,7 +544,12 @@ def main():
                         help="이미 분석된 기업도 재분석(덮어쓰기)")
     parser.add_argument("--dry-run", action="store_true",
                         help="실제 API 호출 없이 대상 기업 목록만 출력")
+    parser.add_argument("--workers", type=int, default=1,
+                        help="병렬 워커 수 (기본: 1=순차, 최대: 2). 워커 0→키1, 워커 1→키2 고정 할당.")
     args = parser.parse_args()
+
+    # workers 범위 클램핑 (최대 2)
+    args.workers = max(1, min(2, args.workers))
 
     if args.type_a == args.type_b:
         print("오류: --type-a 와 --type-b 가 같습니다")
@@ -382,6 +559,16 @@ def main():
     if not os.environ.get("GEMINI_API_KEY"):
         print("오류: GEMINI_API_KEY가 .env에 없습니다")
         sys.exit(1)
+
+    keys = _get_api_keys()
+    num_keys = len(keys)
+    key_labels = [f"파싱{i+1}" for i in range(num_keys)]
+
+    # workers > num_keys 이면 경고
+    effective_workers = min(args.workers, num_keys)
+    if args.workers > num_keys:
+        print(f"⚠ --workers {args.workers} 요청, 사용 가능한 키 {num_keys}개 → {effective_workers}워커로 조정")
+        args.workers = effective_workers
 
     db = get_db()
     ensure_table(db)
@@ -400,15 +587,21 @@ def main():
     else:
         rpd_display = str(rpd)
 
+    # 병렬 모드에서는 합산 RPD 계산
+    total_rpd_display = rpd_display
+    if args.workers > 1:
+        total_rpd_display = f"{rpd_display} × {args.workers}키 = (합산)"
+
     print(f"\n{'='*60}")
     print(f"배치 AI 비교 분석 시작")
     print(f"  비교 조합 : {label_a}  vs  {label_b}")
     print(f"  모델      : Gemini {args.model.upper()}")
-    print(f"  일일 한도 : {rpd_display} RPD")
-    print(f"  요청 간격 : {delay}초")
+    print(f"  워커      : {args.workers}개 ({', '.join(key_labels[:args.workers])} 고정)")
+    print(f"  일일 한도 : {total_rpd_display} RPD")
+    print(f"  요청 간격 : {delay}초 (워커별 독립 타이머)")
     print(f"  처리 한도 : {args.limit}개")
-    est = args.limit * delay / 60
-    print(f"  예상 시간 : {est:.0f}분")
+    est = args.limit * delay / 60 / args.workers
+    print(f"  예상 시간 : {est:.0f}분 ({args.workers}워커 병렬)")
     if args.resume:
         print(f"  재개위치  : {args.resume}번째부터")
     if args.all:
@@ -448,7 +641,7 @@ def main():
         for i, row in enumerate(rows[:10], 1):
             print(f"  {i:3d}. {row['corp_name']} ({row['corp_code']})")
         print(f"\n전체 {len(rows)}개 기업 처리 예정")
-        estimated_min = len(rows[:args.limit]) * args.delay / 60
+        estimated_min = len(rows[:args.limit]) * delay / 60 / args.workers
         print(f"예상 소요 시간: {estimated_min:.0f}분 ({estimated_min/60:.1f}시간)")
         return
 
@@ -459,101 +652,201 @@ def main():
     """, [args.type_a, args.type_b, args.model]).fetchone()[0]
     print(f"기완료 기업: {done_count}개")
 
-    processed = 0
-    success   = 0
-    skipped   = 0
-    errors    = 0
+    # limit 적용
+    rows = rows[:args.limit]
+
+    # 진행 카운터 (스레드 안전)
+    counters = {"processed": 0, "success": 0, "errors": 0, "skipped": 0}
     start_time = time.time()
+    quota_exhausted = threading.Event()
 
-    for row in rows:
-        if processed >= args.limit:
-            print(f"\n한도 {args.limit}개 도달. 오늘 분량 완료.")
-            break
+    # ── 단일 워커 모드 (--workers 1) ────────────────────────────────────────
+    if args.workers == 1:
+        processed = 0
+        success   = 0
+        skipped   = 0
+        errors    = 0
 
-        corp_code = row["corp_code"]
-        corp_name = row["corp_name"] or corp_code
-        rid_a     = row["id_a"]
-        rid_b     = row["id_b"]
-
-        # 이미 완료된 기업 건너뜀
-        if not args.all and already_done(db, corp_code, args.type_a, args.type_b, args.model):
-            skipped += 1
-            continue
-
-        processed += 1
-
-        # biz_content 로드
-        rr_a = db.execute(
-            "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_a]
-        ).fetchone()
-        rr_b = db.execute(
-            "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_b]
-        ).fetchone()
-
-        if not rr_a or not rr_b:
-            print(f"  [{processed:4d}] {corp_name}: 보고서 로드 실패 — 건너뜀")
-            skipped += 1
-            processed -= 1
-            continue
-
-        biz_a = (rr_a["biz_content"] or "").strip()[:60000]
-        biz_b = (rr_b["biz_content"] or "").strip()[:60000]
-
-        def fmt_dt(dt):
-            if dt and len(dt) == 8:
-                return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
-            return dt or ""
-
-        reports = [
-            {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
-             "content": biz_a},
-            {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
-             "content": biz_b},
-        ]
-
-        prompt = build_prompt(reports)
-
-        # API 호출
-        try:
-            result_text, used_model, used_type = call_gemini(args.model, prompt, timeout=120)
-            save_result(db, corp_code, corp_name, rid_a, rid_b,
-                        args.type_a, args.type_b, args.model,
-                        result_text, len(biz_a), len(biz_b))
-            success += 1
-
-            elapsed = time.time() - start_time
-            avg_sec = elapsed / processed
-            remain  = (min(args.limit, total_eligible) - processed) * avg_sec
-            eta_min = remain / 60
-            type_tag = f"[{used_type}]" if used_type != args.model else ""
-            print(
-                f"  [{processed:4d}/{min(args.limit, total_eligible):4d}] "
-                f"{corp_name[:18]:<18} ✓  "
-                f"({len(biz_a)//1000}K+{len(biz_b)//1000}K자)  "
-                f"{type_tag}  남은≈{eta_min:.0f}분"
-            )
-
-        except RuntimeError as e:
-            err_msg = str(e)
-            save_error(db, corp_code, corp_name, rid_a, rid_b,
-                       args.type_a, args.type_b, args.model, err_msg)
-            errors += 1
-            print(f"  [{processed:4d}] {corp_name[:18]:<18} ✗  {err_msg[:80]}")
-
-            # 모든 fallback 포함 할당량 초과 → 중단
-            if "할당량 초과" in err_msg and "flash-lite" in err_msg:
-                print("\n⚠ Flash + Flash-Lite 모두 할당량 초과! 내일 재개하세요.")
-                print(f"  재개: python scripts/batch_compare.py --resume {args.resume + processed}")
+        for row in rows:
+            if processed >= args.limit:
+                print(f"\n한도 {args.limit}개 도달. 오늘 분량 완료.")
                 break
 
-        # 속도 제한 준수
-        if processed < min(args.limit, total_eligible):
-            time.sleep(delay)
+            corp_code = row["corp_code"]
+            corp_name = row["corp_name"] or corp_code
+            rid_a     = row["id_a"]
+            rid_b     = row["id_b"]
+
+            # 이미 완료된 기업 건너뜀
+            if not args.all and already_done(db, corp_code, args.type_a, args.type_b, args.model):
+                skipped += 1
+                continue
+
+            processed += 1
+
+            rr_a = db.execute(
+                "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_a]
+            ).fetchone()
+            rr_b = db.execute(
+                "SELECT biz_content, report_name, rcept_dt FROM reports WHERE id=?", [rid_b]
+            ).fetchone()
+
+            if not rr_a or not rr_b:
+                print(f"  [{processed:4d}] {corp_name}: 보고서 로드 실패 — 건너뜀")
+                skipped += 1
+                processed -= 1
+                continue
+
+            biz_a = (rr_a["biz_content"] or "").strip()[:60000]
+            biz_b = (rr_b["biz_content"] or "").strip()[:60000]
+
+            def fmt_dt(dt):
+                if dt and len(dt) == 8:
+                    return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
+                return dt or ""
+
+            reports_data = [
+                {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
+                 "content": biz_a},
+                {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
+                 "content": biz_b},
+            ]
+            prompt = build_prompt(reports_data)
+
+            try:
+                result_text, used_model, used_type = call_gemini(args.model, prompt, timeout=120)
+                save_result(db, corp_code, corp_name, rid_a, rid_b,
+                            args.type_a, args.type_b, args.model,
+                            result_text, len(biz_a), len(biz_b))
+                success += 1
+
+                elapsed = time.time() - start_time
+                avg_sec = elapsed / processed
+                remain  = (min(args.limit, total_eligible) - processed) * avg_sec
+                eta_min = remain / 60
+                type_tag = f"[{used_type}]" if used_type != args.model else ""
+                print(
+                    f"  [{processed:4d}/{min(args.limit, total_eligible):4d}] "
+                    f"{corp_name[:18]:<18} ✓  "
+                    f"({len(biz_a)//1000}K+{len(biz_b)//1000}K자)  "
+                    f"{type_tag}  남은≈{eta_min:.0f}분"
+                )
+
+            except RuntimeError as e:
+                err_msg = str(e)
+                save_error(db, corp_code, corp_name, rid_a, rid_b,
+                           args.type_a, args.type_b, args.model, err_msg)
+                errors += 1
+                print(f"  [{processed:4d}] {corp_name[:18]:<18} ✗  {err_msg[:80]}")
+
+                if "할당량 초과" in err_msg and "flash-lite" in err_msg:
+                    print("\n⚠ Flash + Flash-Lite 모두 할당량 초과! 내일 재개하세요.")
+                    print(f"  재개: python scripts/batch_compare.py --resume {args.resume + processed}")
+                    break
+
+            if processed < min(args.limit, total_eligible):
+                time.sleep(delay)
+
+        # 최종 요약
+        elapsed_total = time.time() - start_time
+        print(f"\n{'='*60}")
+        print(f"배치 완료!")
+        print(f"  처리: {processed}개  성공: {success}개  오류: {errors}개  건너뜀: {skipped}개")
+        print(f"  소요 시간: {elapsed_total/60:.1f}분")
+        total_done = db.execute("""
+            SELECT COUNT(*) FROM ai_comparisons
+            WHERE report_type_a=? AND report_type_b=? AND model=? AND status='ok'
+        """, [args.type_a, args.type_b, args.model]).fetchone()[0]
+        print(f"  DB 누적 완료: {total_done}개 / {total_eligible}개")
+        remain_total = total_eligible - total_done
+        if remain_total > 0:
+            print(f"  남은 기업: {remain_total}개 → 내일 실행 권장")
+            print(f"  재개 명령어: python scripts/batch_compare.py --resume {args.resume + processed}")
+        else:
+            print(f"  전체 완료!")
+        print(f"{'='*60}\n")
+        return
+
+    # ── 병렬 워커 모드 (--workers 2) ─────────────────────────────────────────
+    # 태스크 목록 생성 (인터리빙: task_i → key_idx = i % num_workers)
+    tasks = []
+    for i, row in enumerate(rows):
+        key_idx = i % args.workers
+        tasks.append({
+            "corp_code":  row["corp_code"],
+            "corp_name":  row["corp_name"] or row["corp_code"],
+            "rid_a":      row["id_a"],
+            "rid_b":      row["id_b"],
+            "type_a":     args.type_a,
+            "type_b":     args.type_b,
+            "model":      args.model,
+            "key_idx":    key_idx,
+            "key_label":  key_labels[key_idx] if key_idx < len(key_labels) else f"키{key_idx}",
+            "delay":      delay,
+            "overwrite":  args.all,
+            "task_num":   i + 1,
+            "total":      len(rows),
+        })
+
+    processed = 0
+    success   = 0
+    errors    = 0
+    skipped   = 0
+
+    print(f"병렬 처리 시작: {len(tasks)}개 태스크, {args.workers}워커")
+    print(f"  워커 0 → {key_labels[0]} (GEMINI_API_KEY)")
+    if args.workers > 1 and num_keys > 1:
+        print(f"  워커 1 → {key_labels[1]} (GEMINI_API_KEY_2)")
+    print()
+
+    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+        future_to_task = {executor.submit(process_task, t): t for t in tasks}
+
+        for future in as_completed(future_to_task):
+            result = future.result()
+            status     = result["status"]
+            corp_name  = result["corp_name"]
+            task_num   = result["task_num"]
+            key_label  = result.get("key_label", "")
+            wid        = result.get("key_idx", 0)
+
+            if status == "skipped":
+                skipped += 1
+                continue
+            elif status == "no_report":
+                skipped += 1
+                _tprint(f"  [W{wid}] [{task_num:4d}/{len(tasks):4d}] {corp_name[:18]:<18} - 보고서 없음")
+                continue
+            elif status == "ok":
+                processed += 1
+                success   += 1
+                elapsed = time.time() - start_time
+                biz_a = result.get("biz_a", 0)
+                biz_b = result.get("biz_b", 0)
+                used_type = result.get("used_type", args.model)
+                type_tag = f"[{used_type}]" if used_type != args.model else ""
+                avg_sec = elapsed / max(processed, 1)
+                remain  = (len(tasks) - processed - skipped) * avg_sec / args.workers
+                eta_min = remain / 60
+                _tprint(
+                    f"  [W{wid}/{key_label}] [{task_num:4d}/{len(tasks):4d}] "
+                    f"{corp_name[:16]:<16} ✓  "
+                    f"({biz_a//1000}K+{biz_b//1000}K자) "
+                    f"{type_tag}  남은≈{eta_min:.0f}분"
+                )
+            elif status == "error":
+                processed += 1
+                errors    += 1
+                err_msg = result.get("error", "알 수 없는 오류")
+                _tprint(f"  [W{wid}/{key_label}] [{task_num:4d}/{len(tasks):4d}] {corp_name[:16]:<16} ✗  {err_msg[:70]}")
+
+                if "할당량 초과" in err_msg:
+                    _tprint(f"\n⚠ [{key_label}] 할당량 초과 감지. 내일 재개하세요.")
 
     # 최종 요약
     elapsed_total = time.time() - start_time
     print(f"\n{'='*60}")
-    print(f"배치 완료!")
+    print(f"병렬 배치 완료!")
     print(f"  처리: {processed}개  성공: {success}개  오류: {errors}개  건너뜀: {skipped}개")
     print(f"  소요 시간: {elapsed_total/60:.1f}분")
     total_done = db.execute("""
@@ -564,9 +857,9 @@ def main():
     remain_total = total_eligible - total_done
     if remain_total > 0:
         print(f"  남은 기업: {remain_total}개 → 내일 실행 권장")
-        print(f"  재개 명령어: python scripts/batch_compare.py --resume {args.resume + processed}")
+        print(f"  재개 명령어: python scripts/batch_compare.py --resume {args.resume + processed} --workers {args.workers}")
     else:
-        print(f"  🎉 전체 완료!")
+        print(f"  전체 완료!")
     print(f"{'='*60}\n")
 
 

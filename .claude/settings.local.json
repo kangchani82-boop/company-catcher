@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__Claude_Preview__preview_start",
+      "Bash(python -c ':*)",
+      "Bash(python scripts/batch_compare.py --model flash-lite --workers 2 --limit 2000)"
+    ]
+  }
+}

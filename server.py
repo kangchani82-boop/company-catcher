@@ -486,6 +486,16 @@ class DartHandler(BaseHTTPRequestHandler):
         path   = parsed.path
         qs     = parse_qs(parsed.query)
 
+        # ── SPA 페이지 라우트 (/leads /articles /comparisons) ─────────────
+        _spa = {"/leads": "leads.html", "/comparisons": "comparisons.html", "/articles": "articles.html"}
+        if path in _spa:
+            f = WEB_ROOT / _spa[path]
+            if f.is_file():
+                self._send(200, f.read_bytes(), "text/html; charset=utf-8")
+            else:
+                self._send(404, b"Not Found", "text/plain")
+            return
+
         # ── /api/session (로컬호스트 전용 — API 키 반환) ─────────────────
         if path == "/api/session":
             client_ip = self.client_address[0]
@@ -879,6 +889,8 @@ class DartHandler(BaseHTTPRequestHandler):
                 min_sev   = int(qs.get("min_severity",[1])[0])
                 limit     = int(qs.get("limit", [30])[0])
                 offset    = int(qs.get("offset",[0])[0])
+                q         = (qs.get("q",       [None])[0] or "").strip()
+                sort      = (qs.get("sort",    ["recent"])[0] or "recent").strip()
 
                 where = ["severity >= ?"]
                 params = [min_sev]
@@ -888,15 +900,29 @@ class DartHandler(BaseHTTPRequestHandler):
                     where.append("status = ?"); params.append(status)
                 if lead_type:
                     where.append("lead_type = ?"); params.append(lead_type)
+                if q:
+                    where.append(
+                        "(corp_name LIKE ? OR title LIKE ? OR summary LIKE ? OR evidence LIKE ?)"
+                    )
+                    params += [f"%{q}%", f"%{q}%", f"%{q}%", f"%{q}%"]
 
                 where_sql = " AND ".join(where)
+
+                # 정렬
+                if sort == "severity":
+                    order_sql = "severity DESC, created_at DESC"
+                elif sort == "relevant" and q:
+                    order_sql = "severity DESC, created_at DESC"
+                else:  # recent (default)
+                    order_sql = "created_at DESC"
+
                 try:
                     total = db.execute(
                         f"SELECT COUNT(*) FROM story_leads WHERE {where_sql}", params
                     ).fetchone()[0]
                     rows = db.execute(
                         f"SELECT * FROM story_leads WHERE {where_sql} "
-                        f"ORDER BY severity DESC, created_at DESC LIMIT ? OFFSET ?",
+                        f"ORDER BY {order_sql} LIMIT ? OFFSET ?",
                         params + [limit, offset]
                     ).fetchall()
                     self._json({"leads": [dict(r) for r in rows], "total": total})
@@ -914,6 +940,8 @@ class DartHandler(BaseHTTPRequestHandler):
                 status    = (qs.get("status",  [None])[0] or "").strip()
                 limit     = int(qs.get("limit", [20])[0])
                 offset    = int(qs.get("offset",[0])[0])
+                q         = (qs.get("q",       [None])[0] or "").strip()
+                sort      = (qs.get("sort",    ["recent"])[0] or "recent").strip()
 
                 where = []
                 params = []
@@ -921,18 +949,30 @@ class DartHandler(BaseHTTPRequestHandler):
                     where.append("corp_code = ?"); params.append(corp_code)
                 if status:
                     where.append("status = ?"); params.append(status)
+                if q:
+                    where.append(
+                        "(corp_name LIKE ? OR headline LIKE ? OR subheadline LIKE ?)"
+                    )
+                    params += [f"%{q}%", f"%{q}%", f"%{q}%"]
 
                 where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+                # 정렬
+                if sort == "relevant" and q:
+                    order_sql = "created_at DESC"
+                else:  # recent (default)
+                    order_sql = "created_at DESC"
+
                 try:
                     total = db.execute(
                         f"SELECT COUNT(*) FROM article_drafts {where_sql}", params
                     ).fetchone()[0]
                     rows = db.execute(
                         f"SELECT id, lead_id, corp_code, corp_name, headline, subheadline, "
-                        f"style, model, word_count, status, created_at, "
+                        f"style, model, word_count, char_count, status, created_at, "
                         f"SUBSTR(content, 1, 300) as content_preview "
                         f"FROM article_drafts {where_sql} "
-                        f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                        f"ORDER BY {order_sql} LIMIT ? OFFSET ?",
                         params + [limit, offset]
                     ).fetchall()
                     self._json({"articles": [dict(r) for r in rows], "total": total})
@@ -1032,6 +1072,8 @@ class DartHandler(BaseHTTPRequestHandler):
                 status    = (qs.get("status",    ["ok"])[0] or "ok").strip()
                 limit     = int(qs.get("limit",  [20])[0])
                 offset    = int(qs.get("offset", [0])[0])
+                q         = (qs.get("q",         [None])[0] or "").strip()
+                sort      = (qs.get("sort",      ["recent"])[0] or "recent").strip()
 
                 where = ["status = ?"]
                 params = [status]
@@ -1047,8 +1089,14 @@ class DartHandler(BaseHTTPRequestHandler):
                 if model:
                     where.append("model = ?")
                     params.append(model)
+                if q:
+                    where.append("corp_name LIKE ?")
+                    params.append(f"%{q}%")
 
                 where_sql = "WHERE " + " AND ".join(where)
+
+                # 정렬
+                comp_order_sql = "analyzed_at DESC"  # recent and relevant both use this
 
                 # ai_comparisons 테이블이 없으면 빈 결과 반환
                 try:
@@ -1060,7 +1108,7 @@ class DartHandler(BaseHTTPRequestHandler):
                         f"model, char_count_a, char_count_b, status, analyzed_at, "
                         f"SUBSTR(result, 1, 500) as result_preview "
                         f"FROM ai_comparisons {where_sql} "
-                        f"ORDER BY analyzed_at DESC LIMIT ? OFFSET ?",
+                        f"ORDER BY {comp_order_sql} LIMIT ? OFFSET ?",
                         params + [limit, offset]
                     ).fetchall()
                     items = [dict(r) for r in rows]
@@ -1172,6 +1220,20 @@ class DartHandler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 self._json({"error": str(e)}, 500)
+            return
+
+        # ── SPA 라우트 (페이지별 HTML 서빙) ─────────────────────────────
+        _spa_routes = {
+            "/leads":       "leads.html",
+            "/comparisons": "comparisons.html",
+            "/articles":    "articles.html",
+        }
+        if path in _spa_routes:
+            spa_file = WEB_ROOT / _spa_routes[path]
+            if spa_file.is_file():
+                self._send(200, spa_file.read_bytes(), "text/html; charset=utf-8")
+            else:
+                self._send(404, f"Not Found: {_spa_routes[path]}".encode(), "text/plain")
             return
 
         # ── 정적 파일 서빙 ────────────────────────────────────────────────
