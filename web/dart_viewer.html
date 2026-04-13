@@ -1070,6 +1070,10 @@ async function loadAlerts() {
             <span class="alert-badge ${sev}">${sevLabel}</span>
             <span style="font-size:9px;color:var(--txt2);">${a.lead_type}</span>
             <span style="margin-left:auto;display:flex;gap:4px;">
+              <button onclick="generateDraft(${a.id}, '${escHtml(a.corp_name||'')}', event)"
+                title="기사 초안 자동 생성 (Gemini Pro)"
+                style="font-size:9px;color:#e67e22;border:1px solid #e67e22;background:none;
+                       border-radius:3px;padding:1px 5px;cursor:pointer;">✍ 초안</button>
               <a href="${gUrl}" target="_blank" title="구글 보도 확인"
                  style="font-size:9px;color:#4285f4;border:1px solid #4285f4;
                         border-radius:3px;padding:1px 5px;text-decoration:none;">G</a>
@@ -1100,6 +1104,120 @@ function toggleAlertPanel() {
   panel.style.top   = (rect.bottom + 4) + 'px';
   panel.style.right = '8px';
   panel.style.position = 'fixed';
+}
+
+// ── 기사 초안 생성 ──────────────────────────────────────────────────────────
+async function generateDraft(leadId, corpName, evt) {
+  if (evt) evt.stopPropagation();
+  const btn = evt && evt.target;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 생성 중...'; }
+
+  try {
+    const resp = await fetch(`${API}/api/leads/${leadId}/draft`, {method:'POST',
+      headers:{'Content-Type':'application/json','X-Api-Key': state.apiKey || 'local'}
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || '서버 오류');
+    showDraftModal(d.draft, corpName);
+  } catch(e) {
+    alert(`기사 초안 생성 오류: ${e.message}`);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '✍ 초안'; }
+  }
+}
+
+function showDraftModal(draft, corpName) {
+  // 기존 모달 제거
+  const existing = document.getElementById('draft-modal');
+  if (existing) existing.remove();
+
+  const kw = (() => { try { return JSON.parse(draft.keywords||'[]').join(', '); } catch { return ''; } })();
+  const modal = document.createElement('div');
+  modal.id = 'draft-modal';
+  modal.style.cssText = `
+    position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;
+    background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;
+  `;
+  modal.innerHTML = `
+    <div style="background:var(--bg2);border-radius:12px;width:700px;max-width:96vw;
+                max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.5);
+                padding:0;font-family:inherit;">
+      <!-- 헤더 -->
+      <div style="background:linear-gradient(135deg,#e67e22,#d35400);border-radius:12px 12px 0 0;
+                  padding:16px 20px;display:flex;align-items:center;gap:10px;">
+        <span style="font-size:20px;">✍</span>
+        <div style="flex:1;">
+          <div style="color:#fff;font-size:14px;font-weight:700;">기사 초안</div>
+          <div style="color:rgba(255,255,255,.8);font-size:11px;">
+            ${escHtml(corpName)} · Gemini Pro · 파이낸스코프 고종민 기자
+          </div>
+        </div>
+        <button onclick="document.getElementById('draft-modal').remove()"
+          style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0;">✕</button>
+      </div>
+      <!-- 본문 -->
+      <div style="padding:20px;">
+        <!-- 제목 -->
+        <div style="background:var(--bg3);border-radius:8px;padding:12px 16px;margin-bottom:12px;">
+          <div style="font-size:11px;color:var(--txt2);margin-bottom:4px;">헤드라인</div>
+          <div id="dm-headline" style="font-size:18px;font-weight:700;color:var(--txt1);line-height:1.4;"
+               contenteditable="true">${escHtml(draft.headline||'')}</div>
+        </div>
+        <!-- 부제 -->
+        ${draft.subheadline ? `
+        <div style="background:var(--bg3);border-radius:8px;padding:10px 16px;margin-bottom:12px;">
+          <div style="font-size:11px;color:var(--txt2);margin-bottom:4px;">부제</div>
+          <div id="dm-sub" style="font-size:13px;color:var(--txt1);"
+               contenteditable="true">${escHtml(draft.subheadline)}</div>
+        </div>` : ''}
+        <!-- 본문 -->
+        <div style="background:var(--bg3);border-radius:8px;padding:12px 16px;margin-bottom:12px;">
+          <div style="font-size:11px;color:var(--txt2);margin-bottom:8px;">
+            본문 (${draft.char_count||0}자)
+          </div>
+          <div id="dm-body" style="font-size:13px;color:var(--txt1);line-height:1.8;white-space:pre-wrap;"
+               contenteditable="true">${escHtml(draft.content||'')}</div>
+        </div>
+        <!-- 메타 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;">
+          ${draft.editor_note ? `
+          <div style="background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.3);
+                      border-radius:6px;padding:8px 12px;font-size:11px;color:var(--txt1);">
+            <b style="color:#f39c12;">📋 편집 메모</b><br>
+            ${escHtml(draft.editor_note)}
+          </div>` : '<div></div>'}
+          <div style="background:var(--bg3);border-radius:6px;padding:8px 12px;font-size:11px;color:var(--txt2);">
+            <b style="color:var(--txt1);">모델</b> ${escHtml(draft.model||'')}
+            <br><b style="color:var(--txt1);">생성일시</b> ${(draft.created_at||'').substring(0,16)}
+          </div>
+        </div>
+        <!-- 버튼 -->
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button onclick="copyDraft()" style="
+            padding:8px 16px;border-radius:6px;border:1px solid var(--border);
+            background:var(--bg3);color:var(--txt1);font-size:12px;cursor:pointer;">
+            📋 복사
+          </button>
+          <button onclick="document.getElementById('draft-modal').remove()" style="
+            padding:8px 16px;border-radius:6px;border:none;
+            background:var(--acc);color:#fff;font-size:12px;cursor:pointer;">
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if(e.target === modal) modal.remove(); });
+}
+
+function copyDraft() {
+  const headline = document.getElementById('dm-headline')?.innerText || '';
+  const sub      = document.getElementById('dm-sub')?.innerText || '';
+  const body     = document.getElementById('dm-body')?.innerText || '';
+  const byline   = '파이낸스코프 고종민 기자 (kang@finscope.co.kr)';
+  const text = [headline, sub, '', body, '', byline].filter(Boolean).join('\n');
+  navigator.clipboard.writeText(text).then(() => alert('클립보드에 복사되었습니다.'));
 }
 
 // ── 세션 (API 키) ─────────────────────────────────────────────────────────

@@ -24,10 +24,12 @@ import json
 import io
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import sys
 import threading
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime
@@ -284,6 +286,137 @@ MIME = {
     ".png":  "image/png",
     ".ico":  "image/x-icon",
 }
+
+# ── 기사 초안 생성 헬퍼 (인라인) ──────────────────────────────────────────────
+_ARTICLE_MODELS = [
+    "gemini-3.1-pro-preview",
+    "gemini-2.5-pro-preview-05-06",
+    "gemini-2.5-pro-preview-06-05",
+    "gemini-2.5-pro",
+]
+_LEAD_TYPE_KO = {
+    "strategy_change": "경영전략 변화",
+    "market_shift":    "시장 변화",
+    "risk_alert":      "리스크 경보",
+    "numeric_change":  "수치 급변",
+    "supply_chain":    "공급망 변화",
+}
+_ARTICLE_STYLE_GUIDE = """[기사 작성 지침]
+- 매체: 파이낸스코프 (finscope.co.kr) / 기자: 고종민
+- 문체: 연합뉴스·중앙일보 경제면 스타일 (간결, 객관, 사실 중심)
+- 제목: 30자 이내, 핵심 사실 중심 (과장 금지)
+- 부제: 15자 이내
+- 본문: 400~600자, 역피라미드 구조 (리드→구체내용→의미→전망)
+- 주의: DART 공시 내용만 근거, 추측 시 '~것으로 분석된다' 표현"""
+
+
+def _build_article_prompt(lead, ai_result: str) -> str:
+    corp_name = lead["corp_name"] or "해당 기업"
+    type_ko   = _LEAD_TYPE_KO.get(lead["lead_type"], lead["lead_type"])
+    try:
+        kw_list = ", ".join(json.loads(lead["keywords"] or "[]"))
+    except Exception:
+        kw_list = lead["keywords"] or ""
+    return f"""당신은 파이낸스코프(finscope.co.kr)의 경제 전문 기자 고종민입니다.
+아래 DART 공시 분석 데이터를 바탕으로 한국어 경제 기사 초안을 작성하세요.
+
+{_ARTICLE_STYLE_GUIDE}
+
+═══════════════════════════════
+[취재 단서]
+기업명: {corp_name}
+단서 유형: {type_ko} (severity {lead['severity']}/5)
+감지 키워드: {kw_list}
+단서 제목: {lead['title'] or ''}
+핵심 요약: {lead['summary'] or ''}
+근거 문장: {lead['evidence'] or ''}
+
+[AI 분석 참고 (최대 2500자)]
+{(ai_result or '')[:2500]}
+═══════════════════════════════
+
+반드시 아래 JSON 형식으로만 출력하세요:
+{{
+  "headline": "기사 제목 (30자 이내)",
+  "subheadline": "부제 (15자 이내)",
+  "body": "본문 (400~600자, 단락 사이 빈 줄)",
+  "keywords": ["키워드1", "키워드2", "키워드3"],
+  "news_value": "취재 가치 한 줄 설명",
+  "caution": "확인 필요 사항 (없으면 빈 문자열)"
+}}"""
+
+
+def _call_gemini_article(prompt: str, timeout: int = 120) -> tuple:
+    api_key = os.environ.get("GEMINI_API_KEY", "")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY 없음")
+    last_err = None
+    for model_name in _ARTICLE_MODELS:
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model_name}:generateContent?key={api_key}")
+        payload = json.dumps({
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7},
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=payload,
+            headers={"Content-Type": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            return data["candidates"][0]["content"]["parts"][0]["text"], model_name
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            if e.code == 404:
+                last_err = f"모델 없음: {model_name}"; continue
+            if e.code == 429:
+                raise RuntimeError(f"API 할당량 초과(429) — 내일 다시 시도하세요.")
+            raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"네트워크 오류: {e.reason}")
+    raise RuntimeError(f"사용 가능한 모델 없음. 마지막 오류: {last_err}")
+
+
+def _parse_article_json(text: str) -> dict:
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if m: text = m.group(1)
+    else:
+        m2 = re.search(r"(\{.*\})", text, re.DOTALL)
+        if m2: text = m2.group(1)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        result = {}
+        for field in ["headline", "subheadline", "body", "news_value", "caution"]:
+            fm = re.search(rf'"{field}"\s*:\s*"(.*?)"(?=\s*[,\}}])', text, re.DOTALL)
+            if fm: result[field] = fm.group(1).replace("\\n", "\n").strip()
+        km = re.search(r'"keywords"\s*:\s*\[(.*?)\]', text, re.DOTALL)
+        if km: result["keywords"] = re.findall(r'"([^"]+)"', km.group(1))
+        return result
+
+
+def _save_article_draft(conn, lead_id: int, lead, article: dict, model_name: str) -> int:
+    headline    = (article.get("headline") or "")[:200]
+    subheadline = (article.get("subheadline") or "")[:200]
+    body        = article.get("body") or ""
+    news_value  = article.get("news_value") or ""
+    caution     = article.get("caution") or ""
+    editor_note = ""
+    if news_value: editor_note += f"[취재 가치] {news_value}\n"
+    if caution:    editor_note += f"[주의] {caution}"
+    cur = conn.execute("""
+        INSERT INTO article_drafts
+            (lead_id, corp_code, corp_name,
+             headline, subheadline, content,
+             style, model, word_count, char_count,
+             status, editor_note, created_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,'draft',?,datetime('now','localtime'))
+    """, (lead_id, lead["corp_code"], lead["corp_name"],
+          headline, subheadline, body,
+          "news", model_name,
+          len(body.split()), len(body), editor_note.strip()))
+    conn.commit()
+    return cur.lastrowid
+
 
 # ── HTTP 핸들러 ────────────────────────────────────────────────────────────
 class DartHandler(BaseHTTPRequestHandler):
@@ -1083,6 +1216,97 @@ class DartHandler(BaseHTTPRequestHandler):
                 })
             except Exception as e:
                 log.exception("AI 분석 오류")
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/leads/{id}/draft ─────────────────────────────────────
+        m_draft = re.match(r"^/api/leads/(\d+)/draft$", path)
+        if m_draft:
+            lead_id = int(m_draft.group(1))
+            try:
+                db = get_db()
+                lead = db.execute("""
+                    SELECT sl.*, ac.result as ai_result
+                    FROM story_leads sl
+                    LEFT JOIN ai_comparisons ac ON sl.comparison_id = ac.id
+                    WHERE sl.id = ?
+                """, [lead_id]).fetchone()
+
+                if not lead:
+                    self._json({"error": f"lead_id={lead_id} 없음"}, 404)
+                    return
+
+                # 기사 초안 생성 (인라인)
+                prompt  = _build_article_prompt(lead, lead["ai_result"] or "")
+                text, model_name = _call_gemini_article(prompt)
+                article = _parse_article_json(text)
+
+                if not article.get("headline"):
+                    article = {
+                        "headline":    lead["title"] or f"{lead['corp_name']} 관련 기사",
+                        "subheadline": "",
+                        "body":        text[:2000],
+                        "keywords":    [],
+                        "news_value":  "",
+                        "caution":     "자동 파싱 실패 — 편집 필요",
+                    }
+
+                draft_id = _save_article_draft(db, lead_id, lead, article, model_name)
+                draft = db.execute(
+                    "SELECT * FROM article_drafts WHERE id = ?", [draft_id]
+                ).fetchone()
+
+                self._json({"ok": True, "draft": dict(draft), "model": model_name})
+            except Exception as e:
+                log.exception("기사 초안 생성 오류")
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/leads/{id}/status ────────────────────────────────────
+        m_status = re.match(r"^/api/leads/(\d+)/status$", path)
+        if m_status:
+            lead_id = int(m_status.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode("utf-8"))
+                new_status = data.get("status", "").strip()
+                valid = {"new", "reviewing", "drafted", "published", "archived"}
+                if new_status not in valid:
+                    self._json({"error": f"유효한 status: {valid}"}, 400)
+                    return
+                db = get_db()
+                db.execute(
+                    "UPDATE story_leads SET status=?, updated_at=datetime('now','localtime') WHERE id=?",
+                    [new_status, lead_id]
+                )
+                db.commit()
+                self._json({"ok": True, "lead_id": lead_id, "status": new_status})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/articles/{id}/status ─────────────────────────────────
+        m_art_status = re.match(r"^/api/articles/(\d+)/status$", path)
+        if m_art_status:
+            art_id = int(m_art_status.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode("utf-8"))
+                new_status = data.get("status", "").strip()
+                valid = {"draft", "editing", "ready", "published", "rejected"}
+                if new_status not in valid:
+                    self._json({"error": f"유효한 status: {valid}"}, 400)
+                    return
+                db = get_db()
+                db.execute(
+                    "UPDATE article_drafts SET status=?, updated_at=datetime('now','localtime') WHERE id=?",
+                    [new_status, art_id]
+                )
+                db.commit()
+                self._json({"ok": True, "article_id": art_id, "status": new_status})
+            except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
 
