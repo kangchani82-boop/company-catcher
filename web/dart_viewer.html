@@ -757,19 +757,85 @@ header h1 span { color: var(--accent); }
 <!-- 📊 현황 대시보드 (접을 수 있는 섹션) -->
 <div id="dashboard-section" style="flex-shrink:0;border-bottom:1px solid var(--border);
   background:var(--panel);display:none;">
-  <div style="display:flex;gap:16px;padding:12px 16px;align-items:flex-start;flex-wrap:wrap;">
-    <div style="flex:1;min-width:200px;">
-      <div style="font-size:11px;color:var(--txt2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">취재단서 긴급도 분포</div>
-      <div style="position:relative;height:200px;">
-        <canvas id="chart-severity"></canvas>
+  <style>
+    .db-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      padding: 14px 16px;
+    }
+    .db-panel {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .db-panel-title {
+      font-size: 11px; font-weight: 700; color: var(--txt2);
+      text-transform: uppercase; letter-spacing: .5px;
+      margin-bottom: 8px;
+    }
+    .db-panel-wide { grid-column: 1 / -1; }
+    .db-chart-wrap { position: relative; height: 180px; }
+    /* funnel bars */
+    .funnel-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+    .funnel-label { font-size: 10px; color: var(--txt2); width: 90px; flex-shrink: 0; text-align: right; }
+    .funnel-bar-wrap { flex: 1; background: rgba(255,255,255,.05); border-radius: 3px; height: 14px; overflow: hidden; }
+    .funnel-bar { height: 100%; border-radius: 3px; transition: width .6s; }
+    .funnel-val { font-size: 10px; color: var(--txt2); width: 34px; text-align: right; flex-shrink: 0; }
+    /* donut center text */
+    .donut-wrap { position: relative; }
+    .donut-center {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      text-align: center; pointer-events: none;
+    }
+    .donut-pct { font-size: 22px; font-weight: 700; color: var(--txt); }
+    .donut-sub { font-size: 10px; color: var(--txt2); }
+  </style>
+  <div class="db-grid">
+
+    <!-- Panel 1: 섹터별 취재단서 -->
+    <div class="db-panel">
+      <div class="db-panel-title">🏭 섹터별 취재단서 (유형별)</div>
+      <div class="db-chart-wrap">
+        <canvas id="chart-leads-type"></canvas>
       </div>
     </div>
-    <div style="flex:2;min-width:280px;">
-      <div style="font-size:11px;color:var(--txt2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;">비교분석 일별 현황 (최근 14일)</div>
-      <div style="position:relative;height:200px;">
-        <canvas id="chart-daily"></canvas>
+
+    <!-- Panel 2: 기사 파이프라인 -->
+    <div class="db-panel">
+      <div class="db-panel-title">🔄 기사 파이프라인</div>
+      <div id="db-funnel" style="padding-top:8px;"></div>
+    </div>
+
+    <!-- Panel 3: 비교분석 진행률 -->
+    <div class="db-panel">
+      <div class="db-panel-title">📈 비교분석 진행률 (전체 기업 대비)</div>
+      <div class="db-chart-wrap donut-wrap">
+        <canvas id="chart-progress"></canvas>
+        <div class="donut-center">
+          <div class="donut-pct" id="db-progress-pct">—</div>
+          <div class="donut-sub" id="db-progress-sub"></div>
+        </div>
       </div>
     </div>
+
+    <!-- Panel 4: 최근 7일 활동 -->
+    <div class="db-panel">
+      <div class="db-panel-title">📅 최근 7일 활동</div>
+      <div class="db-chart-wrap">
+        <canvas id="chart-activity"></canvas>
+      </div>
+    </div>
+
+    <!-- Panel 5: 알림 룰 적중률 (full width) -->
+    <div class="db-panel db-panel-wide">
+      <div class="db-panel-title">🎯 알림 룰 적중률</div>
+      <div class="db-chart-wrap" style="height:160px;">
+        <canvas id="chart-rules"></canvas>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -2186,8 +2252,8 @@ markSelectedModel();
 
 // ── 📊 현황 대시보드 ─────────────────────────────────────────────────────────
 let dashboardLoaded = false;
-let chartSeverity = null;
-let chartDaily    = null;
+const _dbCharts = {};
+const TOTAL_ELIGIBLE = 2836; // 전체 대상 기업 수
 
 function toggleDashboard() {
   const section = document.getElementById('dashboard-section');
@@ -2210,35 +2276,136 @@ function toggleDashboard() {
 async function loadDashboard() {
   dashboardLoaded = true;
   try {
-    const [leadsResp, compsResp] = await Promise.all([
+    const [leadsResp, compsResp, articlesResp, statsResp] = await Promise.all([
       fetch('/api/leads?limit=1000'),
-      fetch('/api/ai/comparisons?limit=1000'),
+      fetch('/api/ai/comparisons?limit=2000'),
+      fetch('/api/articles?limit=1000'),
+      fetch('/api/stats/dashboard').catch(() => ({ ok: false })),
     ]);
-    const leadsData = leadsResp.ok ? await leadsResp.json() : {};
-    const compsData = compsResp.ok ? await compsResp.json() : {};
+    const leadsData    = leadsResp.ok    ? await leadsResp.json()    : {};
+    const compsData    = compsResp.ok    ? await compsResp.json()    : {};
+    const articlesData = articlesResp.ok ? await articlesResp.json() : {};
+    const statsData    = statsResp.ok    ? await statsResp.json()    : {};
 
-    renderSeverityChart(leadsData.leads || []);
-    renderDailyChart(compsData.comparisons || []);
+    const leads    = leadsData.leads       || [];
+    const comps    = compsData.comparisons || [];
+    const articles = articlesData.articles || [];
+
+    renderLeadsTypeChart(leads);
+    renderFunnelChart(comps, leads, articles, statsData);
+    renderProgressChart(comps);
+    renderActivityChart(comps, leads, articles);
+    renderRulesChart(leads);
   } catch (e) {
     console.error('Dashboard load error:', e);
   }
 }
 
-function renderSeverityChart(leads) {
-  const counts = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-  leads.forEach(l => { if (counts[l.severity] !== undefined) counts[l.severity]++; });
+// ── Panel 1: 섹터별 취재단서 (lead_type 별 가로 막대) ──────────────────────
+function renderLeadsTypeChart(leads) {
+  const TYPE_LABELS_KO = {
+    strategy_change: '신규사업',
+    risk_alert:      '규제리스크',
+    numeric_change:  '수치급등',
+    market_shift:    '시장점유율',
+    supply_chain:    '공급망변화',
+    mgmt_change:     '경영진변화',
+  };
+  const counts = {};
+  Object.keys(TYPE_LABELS_KO).forEach(k => { counts[k] = 0; });
+  leads.forEach(l => { if (counts[l.lead_type] !== undefined) counts[l.lead_type]++; });
 
-  const ctx = document.getElementById('chart-severity');
+  const labels = Object.keys(TYPE_LABELS_KO).map(k => TYPE_LABELS_KO[k]);
+  const data   = Object.keys(TYPE_LABELS_KO).map(k => counts[k]);
+  const colors = ['#2563eb','#ef4444','#f97316','#10b981','#8b5cf6','#ec4899'];
+
+  const ctx = document.getElementById('chart-leads-type');
   if (!ctx) return;
-  if (chartSeverity) chartSeverity.destroy();
+  if (_dbCharts.leadsType) _dbCharts.leadsType.destroy();
+  _dbCharts.leadsType = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        backgroundColor: colors.map(c => c + 'bb'),
+        borderColor: colors,
+        borderWidth: 1,
+        borderRadius: 3,
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: {
+          ticks: { color: '#8b949e', font: { size: 10 }, precision: 0 },
+          grid:  { color: 'rgba(48,54,61,.5)' },
+          beginAtZero: true,
+        },
+        y: {
+          ticks: { color: '#8b949e', font: { size: 10 } },
+          grid:  { display: false },
+        }
+      }
+    }
+  });
+}
 
-  chartSeverity = new Chart(ctx, {
+// ── Panel 2: 기사 파이프라인 (펀넬 — HTML 바) ─────────────────────────────
+function renderFunnelChart(comps, leads, articles, stats) {
+  const totalComps    = comps.length;
+  const totalLeads    = leads.length;
+  const totalArticles = articles.length;
+  const reviewing     = articles.filter(a => a.status === 'editing' || a.status === 'reviewing').length;
+  const published     = articles.filter(a => a.status === 'published').length;
+
+  const stages = [
+    { label: '비교분석 완료', value: totalComps,    color: '#2563eb' },
+    { label: '취재단서 발견', value: totalLeads,    color: '#f97316' },
+    { label: '기사초안 생성', value: totalArticles, color: '#8b5cf6' },
+    { label: '검토중',        value: reviewing,     color: '#eab308' },
+    { label: '발행 완료',     value: published,     color: '#10b981' },
+  ];
+
+  const maxVal = Math.max(...stages.map(s => s.value), 1);
+  const el = document.getElementById('db-funnel');
+  if (!el) return;
+  el.innerHTML = stages.map(s => `
+    <div class="funnel-row">
+      <span class="funnel-label">${s.label}</span>
+      <div class="funnel-bar-wrap">
+        <div class="funnel-bar" style="width:${(s.value/maxVal*100).toFixed(1)}%;background:${s.color};"></div>
+      </div>
+      <span class="funnel-val">${s.value.toLocaleString()}</span>
+    </div>`).join('');
+}
+
+// ── Panel 3: 비교분석 진행률 (도넛 + 중앙 퍼센트) ─────────────────────────
+function renderProgressChart(comps) {
+  const done      = comps.length;
+  const remaining = Math.max(0, TOTAL_ELIGIBLE - done);
+  const pct       = ((done / TOTAL_ELIGIBLE) * 100).toFixed(1);
+
+  // Flash vs non-flash breakdown
+  const flashDone = comps.filter(c => (c.model || '').toLowerCase().includes('flash')).length;
+  const proDone   = done - flashDone;
+
+  document.getElementById('db-progress-pct').textContent = pct + '%';
+  document.getElementById('db-progress-sub').textContent  = `${done.toLocaleString()} / ${TOTAL_ELIGIBLE.toLocaleString()}`;
+
+  const ctx = document.getElementById('chart-progress');
+  if (!ctx) return;
+  if (_dbCharts.progress) _dbCharts.progress.destroy();
+  _dbCharts.progress = new Chart(ctx, {
     type: 'doughnut',
     data: {
-      labels: ['긴급(5)', '높음(4)', '보통(3)', '낮음(2)', '참고(1)'],
+      labels: ['Flash 완료', 'Pro/Sonnet 완료', '미완료'],
       datasets: [{
-        data: [counts[5], counts[4], counts[3], counts[2], counts[1]],
-        backgroundColor: ['#ef4444','#f97316','#eab308','#3b82f6','#6b7280'],
+        data: [flashDone, proDone, remaining],
+        backgroundColor: ['#f59e0b','#8b5cf6','rgba(48,54,61,.4)'],
         borderColor: '#161b22',
         borderWidth: 2,
       }]
@@ -2246,68 +2413,147 @@ function renderSeverityChart(leads) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      cutout: '68%',
       plugins: {
         legend: {
           position: 'right',
-          labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 12 }
+          labels: { color: '#8b949e', font: { size: 10 }, padding: 8, boxWidth: 10 }
         }
       }
     }
   });
 }
 
-function renderDailyChart(comps) {
-  // 일별 비교분석 건수 집계 (최근 14일)
-  const dayCounts = {};
+// ── Panel 4: 최근 7일 활동 (Area/Line) ───────────────────────────────────
+function renderActivityChart(comps, leads, articles) {
   const now = new Date();
-  for (let i = 13; i >= 0; i--) {
+  const dayKeys = [];
+  for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().substring(0, 10);
-    dayCounts[key] = 0;
+    dayKeys.push(d.toISOString().substring(0, 10));
   }
-  comps.forEach(c => {
-    if (c.analyzed_at) {
-      const day = String(c.analyzed_at).substring(0, 10);
-      if (dayCounts[day] !== undefined) dayCounts[day]++;
-    }
+
+  function countByDay(items, dateField) {
+    const map = {};
+    dayKeys.forEach(k => { map[k] = 0; });
+    items.forEach(item => {
+      const day = String(item[dateField] || '').substring(0, 10);
+      if (map[day] !== undefined) map[day]++;
+    });
+    return dayKeys.map(k => map[k]);
+  }
+
+  const labels        = dayKeys.map(d => d.substring(5));
+  const compsData     = countByDay(comps,    'analyzed_at');
+  const leadsData     = countByDay(leads,    'created_at');
+  const articlesData  = countByDay(articles, 'created_at');
+
+  const ctx = document.getElementById('chart-activity');
+  if (!ctx) return;
+  if (_dbCharts.activity) _dbCharts.activity.destroy();
+
+  const mkDataset = (label, data, color) => ({
+    label,
+    data,
+    borderColor: color,
+    backgroundColor: color + '22',
+    borderWidth: 2,
+    fill: true,
+    tension: 0.35,
+    pointRadius: 3,
+    pointHoverRadius: 5,
   });
 
-  const labels = Object.keys(dayCounts).map(d => d.substring(5)); // MM-DD
-  const data   = Object.values(dayCounts);
-
-  const ctx = document.getElementById('chart-daily');
-  if (!ctx) return;
-  if (chartDaily) chartDaily.destroy();
-
-  chartDaily = new Chart(ctx, {
-    type: 'bar',
+  _dbCharts.activity = new Chart(ctx, {
+    type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: '비교분석 건수',
-        data,
-        backgroundColor: 'rgba(37,99,235,.6)',
-        borderColor: '#2563eb',
-        borderWidth: 1,
-        borderRadius: 3,
-      }]
+      datasets: [
+        mkDataset('비교분석',   compsData,    '#2563eb'),
+        mkDataset('취재단서',   leadsData,    '#f97316'),
+        mkDataset('기사초안',   articlesData, '#8b5cf6'),
+      ]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: false }
+        legend: {
+          labels: { color: '#8b949e', font: { size: 10 }, padding: 10, boxWidth: 12 }
+        }
       },
       scales: {
         x: {
           ticks: { color: '#8b949e', font: { size: 10 } },
-          grid: { color: 'rgba(48,54,61,.4)' }
+          grid:  { color: 'rgba(48,54,61,.4)' }
         },
         y: {
           ticks: { color: '#8b949e', font: { size: 10 }, precision: 0 },
-          grid: { color: 'rgba(48,54,61,.4)' },
+          grid:  { color: 'rgba(48,54,61,.4)' },
           beginAtZero: true,
+        }
+      }
+    }
+  });
+}
+
+// ── Panel 5: 알림 룰 적중률 (lead_type 기반 가로 막대) ────────────────────
+function renderRulesChart(leads) {
+  const RULE_NAMES = {
+    strategy_change: '신규사업 진출 감지',
+    risk_alert:      '규제·법률 리스크 경보',
+    numeric_change:  '핵심 수치 급등락',
+    market_shift:    '시장점유율 변화',
+    supply_chain:    '공급망·원가 변화',
+    mgmt_change:     '경영진 변화 감지',
+  };
+  const sev5Counts = {}, sev4Counts = {}, sev3Counts = {};
+  Object.keys(RULE_NAMES).forEach(k => { sev5Counts[k] = 0; sev4Counts[k] = 0; sev3Counts[k] = 0; });
+  leads.forEach(l => {
+    const k = l.lead_type;
+    if (sev5Counts[k] !== undefined) {
+      if (l.severity >= 5)      sev5Counts[k]++;
+      else if (l.severity >= 4) sev4Counts[k]++;
+      else                      sev3Counts[k]++;
+    }
+  });
+
+  const labels = Object.keys(RULE_NAMES).map(k => RULE_NAMES[k]);
+
+  const ctx = document.getElementById('chart-rules');
+  if (!ctx) return;
+  if (_dbCharts.rules) _dbCharts.rules.destroy();
+  _dbCharts.rules = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: '긴급(5)', data: Object.keys(RULE_NAMES).map(k => sev5Counts[k]), backgroundColor: '#ef4444aa', borderColor: '#ef4444', borderWidth: 1, borderRadius: 2 },
+        { label: '높음(4)', data: Object.keys(RULE_NAMES).map(k => sev4Counts[k]), backgroundColor: '#f97316aa', borderColor: '#f97316', borderWidth: 1, borderRadius: 2 },
+        { label: '보통(3)', data: Object.keys(RULE_NAMES).map(k => sev3Counts[k]), backgroundColor: '#eab308aa', borderColor: '#eab308', borderWidth: 1, borderRadius: 2 },
+      ]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#8b949e', font: { size: 10 }, padding: 10, boxWidth: 10 }
+        }
+      },
+      scales: {
+        x: {
+          stacked: true,
+          ticks: { color: '#8b949e', font: { size: 10 }, precision: 0 },
+          grid:  { color: 'rgba(48,54,61,.4)' },
+          beginAtZero: true,
+        },
+        y: {
+          stacked: true,
+          ticks: { color: '#8b949e', font: { size: 10 } },
+          grid:  { display: false },
         }
       }
     }

@@ -6,34 +6,165 @@
   <title>비교 분석 — Company Catcher</title>
   <script src="common.js"></script>
   <style>
-    .comp-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all .15s; margin-bottom: 8px; }
+    /* ── 페이지 레이아웃 ──────────────────────────────────────────────── */
+    .page-outer { padding: 16px 20px; max-width: 1600px; margin: 0 auto; }
+
+    /* 상단 바 */
+    .top-bar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .top-bar input {
+      flex: 1; min-width: 200px;
+      background: var(--bg3); border: 1px solid var(--border);
+      color: var(--txt1); border-radius: 8px; padding: 8px 14px;
+      font-size: 13px; outline: none;
+    }
+    .top-bar input:focus { border-color: var(--acc); }
+    .top-bar select {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 8px 10px; font-size: 12px; cursor: pointer; outline: none;
+    }
+    .top-bar-title {
+      font-size: 17px; font-weight: 700; white-space: nowrap;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .top-bar-title .count { font-size: 12px; color: var(--txt2); font-weight: 400; }
+
+    /* 70/30 스플릿 */
+    .page-layout {
+      display: flex; gap: 16px;
+      height: calc(100vh - 140px);
+    }
+    .main-panel {
+      flex: 7; overflow-y: auto; min-width: 0;
+    }
+    .sidebar {
+      flex: 3; overflow-y: auto;
+      border-left: 1px solid var(--border); padding-left: 16px;
+      min-width: 240px; max-width: 360px;
+    }
+
+    /* ── 비교 카드 ────────────────────────────────────────────────────── */
+    .comp-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; cursor: pointer; transition: all .15s; margin-bottom: 8px;
+    }
     .comp-card:hover { background: var(--bg3); border-color: var(--acc); }
-    .comp-route { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--txt1); margin-bottom: 6px; flex-wrap: wrap; }
-    .comp-route-arrow { color: var(--acc); font-size: 16px; }
-    .comp-preview { font-size: 12px; color: var(--txt2); line-height: 1.6;
+    .comp-card.selected { border-color: var(--acc); background: var(--bg3); }
+    .comp-card-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+    .comp-route { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; flex-wrap: wrap; }
+    .comp-route-arrow { color: var(--acc); font-size: 15px; }
+    .type-tag {
+      background: var(--bg4); color: var(--acc);
+      border: 1px solid rgba(91,106,240,.3); border-radius: 4px;
+      padding: 2px 8px; font-size: 11px; font-weight: 600;
+    }
+    .comp-preview {
+      font-size: 12px; color: var(--txt2); line-height: 1.6;
       display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
-      margin-bottom: 8px; }
+      margin-bottom: 8px;
+    }
     .comp-footer { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--txt2); flex-wrap: wrap; }
-    .type-tag { background: var(--bg4); color: var(--acc); border: 1px solid rgba(91,106,240,.3); border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 600; }
-    .modal-md-body { font-size: 13px; color: var(--txt1); line-height: 1.9; background: var(--bg3); border-radius: 8px; padding: 16px; }
-    .modal-md-body h4 { margin: 12px 0 6px; color: var(--txt1); }
-    .modal-md-body strong { color: var(--txt1); font-weight: 600; }
-    .modal-md-body em { color: var(--acc); font-style: normal; }
+
+    /* ── 상세 뷰 ──────────────────────────────────────────────────────── */
+    .detail-view { display: none; }
+    .detail-header {
+      display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    }
+    .back-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+      white-space: nowrap; transition: all .15s;
+    }
+    .back-btn:hover { border-color: var(--acc); color: var(--acc); }
+    .detail-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+    .detail-meta { font-size: 11px; color: var(--txt2); }
+    .md-body {
+      font-size: 13px; color: var(--txt1); line-height: 1.9;
+      background: var(--bg3); border-radius: 8px; padding: 16px;
+    }
+    .md-body h4 { margin: 12px 0 6px; color: var(--txt1); }
+    .md-body strong { color: var(--txt1); font-weight: 600; }
+    .md-body em { color: var(--acc); font-style: normal; }
+
+    /* ── 사이드바 ─────────────────────────────────────────────────────── */
+    .sidebar-title {
+      font-size: 13px; font-weight: 700; color: var(--txt1);
+      margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
+    }
+    .sb-count {
+      background: var(--bg4); color: var(--txt2); font-size: 10px;
+      border-radius: 10px; padding: 1px 7px; font-weight: 600;
+    }
+    .sb-section { margin-bottom: 18px; }
+    .sb-section-hd {
+      font-size: 11px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+    }
+
+    /* 컴팩트 리드 카드 */
+    .mini-lead {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 9px 11px; margin-bottom: 6px; cursor: default;
+    }
+    .mini-lead-top { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; }
+    .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .sev-dot-5 { background: #e74c3c; }
+    .sev-dot-4 { background: #e67e22; }
+    .sev-dot-3 { background: #f1c40f; }
+    .sev-dot-2 { background: #3498db; }
+    .mini-lead-corp { font-size: 11px; font-weight: 600; color: var(--txt1); }
+    .mini-lead-type { font-size: 10px; color: var(--txt2); }
+    .mini-lead-title {
+      font-size: 11px; color: var(--txt2); line-height: 1.4;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .mini-lead-link { font-size: 10px; color: var(--acc); text-decoration: none; }
+    .mini-lead-link:hover { text-decoration: underline; }
+
+    /* 컴팩트 기사 카드 */
+    .mini-article {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 9px 11px; margin-bottom: 6px;
+    }
+    .mini-article-top { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; flex-wrap: wrap; }
+    .mini-article-corp { font-size: 11px; font-weight: 600; color: var(--txt1); }
+    .mini-article-headline {
+      font-size: 11px; color: var(--txt2); line-height: 1.4;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .mini-article-link { font-size: 10px; color: var(--acc); text-decoration: none; }
+    .mini-article-link:hover { text-decoration: underline; }
+
+    .sb-see-all {
+      display: block; text-align: center; font-size: 11px; color: var(--acc);
+      text-decoration: none; padding: 5px; border: 1px solid rgba(91,106,240,.3);
+      border-radius: 6px; margin-top: 4px; transition: all .15s;
+    }
+    .sb-see-all:hover { background: rgba(91,106,240,.1); }
+
+    /* 페이지네이션 위치 조정 */
+    #pagination-container { padding-top: 4px; }
   </style>
 </head>
 <body>
 <div id="app">
-  <div class="page-wrap">
-    <div class="page-title">
-      <span>📊 AI 비교 분석</span>
-      <span class="count" id="total-count"></span>
-    </div>
-
-    <!-- 검색/필터 바 -->
-    <div class="search-bar">
+  <div class="page-outer">
+    <!-- 상단 제목 + 검색/필터 -->
+    <div class="top-bar">
+      <div class="top-bar-title">
+        <span>📊 AI 비교 분석</span>
+        <span class="count" id="total-count"></span>
+      </div>
       <input type="text" id="search-input" placeholder="기업명 검색..." oninput="onSearchInput()">
       <select id="sort-select" onchange="onFilterChange()">
         <option value="recent">최신순</option>
+        <option value="oldest">오래된순</option>
         <option value="relevant">관련순</option>
       </select>
       <select id="type-filter" onchange="onFilterChange()">
@@ -46,52 +177,88 @@
       </select>
     </div>
 
-    <!-- 목록 -->
-    <div id="comp-grid">
-      <div class="loading">로딩 중...</div>
-    </div>
+    <!-- 70 / 30 레이아웃 -->
+    <div class="page-layout">
 
-    <!-- 페이지네이션 -->
-    <div id="pagination-container"></div>
-  </div>
-</div>
+      <!-- LEFT 70% — 메인 패널 -->
+      <div class="main-panel" id="main-panel">
 
-<!-- 상세 모달 -->
-<div id="comp-modal" style="display:none;" class="modal-overlay" onclick="closeModal(event)">
-  <div class="modal-box" style="width:860px;max-width:98vw;" onclick="event.stopPropagation()">
-    <div class="modal-header" id="comp-modal-header">
-      <div>
-        <div class="modal-title" id="comp-modal-title"></div>
-        <div style="font-size:11px;color:var(--txt2);margin-top:3px;" id="comp-modal-meta"></div>
-      </div>
-      <button class="modal-close" onclick="document.getElementById('comp-modal').style.display='none'">✕</button>
-    </div>
-    <div class="modal-body">
-      <div id="comp-modal-body" class="modal-md-body">
-        <div class="loading">로딩 중...</div>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
-        <button style="background:var(--bg3);color:var(--txt1);border:1px solid var(--border);border-radius:8px;padding:8px 16px;font-size:12px;cursor:pointer;"
-          onclick="document.getElementById('comp-modal').style.display='none'">닫기</button>
-      </div>
-    </div>
-  </div>
-</div>
+        <!-- 목록 뷰 -->
+        <div id="list-view">
+          <div id="comp-grid">
+            <div class="loading">로딩 중...</div>
+          </div>
+          <div id="pagination-container"></div>
+        </div>
+
+        <!-- 상세 뷰 (카드 클릭 시) -->
+        <div id="detail-view" class="detail-view">
+          <div class="detail-header">
+            <button class="back-btn" onclick="showListView()">← 목록으로</button>
+            <div>
+              <div class="detail-title" id="detail-title"></div>
+              <div class="detail-meta" id="detail-meta"></div>
+            </div>
+          </div>
+          <div id="detail-body" class="md-body">
+            <div class="loading">로딩 중...</div>
+          </div>
+        </div>
+
+      </div><!-- /main-panel -->
+
+      <!-- RIGHT 30% — 사이드바 -->
+      <div class="sidebar">
+        <div class="sidebar-title">
+          📌 기사화 유력 기업
+          <span class="sb-count" id="sb-company-label">전체</span>
+        </div>
+
+        <!-- 취재단서 섹션 -->
+        <div class="sb-section">
+          <div class="sb-section-hd">
+            🚨 취재단서
+            <span class="sb-count" id="sb-leads-count">0</span>
+          </div>
+          <div id="sb-leads-list">
+            <div class="loading" style="padding:20px;">로딩 중...</div>
+          </div>
+          <a id="sb-leads-all-link" class="sb-see-all" href="leads.html">모두 보기 →</a>
+        </div>
+
+        <!-- 기사초안 섹션 -->
+        <div class="sb-section">
+          <div class="sb-section-hd">
+            ✍ 기사초안
+            <span class="sb-count" id="sb-articles-count">0</span>
+          </div>
+          <div id="sb-articles-list">
+            <div class="loading" style="padding:20px;">로딩 중...</div>
+          </div>
+          <a id="sb-articles-all-link" class="sb-see-all" href="articles.html">모두 보기 →</a>
+        </div>
+
+      </div><!-- /sidebar -->
+
+    </div><!-- /page-layout -->
+  </div><!-- /page-outer -->
+</div><!-- /app -->
 
 <script>
   initPage('comparisons');
 
   const PER_PAGE = 20;
-  let currentPage = 1;
-  let totalItems  = 0;
-  let searchTimer = null;
+  let currentPage  = 1;
+  let totalItems   = 0;
+  let searchTimer  = null;
+  let selectedComp = null; // { id, corp_code, corp_name }
 
-  // 보고서 유형 한글 라벨
+  // ── 보고서 유형 라벨 ──────────────────────────────────────────────────────
   const TYPE_LABELS = {
-    '2025_annual': '2025 사업보고서',
-    '2025_q1':     '2025 1분기',
-    '2025_h1':     '2025 반기',
-    '2025_q3':     '2025 3분기',
+    '2025_annual': '사업보고서',
+    '2025_q1':     '1분기',
+    '2025_h1':     '반기',
+    '2025_q3':     '3분기',
   };
   function typeLabel(t) { return TYPE_LABELS[t] || t; }
 
@@ -99,11 +266,11 @@
   function getUrlParams() {
     const p = new URLSearchParams(location.search);
     return {
-      page:  parseInt(p.get('page') || '1'),
-      q:     p.get('q')    || '',
-      sort:  p.get('sort') || 'recent',
-      type:  p.get('type') || '',
-      id:    p.get('id')   || '',
+      page: parseInt(p.get('page') || '1'),
+      q:    p.get('q')    || '',
+      sort: p.get('sort') || 'recent',
+      type: p.get('type') || '',
+      id:   p.get('id')   || '',
     };
   }
 
@@ -119,47 +286,60 @@
   function loadFromUrl() {
     const p = getUrlParams();
     currentPage = p.page;
-    document.getElementById('search-input').value  = p.q;
-    document.getElementById('sort-select').value   = p.sort;
-    document.getElementById('type-filter').value   = p.type;
-    // 직접 ID 접근 지원 (?id=N)
+    document.getElementById('search-input').value = p.q;
+    document.getElementById('sort-select').value  = p.sort;
+    document.getElementById('type-filter').value  = p.type;
+
+    fetchComparisons();
+    loadSidebar(null); // default sidebar
+
     if (p.id) {
-      fetchComparisons();
       openComparisonById(parseInt(p.id));
-    } else {
-      fetchComparisons();
     }
   }
 
-  // ── 이벤트 ────────────────────────────────────────────────────────────────
+  // ── 이벤트 핸들러 ────────────────────────────────────────────────────────
   function onSearchInput() {
     clearTimeout(searchTimer);
     searchTimer = setTimeout(() => { currentPage = 1; fetchComparisons(true); }, 350);
   }
 
-  function onFilterChange() {
-    currentPage = 1;
-    fetchComparisons(true);
-  }
+  function onFilterChange() { currentPage = 1; fetchComparisons(true); }
 
   function goPage(p) {
     currentPage = p;
     fetchComparisons(true);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    document.getElementById('main-panel').scrollTo({ top: 0, behavior: 'smooth' });
   }
 
-  // ── API 호출 ─────────────────────────────────────────────────────────────
+  // ── 목록 ↔ 상세 전환 ─────────────────────────────────────────────────────
+  function showListView() {
+    document.getElementById('list-view').style.display   = '';
+    document.getElementById('detail-view').style.display = 'none';
+    selectedComp = null;
+    // 선택 해제 시 기본 사이드바 복원
+    loadSidebar(null);
+    document.getElementById('sb-company-label').textContent = '전체';
+    // 카드 선택 표시 제거
+    document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
+  }
+
+  function showDetailView() {
+    document.getElementById('list-view').style.display   = 'none';
+    document.getElementById('detail-view').style.display = 'block';
+  }
+
+  // ── 비교 목록 API ─────────────────────────────────────────────────────────
   async function fetchComparisons(updateUrl = false) {
-    const q      = document.getElementById('search-input').value.trim();
-    const sort   = document.getElementById('sort-select').value;
+    const q       = document.getElementById('search-input').value.trim();
+    const sort    = document.getElementById('sort-select').value;
     const typeVal = document.getElementById('type-filter').value;
-    const offset = (currentPage - 1) * PER_PAGE;
+    const offset  = (currentPage - 1) * PER_PAGE;
 
     if (updateUrl) pushUrl({ page: currentPage, q, sort, type: typeVal });
 
     const params = new URLSearchParams({ limit: PER_PAGE, offset, sort });
     if (q) params.set('q', q);
-    // type 필터 파싱 (format: "type_a__type_b")
     if (typeVal && typeVal.includes('__')) {
       const [ta, tb] = typeVal.split('__');
       params.set('type_a', ta);
@@ -176,7 +356,6 @@
 
       totalItems = data.total || 0;
       const items = data.comparisons || [];
-
       document.getElementById('total-count').textContent = `총 ${totalItems.toLocaleString()}건`;
 
       if (!items.length) {
@@ -194,12 +373,12 @@
 
   // ── 카드 렌더링 ───────────────────────────────────────────────────────────
   function renderCompCard(item) {
-    const preview = (item.result_preview || '').substring(0, 200);
-    const charA = item.char_count_a ? `${Math.round(item.char_count_a/1000)}K자` : '';
-    const charB = item.char_count_b ? `${Math.round(item.char_count_b/1000)}K자` : '';
+    const preview = (item.result_preview || '').substring(0, 250);
+    const charA = item.char_count_a ? `${Math.round(item.char_count_a/1000)}k자` : '';
+    const charB = item.char_count_b ? `${Math.round(item.char_count_b/1000)}k자` : '';
     return `
-      <div class="comp-card" onclick="openComparison(${item.id})">
-        <div class="card-header" style="margin-bottom:6px;">
+      <div class="comp-card" id="card-${item.id}" onclick="openComparison(${item.id}, '${escHtml(item.corp_code||'')}', '${escHtml(item.corp_name||'')}')">
+        <div class="comp-card-header">
           <span class="corp-badge">${escHtml(item.corp_name || '')}</span>
           <span class="type-badge">${escHtml(item.model || 'flash')}</span>
           <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(item.analyzed_at)}</span>
@@ -217,61 +396,172 @@
       </div>`;
   }
 
-  // ── 상세 모달 ─────────────────────────────────────────────────────────────
-  async function openComparison(compId) {
-    const modal = document.getElementById('comp-modal');
-    modal.style.display = 'flex';
-    document.getElementById('comp-modal-body').innerHTML = '<div class="loading">로딩 중...</div>';
-    document.getElementById('comp-modal-title').textContent = '...';
-    document.getElementById('comp-modal-meta').textContent  = '';
-    await loadComparisonDetail(compId);
-  }
+  // ── 상세 뷰 열기 ──────────────────────────────────────────────────────────
+  async function openComparison(compId, corpCode, corpName) {
+    // 선택 강조
+    document.querySelectorAll('.comp-card.selected').forEach(c => c.classList.remove('selected'));
+    const card = document.getElementById(`card-${compId}`);
+    if (card) card.classList.add('selected');
 
-  async function openComparisonById(compId) {
-    if (!compId) return;
-    openComparison(compId);
-  }
+    selectedComp = { id: compId, corp_code: corpCode, corp_name: corpName };
 
-  async function loadComparisonDetail(compId) {
+    showDetailView();
+    document.getElementById('detail-title').textContent = '로딩 중...';
+    document.getElementById('detail-meta').textContent  = '';
+    document.getElementById('detail-body').innerHTML    = '<div class="loading">로딩 중...</div>';
+
+    // 사이드바 업데이트
+    document.getElementById('sb-company-label').textContent = corpName || '';
+    loadSidebar(corpCode || null);
+
     try {
       const resp = await fetch(`${API}/api/ai/comparison_detail?id=${compId}`);
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || '서버 오류');
-      renderCompModal(data);
+      renderDetail(data);
     } catch (e) {
-      document.getElementById('comp-modal-body').innerHTML =
-        `<div class="empty">오류: ${escHtml(e.message)}</div>`;
+      document.getElementById('detail-body').innerHTML = `<div class="empty">오류: ${escHtml(e.message)}</div>`;
     }
   }
 
-  function renderCompModal(comp) {
-    const ta = typeLabel(comp.report_type_a);
-    const tb = typeLabel(comp.report_type_b);
-    const charA = comp.char_count_a ? `${Math.round(comp.char_count_a/1000)}K자` : '';
-    const charB = comp.char_count_b ? `${Math.round(comp.char_count_b/1000)}K자` : '';
+  async function openComparisonById(compId) {
+    if (!compId) return;
+    // 먼저 detail 로드 (corp_code는 나중에)
+    showDetailView();
+    document.getElementById('detail-title').textContent = '로딩 중...';
+    document.getElementById('detail-meta').textContent  = '';
+    document.getElementById('detail-body').innerHTML    = '<div class="loading">로딩 중...</div>';
+    try {
+      const resp = await fetch(`${API}/api/ai/comparison_detail?id=${compId}`);
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || '서버 오류');
+      selectedComp = { id: compId, corp_code: data.corp_code || '', corp_name: data.corp_name || '' };
+      document.getElementById('sb-company-label').textContent = data.corp_name || '';
+      loadSidebar(data.corp_code || null);
+      renderDetail(data);
+    } catch (e) {
+      document.getElementById('detail-body').innerHTML = `<div class="empty">오류: ${escHtml(e.message)}</div>`;
+    }
+  }
 
-    document.getElementById('comp-modal-title').innerHTML =
-      `${escHtml(comp.corp_name || '')} — ${escHtml(ta)} → ${escHtml(tb)}`;
-    document.getElementById('comp-modal-meta').innerHTML =
-      `모델: ${escHtml(comp.model || 'flash')} · ` +
-      `${charA ? 'A:' + charA + ' · ' : ''}${charB ? 'B:' + charB + ' · ' : ''}` +
-      `분석일시: ${fmtDate(comp.analyzed_at)}`;
+  function renderDetail(comp) {
+    const ta   = typeLabel(comp.report_type_a);
+    const tb   = typeLabel(comp.report_type_b);
+    const charA = comp.char_count_a ? `A:${Math.round(comp.char_count_a/1000)}k자` : '';
+    const charB = comp.char_count_b ? `B:${Math.round(comp.char_count_b/1000)}자` : '';
+
+    document.getElementById('detail-title').innerHTML =
+      `${escHtml(comp.corp_name || '')} — <span class="type-tag">${escHtml(ta)}</span> → <span class="type-tag">${escHtml(tb)}</span>`;
+    document.getElementById('detail-meta').textContent =
+      [comp.model ? `모델: ${comp.model}` : '', charA, charB, comp.analyzed_at ? `분석일시: ${fmtDate(comp.analyzed_at)}` : '']
+        .filter(Boolean).join(' · ');
 
     const result = comp.result || '분석 결과가 없습니다.';
-    document.getElementById('comp-modal-body').innerHTML = renderMarkdown(result);
+    document.getElementById('detail-body').innerHTML = renderMarkdown(result);
   }
 
-  function closeModal(e) {
-    if (e.target === document.getElementById('comp-modal')) {
-      document.getElementById('comp-modal').style.display = 'none';
+  // ── 사이드바 로드 ─────────────────────────────────────────────────────────
+  async function loadSidebar(corpCode) {
+    await Promise.all([
+      loadSidebarLeads(corpCode),
+      loadSidebarArticles(corpCode),
+    ]);
+  }
+
+  async function loadSidebarLeads(corpCode) {
+    const list = document.getElementById('sb-leads-list');
+    list.innerHTML = '<div class="loading" style="padding:16px;">로딩 중...</div>';
+
+    let url;
+    if (corpCode) {
+      url = `${API}/api/leads?corp_code=${encodeURIComponent(corpCode)}&limit=5`;
+      document.getElementById('sb-leads-all-link').href = `leads.html?corp_code=${encodeURIComponent(corpCode)}`;
+    } else {
+      url = `${API}/api/leads?min_severity=4&status=new&limit=5`;
+      document.getElementById('sb-leads-all-link').href = 'leads.html';
+    }
+
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const leads = data.leads || [];
+      document.getElementById('sb-leads-count').textContent = leads.length;
+
+      if (!leads.length) {
+        list.innerHTML = `<div style="color:var(--txt2);font-size:12px;padding:12px 0;">단서가 없습니다</div>`;
+        return;
+      }
+      list.innerHTML = leads.map(renderMiniLead).join('');
+    } catch (e) {
+      list.innerHTML = `<div style="color:var(--txt2);font-size:11px;padding:8px 0;">로드 오류</div>`;
     }
   }
 
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') document.getElementById('comp-modal').style.display = 'none';
-  });
+  async function loadSidebarArticles(corpCode) {
+    const list = document.getElementById('sb-articles-list');
+    list.innerHTML = '<div class="loading" style="padding:16px;">로딩 중...</div>';
 
-  // ── 초기 로드 ────────────────────────────────────────────────────────────
+    let url;
+    if (corpCode) {
+      url = `${API}/api/articles?corp_code=${encodeURIComponent(corpCode)}&limit=5`;
+      document.getElementById('sb-articles-all-link').href = `articles.html?corp_code=${encodeURIComponent(corpCode)}`;
+    } else {
+      url = `${API}/api/articles?limit=5`;
+      document.getElementById('sb-articles-all-link').href = 'articles.html';
+    }
+
+    try {
+      const resp = await fetch(url);
+      const data = await resp.json();
+      const articles = data.articles || [];
+      document.getElementById('sb-articles-count').textContent = articles.length;
+
+      if (!articles.length) {
+        list.innerHTML = `<div style="color:var(--txt2);font-size:12px;padding:12px 0;">기사초안이 없습니다</div>`;
+        return;
+      }
+      list.innerHTML = articles.map(renderMiniArticle).join('');
+    } catch (e) {
+      list.innerHTML = `<div style="color:var(--txt2);font-size:11px;padding:8px 0;">로드 오류</div>`;
+    }
+  }
+
+  // ── 미니 카드 렌더러 ──────────────────────────────────────────────────────
+  function sevDotClass(sev) {
+    if (sev >= 5) return 'sev-dot-5';
+    if (sev >= 4) return 'sev-dot-4';
+    if (sev >= 3) return 'sev-dot-3';
+    return 'sev-dot-2';
+  }
+
+  function renderMiniLead(lead) {
+    const corpCode = lead.corp_code ? encodeURIComponent(lead.corp_code) : '';
+    return `
+      <div class="mini-lead">
+        <div class="mini-lead-top">
+          <span class="sev-dot ${sevDotClass(lead.severity)}"></span>
+          <span class="mini-lead-corp">${escHtml(lead.corp_name || '')}</span>
+          <span class="mini-lead-type">${leadTypeKo(lead.lead_type)}</span>
+        </div>
+        <div class="mini-lead-title" title="${escHtml(lead.title || '')}">${escHtml(lead.title || '제목 없음')}</div>
+        <a class="mini-lead-link" href="leads.html${corpCode ? '?corp_code=' + corpCode : ''}">→ 단서 보기</a>
+      </div>`;
+  }
+
+  function renderMiniArticle(article) {
+    const corpCode = article.corp_code ? encodeURIComponent(article.corp_code) : '';
+    return `
+      <div class="mini-article">
+        <div class="mini-article-top">
+          ${articleStatusBadge(article.status)}
+          <span class="mini-article-corp">${escHtml(article.corp_name || '')}</span>
+        </div>
+        <div class="mini-article-headline" title="${escHtml(article.headline || '')}">${escHtml(article.headline || '제목 없음')}</div>
+        <a class="mini-article-link" href="articles.html${corpCode ? '?corp_code=' + corpCode : ''}">→ 초안 보기</a>
+      </div>`;
+  }
+
+  // ── 초기 로드 ─────────────────────────────────────────────────────────────
   loadFromUrl();
   window.addEventListener('popstate', loadFromUrl);
 </script>
