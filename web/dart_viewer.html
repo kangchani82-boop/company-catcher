@@ -710,6 +710,8 @@ header h1 span { color: var(--accent); }
     <span>사업내용 <b id="st-biz">-</b></span>
     <span>공급망 <b id="st-sc">-</b></span>
     <span>비교분석 <b id="st-cmp">-</b></span>
+    <span onclick="openArticlesPanel()" style="cursor:pointer;text-decoration:underline dotted;"
+          title="기사 초안 목록 열기">기사초안 <b id="st-articles">-</b></span>
   </div>
 
   <!-- 취재 단서 알림 배지 -->
@@ -731,6 +733,20 @@ header h1 span { color: var(--accent); }
     <button onclick="toggleAlertPanel()" style="background:none;border:none;color:var(--txt2);cursor:pointer;font-size:16px;">✕</button>
   </div>
   <div id="alert-panel-body"><div class="loading">로딩 중...</div></div>
+</div>
+
+<!-- 기사 초안 목록 패널 -->
+<div id="articles-panel" style="display:none;position:fixed;top:48px;right:8px;z-index:800;
+  width:680px;max-height:80vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);
+  border-radius:10px;box-shadow:0 8px 32px rgba(0,0,0,.4);">
+  <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);
+              position:sticky;top:0;background:var(--bg2);z-index:1;">
+    <span style="font-size:14px;font-weight:700;">✍ 기사 초안 목록</span>
+    <span id="articles-count" style="font-size:11px;color:var(--txt2);margin-left:8px;"></span>
+    <button onclick="document.getElementById('articles-panel').style.display='none'"
+      style="margin-left:auto;background:none;border:none;color:var(--txt2);font-size:18px;cursor:pointer;">✕</button>
+  </div>
+  <div id="articles-list" style="padding:8px;"></div>
 </div>
 
 <div class="layout">
@@ -1308,6 +1324,7 @@ async function loadStats() {
     document.getElementById('st-biz').textContent       = (d.reports     || 0).toLocaleString();
     document.getElementById('st-sc').textContent        = (d.supply_chain|| 0).toLocaleString();
     document.getElementById('st-cmp').textContent       = (d.comparisons || 0).toLocaleString();
+    document.getElementById('st-articles').textContent  = (d.articles    || 0).toLocaleString();
   } catch(e) {
     // fallback
     try {
@@ -1318,6 +1335,69 @@ async function loadStats() {
       document.getElementById('st-sc').textContent        = (d2.supply_chain|| 0).toLocaleString();
     } catch(e2) { console.warn('stats error', e2); }
   }
+}
+
+// ── 기사 초안 목록 패널 ────────────────────────────────────────────────────
+async function openArticlesPanel() {
+  const panel = document.getElementById('articles-panel');
+  panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  if (panel.style.display === 'none') return;
+  await loadArticlesList();
+}
+
+async function loadArticlesList() {
+  const listEl = document.getElementById('articles-list');
+  const cntEl  = document.getElementById('articles-count');
+  listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--txt2);">로딩 중...</div>';
+  try {
+    const d = await fetch(`${API}/api/articles?limit=50`).then(r => r.json());
+    const articles = d.articles || [];
+    cntEl.textContent = `총 ${d.total||0}건`;
+    if (!articles.length) {
+      listEl.innerHTML = '<div style="padding:20px;text-align:center;color:var(--txt2);">생성된 기사 초안이 없습니다</div>';
+      return;
+    }
+    listEl.innerHTML = articles.map(a => {
+      const status = {draft:'📝 초안', editing:'✏️ 편집중', ready:'✅ 게재가능', published:'🗞️ 게재완료', rejected:'❌ 반려'}[a.status] || a.status;
+      const gUrl = `https://www.google.com/search?q=${encodeURIComponent((a.corp_name||'')+' '+(a.headline||''))}`;
+      const nUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent((a.corp_name||'')+' '+(a.headline||''))}`;
+      return `
+        <div onclick="viewArticle(${a.id})" style="background:var(--bg3);border-radius:8px;padding:12px;
+          margin-bottom:8px;cursor:pointer;transition:background .15s;"
+          onmouseover="this.style.background='var(--bg4)'" onmouseout="this.style.background='var(--bg3)'">
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:4px;">
+            <span style="font-size:10px;background:var(--acc);color:#fff;border-radius:4px;
+                        padding:2px 6px;white-space:nowrap;">${escHtml(a.corp_name||'')}</span>
+            <span style="font-size:11px;color:var(--txt2);">${status}</span>
+            <span style="margin-left:auto;display:flex;gap:4px;">
+              <a href="${gUrl}" target="_blank" onclick="event.stopPropagation()"
+                 style="font-size:9px;color:#4285f4;border:1px solid #4285f4;border-radius:3px;padding:1px 5px;text-decoration:none;">G</a>
+              <a href="${nUrl}" target="_blank" onclick="event.stopPropagation()"
+                 style="font-size:9px;color:#03c75a;border:1px solid #03c75a;border-radius:3px;padding:1px 5px;text-decoration:none;">N</a>
+            </span>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:var(--txt1);margin-bottom:2px;">${escHtml(a.headline||'')}</div>
+          ${a.subheadline ? `<div style="font-size:11px;color:var(--txt2);">${escHtml(a.subheadline)}</div>` : ''}
+          <div style="font-size:10px;color:var(--txt2);margin-top:4px;">
+            ${(a.content_preview||'').substring(0,80)}...
+          </div>
+          <div style="font-size:10px;color:var(--txt2);margin-top:4px;">
+            ${a.model||''} · ${(a.created_at||'').substring(0,16)}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div style="padding:20px;color:red;">오류: ${e.message}</div>`;
+  }
+}
+
+async function viewArticle(artId) {
+  try {
+    const d = await fetch(`${API}/api/articles/${artId}`).then(r => r.json());
+    if (!d.article) return;
+    showDraftModal(d.article, d.article.corp_name || '');
+  } catch(e) { alert('기사 로드 오류: ' + e.message); }
 }
 
 // ── TYPE_LABELS: 소프트코딩 (report_types에서 동적 생성) ──────────────────

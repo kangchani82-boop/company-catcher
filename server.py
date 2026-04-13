@@ -909,6 +909,48 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── /api/articles/{id} ────────────────────────────────────────────
+        m_art = re.match(r"^/api/articles/(\d+)$", path)
+        if m_art:
+            art_id = int(m_art.group(1))
+            try:
+                db = get_db()
+                row = db.execute("SELECT * FROM article_drafts WHERE id=?", [art_id]).fetchone()
+                if not row:
+                    self._json({"error": f"article_id={art_id} 없음"}, 404)
+                else:
+                    self._json({"article": dict(row)})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/leads/{id} ───────────────────────────────────────────────
+        m_lead = re.match(r"^/api/leads/(\d+)$", path)
+        if m_lead:
+            lead_id = int(m_lead.group(1))
+            try:
+                db = get_db()
+                row = db.execute("""
+                    SELECT sl.*, ac.result as ai_result
+                    FROM story_leads sl
+                    LEFT JOIN ai_comparisons ac ON sl.comparison_id = ac.id
+                    WHERE sl.id=?
+                """, [lead_id]).fetchone()
+                if not row:
+                    self._json({"error": f"lead_id={lead_id} 없음"}, 404)
+                else:
+                    # 해당 lead의 초안도 함께
+                    drafts = db.execute(
+                        "SELECT id, headline, status, model, created_at FROM article_drafts WHERE lead_id=? ORDER BY id DESC",
+                        [lead_id]
+                    ).fetchall()
+                    d = dict(row)
+                    d["drafts"] = [dict(x) for x in drafts]
+                    self._json({"lead": d})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── /api/stats/dashboard ───────────────────────────────────────────
         if path == "/api/stats/dashboard":
             try:
