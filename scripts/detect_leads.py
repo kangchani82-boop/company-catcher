@@ -268,6 +268,8 @@ def process_comparisons(
             title_tmpl = rule["title_tmpl"] or ""
             keywords: list[str] = json.loads(rule["keywords"]) if rule["keywords"] else []
             exclude_kw: list[str] = json.loads(rule["exclude_kw"]) if rule["exclude_kw"] else []
+            require_context: list[str] = json.loads(rule["require_context"]) if rule["require_context"] else []
+            min_evidence_len: int = rule["min_evidence_len"] or 0
 
             if not keywords:
                 continue
@@ -277,19 +279,34 @@ def process_comparisons(
             if not matched_kws:
                 continue
 
-            # 제외 키워드 체크
+            # 첫 번째 매칭 키워드 기준으로 evidence/summary 추출
+            first_kw = matched_kws[0]
+            evidence = extract_evidence(result_text, first_kw, max_chars=1000)
+            summary = extract_summary(result_text, first_kw, window=150)
+
+            # 제외 키워드 체크 — evidence 범위(키워드 포함 문장)에서만 검사
+            # 전체 result 텍스트가 아닌 매칭 문장에서 exclude_kw 확인
             if exclude_kw:
-                excluded = any(ex.lower() in result_lower for ex in exclude_kw)
+                check_text = evidence.lower() if evidence else result_lower
+                excluded = any(ex.lower() in check_text for ex in exclude_kw)
                 if excluded:
                     continue
 
+            # 최소 evidence 길이 체크 (빈 섹션 헤더 제거)
+            if min_evidence_len > 0 and len(evidence.strip()) < min_evidence_len:
+                continue
+
+            # require_context: evidence 내에 하나 이상의 '실제 변화' 단어 필요
+            if require_context:
+                ev_lower = evidence.lower()
+                if not any(rc.lower() in ev_lower for rc in require_context):
+                    continue
+
+            # evidence를 500자로 다시 자름
+            evidence = evidence[:500]
+
             # title 생성
             title = title_tmpl.replace("{corp_name}", corp_name)
-
-            # 첫 번째 매칭 키워드 기준으로 evidence/summary 추출
-            first_kw = matched_kws[0]
-            evidence = extract_evidence(result_text, first_kw, max_chars=500)
-            summary = extract_summary(result_text, first_kw, window=150)
 
             # story_leads 삽입 (중복 시 무시)
             try:
