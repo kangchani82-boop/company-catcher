@@ -97,10 +97,11 @@ TYPE_LABELS = {
 
 # ─── DB ─────────────────────────────────────────────────────────────────────
 def get_db() -> sqlite3.Connection:
-    db = sqlite3.connect(str(DB_PATH))
+    db = sqlite3.connect(str(DB_PATH), timeout=30)  # 30초 대기 후 재시도
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA synchronous=NORMAL")
+    db.execute("PRAGMA busy_timeout=30000")   # 30초 동안 잠금 재시도
     return db
 
 
@@ -142,10 +143,26 @@ def already_done(db: sqlite3.Connection, corp_code: str,
     return bool(row)
 
 
+def _db_execute_with_retry(db: sqlite3.Connection, sql: str, params: list, retries: int = 5):
+    """DB 잠금 시 최대 retries 회 재시도 (busy_timeout과 이중 보호)"""
+    for attempt in range(retries):
+        try:
+            db.execute(sql, params)
+            db.commit()
+            return
+        except sqlite3.OperationalError as e:
+            if "locked" in str(e) and attempt < retries - 1:
+                wait = 2 ** attempt  # 1, 2, 4, 8, 16초
+                print(f"  ⚠ DB 잠금 — {wait}초 후 재시도 ({attempt+1}/{retries})")
+                time.sleep(wait)
+            else:
+                raise
+
+
 def save_result(db: sqlite3.Connection, corp_code: str, corp_name: str,
                 rid_a: int, rid_b: int, type_a: str, type_b: str,
                 model: str, result: str, char_a: int, char_b: int):
-    db.execute("""
+    _db_execute_with_retry(db, """
         INSERT INTO ai_comparisons
           (corp_code, corp_name, report_id_a, report_id_b,
            report_type_a, report_type_b, model, result,
@@ -159,13 +176,12 @@ def save_result(db: sqlite3.Connection, corp_code: str, corp_name: str,
     """, [corp_code, corp_name, rid_a, rid_b, type_a, type_b,
           model, result, char_a, char_b,
           datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-    db.commit()
 
 
 def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
                rid_a: int, rid_b: int, type_a: str, type_b: str,
                model: str, error_msg: str):
-    db.execute("""
+    _db_execute_with_retry(db, """
         INSERT INTO ai_comparisons
           (corp_code, corp_name, report_id_a, report_id_b,
            report_type_a, report_type_b, model, status, error_msg, analyzed_at)
@@ -175,7 +191,6 @@ def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
           analyzed_at=excluded.analyzed_at
     """, [corp_code, corp_name, rid_a, rid_b, type_a, type_b, model,
           error_msg[:500], datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
-    db.commit()
 
 
 # ─── AI 호출 ─────────────────────────────────────────────────────────────────
