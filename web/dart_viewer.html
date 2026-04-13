@@ -22,7 +22,114 @@
   --flash:   #f59e0b;
   --pro:     #8b5cf6;
   --sonnet:  #ec4899;
+  --alert5:  #ef4444;
+  --alert4:  #f97316;
+  --alert3:  #eab308;
 }
+
+/* ── 취재 단서 알림 배지 ──────────────────────────────────────────── */
+.alert-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.alert-badge.sev5 { background: rgba(239,68,68,.18);  color: var(--alert5); border: 1px solid rgba(239,68,68,.4); }
+.alert-badge.sev4 { background: rgba(249,115,22,.18); color: var(--alert4); border: 1px solid rgba(249,115,22,.4); }
+.alert-badge.sev3 { background: rgba(234,179,8,.18);  color: var(--alert3); border: 1px solid rgba(234,179,8,.4); }
+#alert-indicator {
+  display: none;
+  margin-left: auto;
+  cursor: pointer;
+}
+#alert-indicator.has-alerts { display: flex; align-items: center; gap: 4px; }
+
+/* ── 알림 드롭다운 패널 ───────────────────────────────────────────── */
+.alert-panel {
+  position: absolute;
+  top: 44px;
+  right: 0;
+  width: 420px;
+  max-height: 500px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  z-index: 200;
+  display: none;
+}
+.alert-panel.open { display: block; }
+.alert-panel-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.alert-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid rgba(48,54,61,.5);
+  cursor: pointer;
+  transition: background .1s;
+}
+.alert-item:hover { background: rgba(255,255,255,.04); }
+.alert-item-title { font-size: 12px; font-weight: 600; color: var(--txt); margin-bottom: 4px; }
+.alert-item-meta  { font-size: 10px; color: var(--txt2); display: flex; gap: 8px; }
+.alert-item-summary { font-size: 11px; color: var(--txt2); margin-top: 4px; line-height: 1.5;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ── 검색바 (헤더 내) ────────────────────────────────────────────── */
+#header-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 16px;
+}
+#header-search input {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--txt);
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  width: 200px;
+  outline: none;
+}
+#header-search input:focus { border-color: var(--accent); }
+#header-search-results {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 500px;
+  max-height: 400px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  z-index: 200;
+  display: none;
+}
+#header-search-results.open { display: block; }
+.search-result-item {
+  padding: 8px 14px;
+  border-bottom: 1px solid rgba(48,54,61,.5);
+  cursor: pointer;
+  transition: background .1s;
+}
+.search-result-item:hover { background: rgba(255,255,255,.04); }
+.search-result-corp { font-size: 12px; font-weight: 600; color: var(--txt); }
+.search-result-meta { font-size: 10px; color: var(--txt2); margin-top: 2px; }
+.search-result-snippet { font-size: 11px; color: var(--txt2); margin-top: 3px; line-height: 1.4; }
+.search-result-snippet mark { background: rgba(37,99,235,.3); color: var(--txt); border-radius: 2px; }
 body {
   background: var(--bg);
   color: var(--txt);
@@ -591,13 +698,40 @@ header h1 span { color: var(--accent); }
 <header>
   <h1>🏢 Company <span>Catcher</span></h1>
   <span style="color:var(--txt2);font-size:11px;">DART 공시 뷰어</span>
+  <!-- 헤더 전문 검색 -->
+  <div id="header-search">
+    <input type="text" placeholder="🔍 사업내용 키워드 검색..." id="header-search-input"
+           oninput="onHeaderSearch(this.value)" onblur="setTimeout(()=>closeHeaderSearch(),200)">
+  </div>
+
   <div id="stats-bar">
     <span>기업 <b id="st-companies">-</b></span>
     <span>보고서 <b id="st-total">-</b></span>
     <span>사업내용 <b id="st-biz">-</b></span>
     <span>공급망 <b id="st-sc">-</b></span>
+    <span>비교분석 <b id="st-cmp">-</b></span>
+  </div>
+
+  <!-- 취재 단서 알림 배지 -->
+  <div id="alert-indicator" onclick="toggleAlertPanel()">
+    <span class="alert-badge sev5" id="alert-badge-5" style="display:none">🔴 <span id="alert-cnt-5">0</span></span>
+    <span class="alert-badge sev4" id="alert-badge-4" style="display:none">🟠 <span id="alert-cnt-4">0</span></span>
+    <span class="alert-badge sev3" id="alert-badge-3" style="display:none">🟡 <span id="alert-cnt-3">0</span></span>
+    <span style="font-size:11px;color:var(--txt2)">취재 단서</span>
   </div>
 </header>
+
+<!-- 전문 검색 결과 드롭다운 -->
+<div id="header-search-results"></div>
+
+<!-- 취재 단서 알림 패널 -->
+<div class="alert-panel" id="alert-panel">
+  <div class="alert-panel-header">
+    <span>🚨 취재 단서 알림</span>
+    <button onclick="toggleAlertPanel()" style="background:none;border:none;color:var(--txt2);cursor:pointer;font-size:16px;">✕</button>
+  </div>
+  <div id="alert-panel-body"><div class="loading">로딩 중...</div></div>
+</div>
 
 <div class="layout">
 
@@ -612,12 +746,9 @@ header h1 span { color: var(--accent); }
         <button class="fbtn fbtn-latest" id="btn-latest" data-type="" onclick="clickLatestBtn(this)">최근: 로딩중...</button>
       </div>
 
-      <!-- 서브 필터: 전체 하위 카테고리 (기간 오름차순) -->
+      <!-- 서브 필터: report_type_meta 에서 동적 로드 -->
       <div class="sub-filter-row" id="sub-filter">
-        <button class="sfbtn" data-type="2025_q1"     onclick="setSubFilter(this,'2025_q1')">2025 1분기</button>
-        <button class="sfbtn" data-type="2025_h1"     onclick="setSubFilter(this,'2025_h1')">2025 반기</button>
-        <button class="sfbtn" data-type="2025_q3"     onclick="setSubFilter(this,'2025_q3')">2025 3분기</button>
-        <button class="sfbtn" data-type="2025_annual" onclick="setSubFilter(this,'2025_annual')">2025 사업</button>
+        <div class="loading" style="font-size:10px;">로딩중...</div>
       </div>
     </div>
 
@@ -734,31 +865,242 @@ header h1 span { color: var(--accent); }
 // ── 상태 ─────────────────────────────────────────────────────────────────
 const API = '';
 let state = {
-  filter: '',           // '' | '2025_q1' | '2025_h1' | '2025_q3' | '2025_annual'
+  filter: '',
   query: '',
   selectedCorp: null,
   selectedReport: null,
   currentTab: 'biz',
   corpOffset: 0,
   corpTotal: 0,
-  selectedModel: 'flash',   // 'flash' | 'pro' | 'sonnet'
-  compareIds: new Set(),    // 비교할 보고서 ID 집합
+  selectedModel: 'flash',
+  compareIds: new Set(),
   apiKey: '',
-  latestType: '',           // 서버에서 받은 최근 보고서 유형
+  latestType: '',
   subFilterExpanded: false,
   hasGemini: false,
   hasClaude: false,
+  reportTypes: [],          // DB에서 동적 로드된 보고서 유형 목록
+  alertOpen: false,
 };
 let searchTimer = null;
+let headerSearchTimer = null;
 
 // ── 초기화 ────────────────────────────────────────────────────────────────
 window.onload = async () => {
   await loadSession();
+  await loadReportTypes();   // 소프트코딩: 먼저 유형 로드 후 UI 구성
   loadStats();
   loadCorps();
-  loadLatestType();
   loadAIUsage();
+  loadAlerts();              // 취재 단서 배지
 };
+
+// ── 보고서 유형 소프트코딩 로드 ──────────────────────────────────────────────
+async function loadReportTypes() {
+  try {
+    const d = await fetch(API + '/api/report_types').then(r => r.json());
+    const types = (d.report_types || []).filter(t => t.has_data && t.is_active);
+    state.reportTypes = types;
+
+    // 최신 보고서 유형 = 수집 데이터 있는 것 중 sort_order 가장 높은 것
+    const latest = types.filter(t => t.year).sort((a,b) => b.sort_order - a.sort_order)[0];
+    if (latest) {
+      state.latestType = latest.type_code;
+      const btn = document.getElementById('btn-latest');
+      btn.dataset.type = latest.type_code;
+      btn.textContent  = '📅 ' + latest.label;
+    }
+
+    // 서브 필터 동적 생성 (연도별 그룹)
+    buildSubFilters(types);
+  } catch(e) {
+    console.warn('report_types 로드 오류:', e);
+    // fallback: 기본값 하드코딩
+    buildSubFilters([
+      {type_code:'2025_q1', short_label:'25·1Q', year:2025},
+      {type_code:'2025_h1', short_label:'25·반기', year:2025},
+      {type_code:'2025_q3', short_label:'25·3Q', year:2025},
+      {type_code:'2025_annual', short_label:'25·사업', year:2025},
+    ]);
+  }
+}
+
+function buildSubFilters(types) {
+  const container = document.getElementById('sub-filter');
+  container.innerHTML = '';
+
+  // 연도별 그룹핑
+  const byYear = {};
+  types.filter(t => t.year).forEach(t => {
+    if (!byYear[t.year]) byYear[t.year] = [];
+    byYear[t.year].push(t);
+  });
+
+  const years = Object.keys(byYear).sort((a,b) => b - a); // 최신 연도 먼저
+
+  years.forEach(year => {
+    // 연도 라벨
+    const yl = document.createElement('div');
+    yl.style.cssText = 'width:100%;font-size:9px;color:var(--txt2);padding:2px 0 1px;';
+    yl.textContent = year + '년';
+    container.appendChild(yl);
+
+    // 해당 연도 분기 버튼들
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:3px;width:100%;margin-bottom:4px;';
+    byYear[year].sort((a,b) => a.sort_order - b.sort_order).forEach(t => {
+      const btn = document.createElement('button');
+      btn.className = 'sfbtn';
+      btn.dataset.type = t.type_code;
+      btn.textContent = t.short_label || t.type_code;
+      btn.title = t.label || t.type_code;
+      btn.style.flex = '1';
+      btn.onclick = () => setSubFilter(btn, t.type_code);
+      row.appendChild(btn);
+    });
+    container.appendChild(row);
+  });
+
+  // 레거시 타입 (year 없음)
+  const legacy = types.filter(t => !t.year);
+  if (legacy.length) {
+    legacy.forEach(t => {
+      const btn = document.createElement('button');
+      btn.className = 'sfbtn';
+      btn.dataset.type = t.type_code;
+      btn.textContent = t.short_label || t.type_code;
+      btn.onclick = () => setSubFilter(btn, t.type_code);
+      container.appendChild(btn);
+    });
+  }
+}
+
+// ── 전문 검색 (헤더) ─────────────────────────────────────────────────────
+let headerSearchAbort = null;
+async function onHeaderSearch(val) {
+  clearTimeout(headerSearchTimer);
+  const q = val.trim();
+  const res = document.getElementById('header-search-results');
+  if (!q || q.length < 2) { res.classList.remove('open'); return; }
+
+  headerSearchTimer = setTimeout(async () => {
+    try {
+      if (headerSearchAbort) headerSearchAbort.abort();
+      headerSearchAbort = new AbortController();
+      const d = await fetch(
+        `${API}/api/search?q=${encodeURIComponent(q)}&limit=10`,
+        { signal: headerSearchAbort.signal }
+      ).then(r => r.json());
+
+      const items = d.results || [];
+      if (!items.length) { res.classList.remove('open'); return; }
+
+      res.innerHTML = items.map(r => `
+        <div class="search-result-item" onclick="searchResultClick('${r.corp_code}','${escHtml(r.corp_name||'')}')">
+          <div class="search-result-corp">${escHtml(r.corp_name||r.corp_code)}</div>
+          <div class="search-result-meta">
+            <span>${r.report_type||''}</span>
+            <span>${r.rcept_dt||''}</span>
+          </div>
+          ${r.snippet ? `<div class="search-result-snippet">${r.snippet}</div>` : ''}
+        </div>
+      `).join('') + (d.total > 10 ? `<div class="loading">총 ${d.total.toLocaleString()}건 — 더 보려면 검색어를 구체화하세요</div>` : '');
+      res.classList.add('open');
+
+      // 위치 맞추기
+      const inp = document.getElementById('header-search-input');
+      const rect = inp.getBoundingClientRect();
+      res.style.top  = (rect.bottom + 4) + 'px';
+      res.style.left = rect.left + 'px';
+      res.style.transform = 'none';
+      res.style.width = '500px';
+    } catch(e) {
+      if (e.name !== 'AbortError') console.warn('search error', e);
+    }
+  }, 350);
+}
+
+function closeHeaderSearch() {
+  document.getElementById('header-search-results').classList.remove('open');
+}
+
+async function searchResultClick(corpCode, corpName) {
+  closeHeaderSearch();
+  document.getElementById('header-search-input').value = '';
+  await selectCorp(corpCode, corpName);
+}
+
+// ── 취재 단서 알림 ────────────────────────────────────────────────────────
+async function loadAlerts() {
+  try {
+    const d = await fetch(`${API}/api/alerts?min_severity=3&limit=50&status=new`).then(r => r.json());
+    const alerts = d.alerts || [];
+    const stats  = d.stats  || [];
+
+    // 심각도별 카운트
+    const cnt = {5:0, 4:0, 3:0};
+    stats.forEach(s => { if (s.status==='new' && cnt[s.severity]!==undefined) cnt[s.severity] += s.cnt; });
+
+    const ind = document.getElementById('alert-indicator');
+    if (alerts.length > 0) {
+      ind.classList.add('has-alerts');
+      const show = (sev, id) => {
+        const el = document.getElementById(id);
+        if (cnt[sev] > 0) { el.style.display=''; el.querySelector('span').textContent = cnt[sev]; }
+        else el.style.display = 'none';
+      };
+      show(5,'alert-badge-5'); show(4,'alert-badge-4'); show(3,'alert-badge-3');
+    }
+
+    // 패널 본문
+    const body = document.getElementById('alert-panel-body');
+    if (!alerts.length) {
+      body.innerHTML = '<div class="loading">새 취재 단서 없음</div>';
+      return;
+    }
+    body.innerHTML = alerts.map(a => {
+      const sev = a.severity >= 5 ? 'sev5' : a.severity >= 4 ? 'sev4' : 'sev3';
+      const sevLabel = {5:'⭐⭐⭐ 즉시취재', 4:'⭐⭐ 당일검토', 3:'⭐ 주간검토'}[a.severity] || '';
+      // 보도 확인 링크 (구글 + 네이버)
+      const gUrl = `https://www.google.com/search?q=${encodeURIComponent(a.corp_name + ' ' + a.title)}`;
+      const nUrl = `https://search.naver.com/search.naver?where=news&query=${encodeURIComponent(a.corp_name + ' ' + a.title)}`;
+      return `
+        <div class="alert-item">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+            <span class="alert-badge ${sev}">${sevLabel}</span>
+            <span style="font-size:9px;color:var(--txt2);">${a.lead_type}</span>
+            <span style="margin-left:auto;display:flex;gap:4px;">
+              <a href="${gUrl}" target="_blank" title="구글 보도 확인"
+                 style="font-size:9px;color:#4285f4;border:1px solid #4285f4;
+                        border-radius:3px;padding:1px 5px;text-decoration:none;">G</a>
+              <a href="${nUrl}" target="_blank" title="네이버 보도 확인"
+                 style="font-size:9px;color:#03c75a;border:1px solid #03c75a;
+                        border-radius:3px;padding:1px 5px;text-decoration:none;">N</a>
+            </span>
+          </div>
+          <div class="alert-item-title">${escHtml(a.title)}</div>
+          <div class="alert-item-meta">
+            <span>${escHtml(a.corp_name||'')}</span>
+            <span>${(a.created_at||'').substring(0,10)}</span>
+          </div>
+          ${a.summary ? `<div class="alert-item-summary">${escHtml(a.summary)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+  } catch(e) { console.warn('alerts error', e); }
+}
+
+function toggleAlertPanel() {
+  const panel = document.getElementById('alert-panel');
+  state.alertOpen = !state.alertOpen;
+  panel.classList.toggle('open', state.alertOpen);
+  // 위치 맞추기
+  const ind = document.getElementById('alert-indicator');
+  const rect = ind.getBoundingClientRect();
+  panel.style.top   = (rect.bottom + 4) + 'px';
+  panel.style.right = '8px';
+  panel.style.position = 'fixed';
+}
 
 // ── 세션 (API 키) ─────────────────────────────────────────────────────────
 async function loadSession() {
@@ -787,8 +1129,8 @@ function updateModelBtnState() {
     flashBtn.title = '⚙ 클릭하여 Gemini API 키 설정';
     proBtn.title   = '⚙ 클릭하여 Gemini API 키 설정';
   } else {
-    flashBtn.title = 'Gemini 2.5 Flash — 무료 일 1,500회';
-    proBtn.title   = 'Gemini 2.5 Pro — 무료 일 25회';
+    flashBtn.title = 'Gemini 2.5 Flash — 무료 일 500회 (Flash-Lite 1,000회 자동전환)';
+    proBtn.title   = 'Gemini 2.5 Pro — 무료 일 100회';
   }
 
   if (!state.hasClaude) {
@@ -839,38 +1181,38 @@ function onModelClick(model) {
   selectModel(model);
 }
 
-// ── 통계 ─────────────────────────────────────────────────────────────────
+// ── 통계 (대시보드 API 기반 — 소프트코딩) ────────────────────────────────
 async function loadStats() {
   try {
-    const d = await fetch(API + '/api/dart/stats').then(r => r.json());
-    document.getElementById('st-companies').textContent = (d.companies || 0).toLocaleString();
-    document.getElementById('st-total').textContent     = (d.total || 0).toLocaleString();
-    document.getElementById('st-biz').textContent       = (d.with_text || 0).toLocaleString();
-    document.getElementById('st-sc').textContent        = (d.supply_chain || 0).toLocaleString();
-  } catch(e) { console.warn('stats error', e); }
+    const d = await fetch(API + '/api/stats/dashboard').then(r => r.json());
+    document.getElementById('st-companies').textContent = (d.companies   || 0).toLocaleString();
+    document.getElementById('st-total').textContent     = (d.reports     || 0).toLocaleString();
+    document.getElementById('st-biz').textContent       = (d.reports     || 0).toLocaleString();
+    document.getElementById('st-sc').textContent        = (d.supply_chain|| 0).toLocaleString();
+    document.getElementById('st-cmp').textContent       = (d.comparisons || 0).toLocaleString();
+  } catch(e) {
+    // fallback
+    try {
+      const d2 = await fetch(API + '/api/dart/stats').then(r => r.json());
+      document.getElementById('st-companies').textContent = (d2.companies   || 0).toLocaleString();
+      document.getElementById('st-total').textContent     = (d2.total       || 0).toLocaleString();
+      document.getElementById('st-biz').textContent       = (d2.with_text   || 0).toLocaleString();
+      document.getElementById('st-sc').textContent        = (d2.supply_chain|| 0).toLocaleString();
+    } catch(e2) { console.warn('stats error', e2); }
+  }
 }
 
-// ── 최근 보고서 유형 로드 ──────────────────────────────────────────────────
-const TYPE_LABELS = {
-  '2025_annual': '2025 사업보고서',
-  '2025_q3':     '2025 3분기보고서',
-  '2025_h1':     '2025 반기보고서',
-  '2025_q1':     '2025 1분기보고서',
-};
-async function loadLatestType() {
-  try {
-    const d = await fetch(API + '/api/dart/latest_type').then(r => r.json());
-    const btn = document.getElementById('btn-latest');
-    if (d.report_type) {
-      state.latestType = d.report_type;
-      btn.dataset.type = d.report_type;
-      btn.textContent  = '📅 ' + (TYPE_LABELS[d.report_type] || d.report_type);
-    } else {
-      btn.textContent = '최근: 없음';
-    }
-  } catch(e) {
-    document.getElementById('btn-latest').textContent = '최근: 오류';
-  }
+// ── TYPE_LABELS: 소프트코딩 (report_types에서 동적 생성) ──────────────────
+// loadReportTypes() 호출 후 state.reportTypes에서 구성
+function getTypeLabel(typeCode) {
+  const t = state.reportTypes.find(r => r.type_code === typeCode);
+  if (t) return t.label;
+  // fallback 정적 매핑
+  const fallback = {
+    '2025_annual': '2025년 사업보고서', '2025_q3': '2025년 3분기보고서',
+    '2025_h1': '2025년 반기보고서',   '2025_q1': '2025년 1분기보고서',
+  };
+  return fallback[typeCode] || typeCode;
 }
 
 // ── AI 사용량 로드 ─────────────────────────────────────────────────────────
@@ -882,17 +1224,19 @@ async function loadAIUsage() {
 }
 
 function updateUsageDisplay(d) {
+  // Flash: 500 RPD (+ Flash-Lite 1000 자동전환)
   if (d.flash) {
-    const rem = d.flash.limit - d.flash.used;
+    const rem = (d.flash.limit||500) - (d.flash.used||0);
     const el = document.getElementById('flash-usage');
-    el.textContent = `${rem}/${d.flash.limit}`;
-    el.className = 'model-usage ' + (rem < 100 ? 'warn' : 'ok');
+    el.textContent = `${rem}/${d.flash.limit||500}`;
+    el.className = 'model-usage ' + (rem < 50 ? 'warn' : 'ok');
   }
+  // Pro: 100 RPD
   if (d.pro) {
-    const rem = d.pro.limit - d.pro.used;
+    const rem = (d.pro.limit||100) - (d.pro.used||0);
     const el = document.getElementById('pro-usage');
-    el.textContent = `${rem}/${d.pro.limit}`;
-    el.className = 'model-usage ' + (rem < 5 ? 'warn' : 'ok');
+    el.textContent = `${rem}/${d.pro.limit||100}`;
+    el.className = 'model-usage ' + (rem < 10 ? 'warn' : 'ok');
   }
 }
 
