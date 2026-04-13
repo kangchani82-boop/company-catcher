@@ -1,0 +1,14 @@
+# Company Catcher — 최소 의존성
+# DART 공시 수집 + 뷰어 + 분석
+
+# HTTP 요청
+requests>=2.31.0
+
+# 환경 변수 로드
+python-dotenv>=1.0.0
+
+# Anthropic Claude API (analyzer.py 사용 시)
+anthropic>=0.25.0
+
+# 진행률 표시 (선택)
+tqdm>=4.66.0

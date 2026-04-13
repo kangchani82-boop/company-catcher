@@ -1,0 +1,36 @@
+# 환경 변수 (API 키)
+.env
+*.env
+
+# 가상환경
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 데이터 (대용량 — 로컬 전용)
+data/dart/*.db
+data/dart/*.db-wal
+data/dart/*.db-shm
+data/dart/corp_codes.json
+data/dart/ai_usage.json
+
+# 섹터 내보내기 (스크립트로 재생성 가능)
+data/sectors/
+
+# 로그
+logs/
+*.log
+
+# 임시 파일
+*.tmp
+*.bak
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp

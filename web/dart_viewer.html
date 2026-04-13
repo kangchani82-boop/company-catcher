@@ -1,0 +1,1622 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Catcher — DART 공시 뷰어</title>
+<style>
+/* ── 기본 ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg:      #0f1117;
+  --panel:   #161b22;
+  --border:  #30363d;
+  --accent:  #2563eb;
+  --txt:     #e6edf3;
+  --txt2:    #8b949e;
+  --annual:  #2563eb;
+  --q3:      #7c3aed;
+  --h1:      #059669;
+  --q1:      #d97706;
+  --legacy:  #4b5563;
+  --flash:   #f59e0b;
+  --pro:     #8b5cf6;
+  --sonnet:  #ec4899;
+}
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font-family: 'Malgun Gothic', -apple-system, sans-serif;
+  font-size: 13px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── 헤더 ─────────────────────────────────────────────────────────── */
+header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+header h1 { font-size: 16px; font-weight: 700; color: var(--txt); }
+header h1 span { color: var(--accent); }
+#stats-bar {
+  display: flex;
+  gap: 16px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--txt2);
+}
+#stats-bar b { color: var(--txt); }
+
+/* ── 메인 레이아웃 ────────────────────────────────────────────────── */
+.layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── 좌측: 기업 목록 ──────────────────────────────────────────────── */
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+}
+.sidebar-top {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#search-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--txt);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  outline: none;
+}
+#search-input:focus { border-color: var(--accent); }
+
+/* 필터 행 (전체 + 최근 보고서 버튼) */
+.filter-row {
+  display: flex;
+  gap: 4px;
+}
+.fbtn {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--txt2);
+  padding: 5px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all .15s;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fbtn:hover    { border-color: var(--txt2); color: var(--txt); }
+.fbtn.active   { border-color: var(--accent); color: var(--txt); background: rgba(37,99,235,.12); }
+.fbtn-latest.active { border-color: var(--annual); background: rgba(37,99,235,.12); color: var(--txt); }
+.fbtn-latest[data-type="2025_annual"].active { border-color: var(--annual); background: rgba(37,99,235,.12); }
+.fbtn-latest[data-type="2025_q3"].active     { border-color: var(--q3);     background: rgba(124,58,237,.12); }
+.fbtn-latest[data-type="2025_h1"].active     { border-color: var(--h1);     background: rgba(5,150,105,.12); }
+.fbtn-latest[data-type="2025_q1"].active     { border-color: var(--q1);     background: rgba(217,119,6,.12); }
+
+/* 서브 필터 (전체 하위 카테고리) */
+.sub-filter-row {
+  display: none;
+  gap: 3px;
+  flex-wrap: wrap;
+  padding: 4px 0 0 0;
+  border-top: 1px solid rgba(48,54,61,.6);
+  margin-top: 2px;
+  padding-top: 6px;
+}
+.sub-filter-row.expanded { display: flex; }
+.sfbtn {
+  flex: 1;
+  min-width: 56px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--txt2);
+  padding: 4px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all .15s;
+  text-align: center;
+  white-space: nowrap;
+}
+.sfbtn:hover { border-color: var(--txt2); color: var(--txt); }
+.sfbtn.active[data-type="2025_q1"]     { border-color: var(--q1);     color: var(--txt); background: rgba(217,119,6,.12); }
+.sfbtn.active[data-type="2025_h1"]     { border-color: var(--h1);     color: var(--txt); background: rgba(5,150,105,.12); }
+.sfbtn.active[data-type="2025_q3"]     { border-color: var(--q3);     color: var(--txt); background: rgba(124,58,237,.12); }
+.sfbtn.active[data-type="2025_annual"] { border-color: var(--annual); color: var(--txt); background: rgba(37,99,235,.12); }
+
+.corp-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.corp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(48,54,61,.5);
+  transition: background .1s;
+}
+.corp-item:hover  { background: rgba(255,255,255,.04); }
+.corp-item.active { background: rgba(37,99,235,.15); }
+.corp-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.corp-tags { display: flex; gap: 2px; flex-shrink: 0; }
+.rtype-tag {
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .3px;
+  color: #fff;
+}
+.rtype-a   { background: var(--annual); }
+.rtype-q   { background: var(--q3); }
+.rtype-h   { background: var(--h1); }
+.rtype-q1  { background: var(--q1); }
+.rtype-leg { background: var(--legacy); }
+#corp-count {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--txt2);
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+/* ── 중앙: 보고서 목록 ────────────────────────────────────────────── */
+.report-panel {
+  width: 340px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+}
+
+/* AI 비교 분석 바 */
+.ai-bar {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: #0d1117;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.ai-models {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+.ai-model-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+  transition: all .15s;
+  min-width: 58px;
+}
+.ai-model-btn:hover { border-color: var(--txt2); }
+.ai-model-btn.selected-flash  { border-color: var(--flash);  background: rgba(245,158,11,.1);  }
+.ai-model-btn.selected-pro    { border-color: var(--pro);    background: rgba(139,92,246,.1);  }
+.ai-model-btn.selected-sonnet { border-color: var(--sonnet); background: rgba(236,72,153,.1);  }
+.ai-model-btn .model-icon  { font-size: 14px; line-height: 1; }
+.ai-model-btn .model-label { font-size: 10px; font-weight: 600; color: var(--txt); }
+.ai-model-btn .model-usage { font-size: 9px; color: var(--txt2); }
+.ai-model-btn .model-usage.warn { color: #f87171; }
+.ai-model-btn .model-usage.ok   { color: #34d399; }
+.ai-model-btn.disabled { opacity: .4; cursor: not-allowed; }
+
+.compare-btn {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--txt2);
+  font-size: 11px;
+  cursor: not-allowed;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.compare-btn.ready {
+  border-color: var(--accent);
+  color: var(--txt);
+  background: rgba(37,99,235,.15);
+  cursor: pointer;
+}
+.compare-btn.ready:hover { background: rgba(37,99,235,.25); }
+.compare-btn.loading { border-color: var(--flash); color: var(--flash); }
+
+.saved-compare-btn {
+  padding: 4px 10px;
+  font-size: 10px;
+  background: rgba(34,197,94,.12);
+  border: 1px solid rgba(34,197,94,.4);
+  border-radius: 5px;
+  color: #4ade80;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.saved-compare-btn:hover { background: rgba(34,197,94,.2); }
+
+.ai-key-missing {
+  font-size: 10px;
+  color: #f87171;
+  padding: 3px 6px;
+  background: rgba(248,113,113,.1);
+  border-radius: 4px;
+  border: 1px solid rgba(248,113,113,.3);
+}
+
+.panel-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--panel);
+}
+.panel-title { font-size: 13px; font-weight: 600; }
+.panel-sub   { font-size: 11px; color: var(--txt2); }
+
+.report-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.report-item {
+  padding: 8px 10px 8px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(48,54,61,.5);
+  transition: background .1s;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+.report-item:hover  { background: rgba(255,255,255,.04); }
+.report-item.active { background: rgba(37,99,235,.1); border-left: 3px solid var(--accent); padding-left: 5px; }
+.report-item.selected-for-compare { background: rgba(37,99,235,.07); }
+
+/* 체크박스 */
+.report-checkbox {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.report-item-body { flex: 1; min-width: 0; }
+.report-item-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.report-type-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.rtb-annual { background: rgba(37,99,235,.15);   color: #60a5fa; border: 1px solid rgba(37,99,235,.3); }
+.rtb-q3     { background: rgba(124,58,237,.15);  color: #a78bfa; border: 1px solid rgba(124,58,237,.3); }
+.rtb-half   { background: rgba(5,150,105,.15);   color: #34d399; border: 1px solid rgba(5,150,105,.3); }
+.rtb-q1     { background: rgba(217,119,6,.15);   color: #fbbf24; border: 1px solid rgba(217,119,6,.3); }
+.rtb-other  { background: rgba(75,85,99,.15);    color: #9ca3af; border: 1px solid rgba(75,85,99,.3); }
+.report-name {
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.report-meta { font-size: 11px; color: var(--txt2); display: flex; gap: 8px; }
+.biz-pill {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background: rgba(5,150,105,.2);
+  color: #34d399;
+  border: 1px solid rgba(5,150,105,.3);
+}
+.compare-count-badge {
+  padding: 3px 10px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--txt2);
+  text-align: center;
+  display: none;
+}
+.compare-count-badge.show { display: block; }
+
+/* ── 우측: 보고서 본문 ────────────────────────────────────────────── */
+.content-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.content-header {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.content-title { font-size: 14px; font-weight: 600; }
+.content-subtitle { font-size: 11px; color: var(--txt2); margin-top: 2px; }
+
+.tab-row {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+  flex-shrink: 0;
+}
+.tab-btn {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--txt2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all .15s;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.tab-btn:hover  { color: var(--txt); }
+.tab-btn.active { color: var(--txt); border-bottom-color: var(--accent); }
+.tab-btn.ai-tab.active { border-bottom-color: var(--flash); }
+
+.content-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#text-content {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--txt);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: 'Malgun Gothic', monospace;
+}
+
+/* ── AI 분석 결과 ─────────────────────────────────────────────────── */
+#ai-content {
+  display: none;
+}
+.ai-result-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 14px;
+}
+.ai-result-model-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.ai-result-model-badge.flash  { background: rgba(245,158,11,.2);  color: var(--flash);  border: 1px solid rgba(245,158,11,.4);  }
+.ai-result-model-badge.pro    { background: rgba(139,92,246,.2);  color: #a78bfa;       border: 1px solid rgba(139,92,246,.4);  }
+.ai-result-model-badge.sonnet { background: rgba(236,72,153,.2);  color: var(--sonnet); border: 1px solid rgba(236,72,153,.4); }
+.ai-result-meta { font-size: 11px; color: var(--txt2); }
+.ai-result-body {
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--txt);
+  word-break: break-word;
+}
+.ai-result-body h2 { font-size: 14px; font-weight: 700; color: var(--txt); margin: 18px 0 8px; padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+.ai-result-body h3 { font-size: 13px; font-weight: 700; color: #93c5fd; margin: 14px 0 6px; }
+.ai-result-body h4 { font-size: 12px; font-weight: 600; color: var(--txt2); margin: 10px 0 4px; }
+.ai-result-body strong { color: var(--txt); font-weight: 700; }
+.ai-result-body em { color: #fbbf24; font-style: normal; }
+.ai-result-body ul, .ai-result-body ol { padding-left: 20px; margin: 6px 0; }
+.ai-result-body li { margin: 3px 0; }
+.ai-result-body code { background: rgba(255,255,255,.07); border-radius: 3px; padding: 1px 5px; font-family: monospace; font-size: 12px; }
+.ai-result-body pre { background: rgba(0,0,0,.3); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin: 8px 0; overflow-x: auto; }
+.ai-result-body pre code { background: none; padding: 0; }
+.ai-result-body hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+.ai-result-body p { margin: 6px 0; }
+
+/* ── 설정 모달 ────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.6);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 9999;
+}
+.modal-box {
+  background: #1c2128; border: 1px solid var(--border);
+  border-radius: 12px; padding: 24px; width: 440px; max-width: 95vw;
+}
+.modal-box h3 { font-size: 15px; font-weight: 700; margin-bottom: 18px; color: var(--txt); }
+.modal-field { margin-bottom: 16px; }
+.modal-field label { display: block; font-size: 12px; color: var(--txt2); margin-bottom: 6px; font-weight: 600; }
+.modal-field small { color: #64748b; }
+.modal-field input {
+  width: 100%; background: #0f1117; border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px 10px; color: var(--txt); font-size: 13px;
+  font-family: monospace;
+}
+.modal-field input:focus { outline: none; border-color: var(--accent); }
+.modal-field a { font-size: 11px; color: #60a5fa; text-decoration: none; margin-top: 4px; display: inline-block; }
+.modal-field a:hover { text-decoration: underline; }
+.modal-field .key-hint { font-size: 11px; color: #22c55e; margin-top: 4px; }
+.modal-actions { display: flex; gap: 8px; margin-top: 20px; justify-content: flex-end; }
+.modal-actions button {
+  padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; border: none;
+}
+.btn-save { background: var(--accent); color: #fff; }
+.btn-save:hover { background: #1d4ed8; }
+.btn-cancel { background: var(--border); color: var(--txt2); }
+.btn-cancel:hover { background: #404850; }
+#settings-msg { font-size: 12px; margin-top: 10px; min-height: 16px; }
+#settings-msg.ok { color: #22c55e; }
+#settings-msg.err { color: #f87171; }
+
+/* ── 설정 버튼 (AI 바) ────────────────────────────────────────────── */
+.settings-btn {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  color: var(--txt2); cursor: pointer; padding: 4px 8px; font-size: 14px;
+  transition: color .15s, border-color .15s;
+}
+.settings-btn:hover { color: var(--txt); border-color: #60a5fa; }
+.api-status-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+.api-status-dot.ok { background: #22c55e; }
+.api-status-dot.missing { background: #ef4444; }
+.ai-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  gap: 12px;
+  color: var(--txt2);
+}
+.ai-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--flash);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 빈 상태 ──────────────────────────────────────────────────────── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--txt2);
+  gap: 8px;
+}
+.empty-icon { font-size: 40px; opacity: .3; }
+.empty-msg  { font-size: 13px; }
+.loading { color: var(--txt2); padding: 16px; text-align: center; font-size: 12px; }
+
+/* ── 공급망 테이블 ────────────────────────────────────────────────── */
+.sc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.sc-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--panel);
+  color: var(--txt2);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+}
+.sc-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid rgba(48,54,61,.4);
+  vertical-align: top;
+}
+.sc-table tr:hover td { background: rgba(255,255,255,.03); }
+.rel-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+.rel-supplier   { background: rgba(37,99,235,.15);  color: #60a5fa; }
+.rel-customer   { background: rgba(5,150,105,.15);  color: #34d399; }
+.rel-partner    { background: rgba(217,119,6,.15);  color: #fbbf24; }
+.rel-competitor { background: rgba(239,68,68,.15);  color: #f87171; }
+</style>
+</head>
+<body>
+
+<!-- 헤더 -->
+<header>
+  <h1>🏢 Company <span>Catcher</span></h1>
+  <span style="color:var(--txt2);font-size:11px;">DART 공시 뷰어</span>
+  <div id="stats-bar">
+    <span>기업 <b id="st-companies">-</b></span>
+    <span>보고서 <b id="st-total">-</b></span>
+    <span>사업내용 <b id="st-biz">-</b></span>
+    <span>공급망 <b id="st-sc">-</b></span>
+  </div>
+</header>
+
+<div class="layout">
+
+  <!-- 좌측: 기업 목록 -->
+  <div class="sidebar">
+    <div class="sidebar-top">
+      <input id="search-input" type="text" placeholder="기업명 검색..." oninput="onSearch(this.value)">
+
+      <!-- 1행: 전체(▾) + 최근 보고서 버튼 -->
+      <div class="filter-row">
+        <button class="fbtn active" id="btn-all" onclick="clickAllBtn()">전체 ▾</button>
+        <button class="fbtn fbtn-latest" id="btn-latest" data-type="" onclick="clickLatestBtn(this)">최근: 로딩중...</button>
+      </div>
+
+      <!-- 서브 필터: 전체 하위 카테고리 (기간 오름차순) -->
+      <div class="sub-filter-row" id="sub-filter">
+        <button class="sfbtn" data-type="2025_q1"     onclick="setSubFilter(this,'2025_q1')">2025 1분기</button>
+        <button class="sfbtn" data-type="2025_h1"     onclick="setSubFilter(this,'2025_h1')">2025 반기</button>
+        <button class="sfbtn" data-type="2025_q3"     onclick="setSubFilter(this,'2025_q3')">2025 3분기</button>
+        <button class="sfbtn" data-type="2025_annual" onclick="setSubFilter(this,'2025_annual')">2025 사업</button>
+      </div>
+    </div>
+
+    <div class="corp-list" id="corp-list">
+      <div class="loading">로딩 중...</div>
+    </div>
+    <div id="corp-count"></div>
+  </div>
+
+  <!-- 중앙: 보고서 목록 -->
+  <div class="report-panel">
+
+    <!-- AI 비교 분석 바 -->
+    <div class="ai-bar" id="ai-bar">
+      <div class="ai-models">
+        <button class="ai-model-btn" id="btn-flash" onclick="onModelClick('flash')" title="Gemini 2.5 Flash — 무료 일 1,500회">
+          <span class="model-icon">⚡</span>
+          <span class="model-label">Flash</span>
+          <span class="model-usage" id="flash-usage">-/1500</span>
+        </button>
+        <button class="ai-model-btn" id="btn-pro" onclick="onModelClick('pro')" title="Gemini 2.5 Pro — 무료 일 25회">
+          <span class="model-icon">🔮</span>
+          <span class="model-label">Pro</span>
+          <span class="model-usage" id="pro-usage">-/25</span>
+        </button>
+        <button class="ai-model-btn" id="btn-sonnet" onclick="onModelClick('sonnet')" title="Claude Sonnet — 유료">
+          <span class="model-icon">🤖</span>
+          <span class="model-label">Sonnet</span>
+          <span class="model-usage" id="sonnet-usage" style="color:var(--txt2)">유료</span>
+        </button>
+        <button class="settings-btn" onclick="openSettings()" title="API 키 설정" id="api-settings-btn">⚙</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
+        <button class="compare-btn" id="compare-btn" onclick="runComparison()">비교 분석</button>
+        <button class="saved-compare-btn" id="saved-compare-btn" onclick="showSavedComparison()" style="display:none;">
+          💾 저장된 분석 보기
+        </button>
+      </div>
+    </div>
+
+    <div class="panel-header">
+      <span class="panel-title" id="rp-title">기업을 선택하세요</span>
+      <span class="panel-sub" id="rp-sub"></span>
+    </div>
+
+    <div class="report-list" id="report-list">
+      <div class="empty">
+        <div class="empty-icon">📋</div>
+        <div class="empty-msg">좌측에서 기업을 선택하세요</div>
+      </div>
+    </div>
+
+    <div class="compare-count-badge" id="compare-badge"></div>
+  </div>
+
+  <!-- 우측: 본문 -->
+  <div class="content-panel">
+    <div class="content-header">
+      <div>
+        <div class="content-title" id="ct-title">보고서를 선택하세요</div>
+        <div class="content-subtitle" id="ct-sub"></div>
+      </div>
+    </div>
+    <div class="tab-row" id="tab-row" style="display:none;">
+      <button class="tab-btn active" onclick="switchTab('biz')">📊 사업의 내용</button>
+      <button class="tab-btn"       onclick="switchTab('raw')">📄 전문</button>
+      <button class="tab-btn"       onclick="switchTab('sc')">🔗 공급망</button>
+      <button class="tab-btn ai-tab" id="tab-ai" onclick="switchTab('ai')" style="display:none;">🤖 AI 분석</button>
+    </div>
+    <div class="content-body">
+      <div class="empty" id="content-empty">
+        <div class="empty-icon">📑</div>
+        <div class="empty-msg">보고서를 선택하면 본문이 표시됩니다</div>
+      </div>
+      <pre id="text-content" style="display:none;"></pre>
+      <div id="sc-content" style="display:none;"></div>
+      <div id="ai-content" style="display:none;"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── API 키 설정 모달 ──────────────────────────────────────────────── -->
+<div id="settings-modal" class="modal-overlay" style="display:none;" onclick="if(event.target===this)closeSettings()">
+  <div class="modal-box">
+    <h3>⚙ AI API 키 설정</h3>
+    <div class="modal-field">
+      <label>
+        <span class="api-status-dot" id="dot-gemini"></span>
+        Gemini API Key <small>(Flash · Pro 사용)</small>
+      </label>
+      <input type="password" id="input-gemini-key" placeholder="AIza..." autocomplete="off">
+      <div class="key-hint" id="hint-gemini" style="display:none;"></div>
+      <a href="https://aistudio.google.com/app/apikey" target="_blank">▸ Google AI Studio에서 무료 키 발급</a>
+    </div>
+    <div class="modal-field">
+      <label>
+        <span class="api-status-dot" id="dot-claude"></span>
+        Anthropic API Key <small>(Claude Sonnet 사용)</small>
+      </label>
+      <input type="password" id="input-anthropic-key" placeholder="sk-ant-..." autocomplete="off">
+      <div class="key-hint" id="hint-claude" style="display:none;"></div>
+      <a href="https://console.anthropic.com/" target="_blank">▸ Anthropic Console에서 키 발급</a>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeSettings()">취소</button>
+      <button class="btn-save" onclick="saveApiKeys()">저장</button>
+    </div>
+    <div id="settings-msg"></div>
+  </div>
+</div>
+
+<script>
+// ── 상태 ─────────────────────────────────────────────────────────────────
+const API = '';
+let state = {
+  filter: '',           // '' | '2025_q1' | '2025_h1' | '2025_q3' | '2025_annual'
+  query: '',
+  selectedCorp: null,
+  selectedReport: null,
+  currentTab: 'biz',
+  corpOffset: 0,
+  corpTotal: 0,
+  selectedModel: 'flash',   // 'flash' | 'pro' | 'sonnet'
+  compareIds: new Set(),    // 비교할 보고서 ID 집합
+  apiKey: '',
+  latestType: '',           // 서버에서 받은 최근 보고서 유형
+  subFilterExpanded: false,
+  hasGemini: false,
+  hasClaude: false,
+};
+let searchTimer = null;
+
+// ── 초기화 ────────────────────────────────────────────────────────────────
+window.onload = async () => {
+  await loadSession();
+  loadStats();
+  loadCorps();
+  loadLatestType();
+  loadAIUsage();
+};
+
+// ── 세션 (API 키) ─────────────────────────────────────────────────────────
+async function loadSession() {
+  try {
+    const d = await fetch(API + '/api/session').then(r => r.json());
+    state.apiKey    = d.api_key    || '';
+    state.hasGemini = !!d.has_gemini;
+    state.hasClaude = !!d.has_claude;
+    updateModelBtnState();
+  } catch(e) { /* 오류 무시 */ }
+}
+
+function updateModelBtnState() {
+  const flashBtn  = document.getElementById('btn-flash');
+  const proBtn    = document.getElementById('btn-pro');
+  const sonnetBtn = document.getElementById('btn-sonnet');
+
+  // 각 버튼 상태 초기화
+  [flashBtn, proBtn, sonnetBtn].forEach(b => b.classList.remove('disabled'));
+
+  if (!state.hasGemini) {
+    flashBtn.classList.add('disabled');
+    proBtn.classList.add('disabled');
+    flashBtn.querySelector('.model-usage').textContent = '키 없음';
+    proBtn.querySelector('.model-usage').textContent   = '키 없음';
+    flashBtn.title = '⚙ 클릭하여 Gemini API 키 설정';
+    proBtn.title   = '⚙ 클릭하여 Gemini API 키 설정';
+  } else {
+    flashBtn.title = 'Gemini 2.5 Flash — 무료 일 1,500회';
+    proBtn.title   = 'Gemini 2.5 Pro — 무료 일 25회';
+  }
+
+  if (!state.hasClaude) {
+    sonnetBtn.classList.add('disabled');
+    sonnetBtn.querySelector('.model-usage').textContent = '키 없음';
+    sonnetBtn.title = '⚙ 클릭하여 Anthropic API 키 설정';
+  } else {
+    sonnetBtn.title = 'Claude Sonnet — 유료';
+    sonnetBtn.querySelector('.model-usage').textContent = '유료';
+  }
+
+  // API 설정 버튼 색상
+  const settingsBtn = document.getElementById('api-settings-btn');
+  if (!state.hasGemini || !state.hasClaude) {
+    settingsBtn.style.borderColor = '#f59e0b';
+    settingsBtn.style.color       = '#f59e0b';
+    settingsBtn.title = '⚠ API 키 미설정 — 클릭하여 설정';
+  } else {
+    settingsBtn.style.borderColor = '#22c55e';
+    settingsBtn.style.color       = '#22c55e';
+    settingsBtn.title = '✓ API 키 설정됨';
+  }
+
+  // 사용 가능한 모델로 자동 선택
+  if (state.hasGemini && (state.selectedModel === 'flash' || state.selectedModel === 'pro')) {
+    markSelectedModel();
+  } else if (!state.hasGemini && state.hasClaude) {
+    state.selectedModel = 'sonnet';
+    markSelectedModel();
+  } else if (state.hasGemini) {
+    markSelectedModel();
+  }
+
+  // 비교 버튼 상태도 갱신
+  updateCompareBtn();
+}
+
+// ── 모델 클릭 (미설정 시 설정창 열기) ───────────────────────────────────
+function onModelClick(model) {
+  if ((model === 'flash' || model === 'pro') && !state.hasGemini) {
+    openSettings('gemini');
+    return;
+  }
+  if (model === 'sonnet' && !state.hasClaude) {
+    openSettings('anthropic');
+    return;
+  }
+  selectModel(model);
+}
+
+// ── 통계 ─────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const d = await fetch(API + '/api/dart/stats').then(r => r.json());
+    document.getElementById('st-companies').textContent = (d.companies || 0).toLocaleString();
+    document.getElementById('st-total').textContent     = (d.total || 0).toLocaleString();
+    document.getElementById('st-biz').textContent       = (d.with_text || 0).toLocaleString();
+    document.getElementById('st-sc').textContent        = (d.supply_chain || 0).toLocaleString();
+  } catch(e) { console.warn('stats error', e); }
+}
+
+// ── 최근 보고서 유형 로드 ──────────────────────────────────────────────────
+const TYPE_LABELS = {
+  '2025_annual': '2025 사업보고서',
+  '2025_q3':     '2025 3분기보고서',
+  '2025_h1':     '2025 반기보고서',
+  '2025_q1':     '2025 1분기보고서',
+};
+async function loadLatestType() {
+  try {
+    const d = await fetch(API + '/api/dart/latest_type').then(r => r.json());
+    const btn = document.getElementById('btn-latest');
+    if (d.report_type) {
+      state.latestType = d.report_type;
+      btn.dataset.type = d.report_type;
+      btn.textContent  = '📅 ' + (TYPE_LABELS[d.report_type] || d.report_type);
+    } else {
+      btn.textContent = '최근: 없음';
+    }
+  } catch(e) {
+    document.getElementById('btn-latest').textContent = '최근: 오류';
+  }
+}
+
+// ── AI 사용량 로드 ─────────────────────────────────────────────────────────
+async function loadAIUsage() {
+  try {
+    const d = await fetch(API + '/api/ai/usage').then(r => r.json());
+    updateUsageDisplay(d);
+  } catch(e) { console.warn('usage error', e); }
+}
+
+function updateUsageDisplay(d) {
+  if (d.flash) {
+    const rem = d.flash.limit - d.flash.used;
+    const el = document.getElementById('flash-usage');
+    el.textContent = `${rem}/${d.flash.limit}`;
+    el.className = 'model-usage ' + (rem < 100 ? 'warn' : 'ok');
+  }
+  if (d.pro) {
+    const rem = d.pro.limit - d.pro.used;
+    const el = document.getElementById('pro-usage');
+    el.textContent = `${rem}/${d.pro.limit}`;
+    el.className = 'model-usage ' + (rem < 5 ? 'warn' : 'ok');
+  }
+}
+
+// ── 필터 조작 ─────────────────────────────────────────────────────────────
+// "전체 ▾" 버튼 클릭
+function clickAllBtn() {
+  // 하위 카테고리 토글
+  state.subFilterExpanded = !state.subFilterExpanded;
+  document.getElementById('sub-filter').classList.toggle('expanded', state.subFilterExpanded);
+  document.getElementById('btn-all').textContent = state.subFilterExpanded ? '전체 ▴' : '전체 ▾';
+
+  // 전체 필터 적용 (서브필터 선택 초기화)
+  setFilterCore('');
+  document.querySelectorAll('.sfbtn').forEach(b => b.classList.remove('active'));
+  markAllBtn(true);
+  markLatestBtn(false);
+}
+
+// "최근 보고서" 버튼 클릭
+function clickLatestBtn(btn) {
+  const type = btn.dataset.type;
+  if (!type) return;
+  // 서브필터 닫기
+  state.subFilterExpanded = false;
+  document.getElementById('sub-filter').classList.remove('expanded');
+  document.getElementById('btn-all').textContent = '전체 ▾';
+
+  setFilterCore(type);
+  document.querySelectorAll('.sfbtn').forEach(b => b.classList.remove('active'));
+  markAllBtn(false);
+  markLatestBtn(true);
+}
+
+// 서브 필터 버튼 클릭
+function setSubFilter(btn, type) {
+  setFilterCore(type);
+  document.querySelectorAll('.sfbtn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  markAllBtn(false);
+  markLatestBtn(false);
+}
+
+function setFilterCore(type) {
+  state.filter = type;
+  loadCorps();
+  if (state.selectedCorp) {
+    const name = document.querySelector('.corp-item.active .corp-name')?.textContent || '';
+    selectCorp(state.selectedCorp, name);
+  }
+}
+
+function markAllBtn(on) {
+  document.getElementById('btn-all').classList.toggle('active', on);
+}
+function markLatestBtn(on) {
+  document.getElementById('btn-latest').classList.toggle('active', on);
+}
+
+// ── AI 모델 선택 ──────────────────────────────────────────────────────────
+function selectModel(model) {
+  state.selectedModel = model;
+  markSelectedModel();
+}
+
+function markSelectedModel() {
+  ['flash','pro','sonnet'].forEach(m => {
+    const btn = document.getElementById(`btn-${m}`);
+    btn.classList.remove('selected-flash','selected-pro','selected-sonnet');
+  });
+  document.getElementById(`btn-${state.selectedModel}`)
+    .classList.add(`selected-${state.selectedModel}`);
+  updateCompareBtn();
+}
+
+// ── 보고서 비교 선택 ──────────────────────────────────────────────────────
+function toggleCompareSelect(id, checked) {
+  if (checked) {
+    state.compareIds.add(id);
+  } else {
+    state.compareIds.delete(id);
+  }
+  updateCompareBtn();
+  updateCompareBadge();
+}
+
+function updateCompareBtn() {
+  const btn = document.getElementById('compare-btn');
+  const count = state.compareIds.size;
+  const hasKey = state.hasGemini || state.hasClaude;
+
+  if (!hasKey) {
+    btn.textContent = '⚙ API 키 설정 후 비교 가능';
+    btn.classList.remove('ready');
+    btn.title = '⚙ 설정 버튼을 눌러 API 키를 입력하세요';
+    return;
+  }
+  if (count >= 2) {
+    btn.textContent = `🔍 비교 분석 (${count})`;
+    btn.classList.add('ready');
+    btn.title = '';
+  } else {
+    btn.textContent = count === 1 ? '비교 분석 (1개 더 선택)' : '비교 분석';
+    btn.classList.remove('ready');
+    btn.title = '';
+  }
+}
+
+function updateCompareBadge() {
+  const badge = document.getElementById('compare-badge');
+  const count = state.compareIds.size;
+  if (count > 0) {
+    badge.textContent = `${count}개 선택됨 — 비교할 보고서를 체크하세요`;
+    badge.classList.add('show');
+  } else {
+    badge.classList.remove('show');
+  }
+}
+
+// ── 비교 분석 실행 ────────────────────────────────────────────────────────
+async function runComparison() {
+  if (state.compareIds.size < 2) return;
+
+  // API 키 없으면 설정창 오픈
+  const needGemini  = (state.selectedModel === 'flash' || state.selectedModel === 'pro');
+  const needClaude  = (state.selectedModel === 'sonnet');
+  if ((needGemini && !state.hasGemini) || (needClaude && !state.hasClaude) ||
+      (!state.hasGemini && !state.hasClaude)) {
+    openSettings(state.hasGemini ? 'anthropic' : 'gemini');
+    return;
+  }
+
+  const btn = document.getElementById('compare-btn');
+  btn.classList.remove('ready');
+  btn.classList.add('loading');
+  btn.textContent = '⏳ 분석 중...';
+
+  // AI 탭 활성화
+  const tabRow = document.getElementById('tab-row');
+  tabRow.style.display = 'flex';
+  const aiTab = document.getElementById('tab-ai');
+  aiTab.style.display = '';
+  switchTab('ai');
+
+  const aiDiv = document.getElementById('ai-content');
+  aiDiv.innerHTML = `
+    <div class="ai-loading">
+      <div class="ai-spinner"></div>
+      <div>${modelLabel(state.selectedModel)} 분석 중... (최대 1~2분 소요)</div>
+    </div>
+  `;
+  aiDiv.style.display = 'block';
+
+  try {
+    const resp = await fetch(API + '/api/ai/analyze', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': state.apiKey,
+      },
+      body: JSON.stringify({
+        model: state.selectedModel,
+        report_ids: Array.from(state.compareIds),
+      }),
+    });
+    const d = await resp.json();
+
+    if (d.error) {
+      aiDiv.innerHTML = `<div style="color:#f87171;padding:16px;">오류: ${escHtml(d.error)}</div>`;
+    } else {
+      const mdl = d.model || state.selectedModel;
+      aiDiv.innerHTML = `
+        <div class="ai-result-header">
+          <span class="ai-result-model-badge ${mdl}">${modelLabel(mdl)}</span>
+          <span class="ai-result-meta">${d.report_count}개 보고서 비교 분석</span>
+        </div>
+        <div class="ai-result-body">${renderMarkdown(d.result)}</div>
+      `;
+      // 사용량 업데이트
+      if (d.usage) updateUsageDisplay(d.usage);
+    }
+  } catch(e) {
+    aiDiv.innerHTML = `<div style="color:#f87171;padding:16px;">네트워크 오류: ${escHtml(e.message)}</div>`;
+  }
+
+  btn.classList.remove('loading');
+  updateCompareBtn();
+}
+
+function modelLabel(m) {
+  return { flash: '⚡ Gemini 2.5 Flash', pro: '🔮 Gemini 2.5 Pro', sonnet: '🤖 Claude Sonnet' }[m] || m;
+}
+
+// ── 마크다운 렌더러 ────────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  if (!text) return '';
+  // HTML 이스케이프
+  text = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // 코드 블록 (```...```)
+  text = text.replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+
+  // 인라인 코드
+  text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // 수평선
+  text = text.replace(/^[ \t]*[-*]{3,}[ \t]*$/gm, '<hr>');
+
+  // 헤더
+  text = text.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  text = text.replace(/^### (.+)$/gm,  '<h3>$1</h3>');
+  text = text.replace(/^## (.+)$/gm,   '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm,    '<h2>$1</h2>');
+
+  // 굵게 + 기울임
+  text = text.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  text = text.replace(/\*\*(.+?)\*\*/g,     '<strong>$1</strong>');
+  text = text.replace(/\*([^*\n]+?)\*/g,    '<em>$1</em>');
+
+  // 비순서 목록
+  const lines = text.split('\n');
+  const out = [];
+  let inUl = false, inOl = false;
+  for (let ln of lines) {
+    const ulM = ln.match(/^[ \t]*[-*+] (.+)$/);
+    const olM = ln.match(/^[ \t]*\d+\. (.+)$/);
+    if (ulM) {
+      if (!inUl) { out.push('<ul>'); inUl = true; }
+      if (inOl)  { out.push('</ol>'); inOl = false; }
+      out.push(`<li>${ulM[1]}</li>`);
+    } else if (olM) {
+      if (!inOl) { out.push('<ol>'); inOl = true; }
+      if (inUl)  { out.push('</ul>'); inUl = false; }
+      out.push(`<li>${olM[1]}</li>`);
+    } else {
+      if (inUl) { out.push('</ul>'); inUl = false; }
+      if (inOl) { out.push('</ol>'); inOl = false; }
+      out.push(ln);
+    }
+  }
+  if (inUl) out.push('</ul>');
+  if (inOl) out.push('</ol>');
+  text = out.join('\n');
+
+  // 빈 줄 → 단락 구분
+  text = text.replace(/\n\n+/g, '</p><p>');
+  text = text.replace(/\n/g, '<br>');
+  text = '<p>' + text + '</p>';
+
+  // pre 태그 내부 br 정리
+  text = text.replace(/<pre>([\s\S]*?)<\/pre>/g, (_, inner) =>
+    '<pre>' + inner.replace(/<br>/g, '\n').replace(/<\/?p>/g, '') + '</pre>'
+  );
+  return text;
+}
+
+// ── 저장된 배치 분석 ──────────────────────────────────────────────────────
+// 현재 선택된 기업의 저장 분석 상태
+let savedComps = [];  // [{id, report_type_a, report_type_b, model, analyzed_at, ...}]
+
+async function checkSavedComparisons(corpCode) {
+  savedComps = [];
+  document.getElementById('saved-compare-btn').style.display = 'none';
+  if (!corpCode) return;
+  try {
+    const d = await fetch(
+      `${API}/api/ai/comparisons?corp_code=${encodeURIComponent(corpCode)}&limit=10&status=ok`
+    ).then(r => r.json());
+    const items = d.comparisons || [];
+    if (items.length > 0) {
+      savedComps = items;
+      const btn = document.getElementById('saved-compare-btn');
+      const typeLabel = {
+        '2025_annual':'사업', '2025_q3':'3Q', '2025_h1':'반기', '2025_q1':'1Q'
+      };
+      const latest = items[0];
+      const ta = typeLabel[latest.report_type_a] || latest.report_type_a;
+      const tb = typeLabel[latest.report_type_b] || latest.report_type_b;
+      btn.textContent = `💾 저장 분석 (${ta}↔${tb}) ${items.length}건`;
+      btn.style.display = '';
+    }
+  } catch(e) { /* ai_comparisons 테이블 없으면 무시 */ }
+}
+
+async function showSavedComparison(idx) {
+  if (!savedComps.length) return;
+  const comp = savedComps[idx || 0];
+
+  // 전체 결과 로드
+  let result = comp.result || '';
+  if (!result) {
+    try {
+      const d = await fetch(
+        `${API}/api/ai/comparison_detail?id=${comp.id}`
+      ).then(r => r.json());
+      result = d.result || '(결과 없음)';
+    } catch(e) {
+      result = '로드 오류: ' + e.message;
+    }
+  }
+
+  // AI 탭으로 전환
+  const tabRow = document.getElementById('tab-row');
+  tabRow.style.display = 'flex';
+  const aiTab = document.getElementById('tab-ai');
+  aiTab.style.display = '';
+  switchTabUI('ai');
+  state.currentTab = 'ai';
+
+  const aiEl = document.getElementById('ai-content');
+  aiEl.style.display = 'block';
+  document.getElementById('text-content').style.display = 'none';
+  document.getElementById('sc-content').style.display   = 'none';
+  document.getElementById('content-empty').style.display= 'none';
+
+  const typeFullLabel = {
+    '2025_annual':'2025 사업보고서', '2025_q3':'2025 3분기보고서',
+    '2025_h1':'2025 반기보고서', '2025_q1':'2025 1분기보고서'
+  };
+  const ta = typeFullLabel[comp.report_type_a] || comp.report_type_a;
+  const tb = typeFullLabel[comp.report_type_b] || comp.report_type_b;
+  const modelIcon = { flash:'⚡', pro:'🔮', sonnet:'🤖' }[comp.model] || '🤖';
+  const modelName = { flash:'Gemini Flash', pro:'Gemini Pro', sonnet:'Claude Sonnet' }[comp.model] || comp.model;
+
+  // 여러 건이면 선택 버튼도 표시
+  let multiSelector = '';
+  if (savedComps.length > 1) {
+    multiSelector = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">`;
+    savedComps.forEach((c, i) => {
+      const ta2 = (typeFullLabel[c.report_type_a]||c.report_type_a).replace('2025 ','');
+      const tb2 = (typeFullLabel[c.report_type_b]||c.report_type_b).replace('2025 ','');
+      multiSelector += `<button onclick="showSavedComparison(${i})"
+        style="padding:3px 8px;font-size:10px;background:${i===idx?'rgba(37,99,235,.3)':'rgba(255,255,255,.06)'};
+               border:1px solid var(--border);border-radius:4px;color:var(--txt);cursor:pointer;">
+        ${ta2}↔${tb2}
+      </button>`;
+    });
+    multiSelector += `</div>`;
+  }
+
+  aiEl.innerHTML = `
+    ${multiSelector}
+    <div class="ai-result-header">
+      <span class="ai-result-model-badge ${comp.model}">${modelIcon} ${modelName}</span>
+      <span class="ai-result-meta">${ta} ↔ ${tb}</span>
+      <span class="ai-result-meta" style="margin-left:auto;">${(comp.analyzed_at||'').substring(0,16)} 분석</span>
+    </div>
+    <div class="ai-result-body">${renderMarkdown(result)}</div>
+  `;
+}
+
+// ── 설정 모달 ─────────────────────────────────────────────────────────────
+async function openSettings(focusField) {
+  // 현재 설정 상태 조회
+  try {
+    const d = await fetch(API + '/api/settings/status').then(r => r.json());
+    // 상태 점 표시
+    document.getElementById('dot-gemini').className =
+      'api-status-dot ' + (d.has_gemini ? 'ok' : 'missing');
+    document.getElementById('dot-claude').className =
+      'api-status-dot ' + (d.has_claude ? 'ok' : 'missing');
+    if (d.gemini_hint) {
+      const h = document.getElementById('hint-gemini');
+      h.textContent = '현재: ' + d.gemini_hint;
+      h.style.display = 'block';
+    }
+    if (d.claude_hint) {
+      const h = document.getElementById('hint-claude');
+      h.textContent = '현재: ' + d.claude_hint;
+      h.style.display = 'block';
+    }
+  } catch(e) {}
+
+  document.getElementById('settings-msg').textContent = '';
+  document.getElementById('settings-msg').className = '';
+  document.getElementById('settings-modal').style.display = 'flex';
+
+  // 포커스
+  if (focusField === 'gemini') {
+    setTimeout(() => document.getElementById('input-gemini-key').focus(), 100);
+  } else if (focusField === 'anthropic') {
+    setTimeout(() => document.getElementById('input-anthropic-key').focus(), 100);
+  }
+}
+
+function closeSettings() {
+  document.getElementById('settings-modal').style.display = 'none';
+  document.getElementById('input-gemini-key').value   = '';
+  document.getElementById('input-anthropic-key').value = '';
+  document.getElementById('hint-gemini').style.display = 'none';
+  document.getElementById('hint-claude').style.display  = 'none';
+}
+
+async function saveApiKeys() {
+  const gemini   = document.getElementById('input-gemini-key').value.trim();
+  const anthropic= document.getElementById('input-anthropic-key').value.trim();
+  const msg      = document.getElementById('settings-msg');
+
+  if (!gemini && !anthropic) {
+    msg.textContent = '하나 이상의 API 키를 입력하세요.';
+    msg.className = 'err';
+    return;
+  }
+
+  try {
+    const body = {};
+    if (gemini)    body.gemini_key    = gemini;
+    if (anthropic) body.anthropic_key = anthropic;
+
+    const d = await fetch(API + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json());
+
+    if (d.ok) {
+      msg.textContent = '✓ 저장됨 — AI 기능이 활성화되었습니다';
+      msg.className = 'ok';
+      state.hasGemini = d.has_gemini;
+      state.hasClaude = d.has_claude;
+      await loadSession();     // API 키 + 상태 갱신
+      loadAIUsage();
+      setTimeout(() => closeSettings(), 1200);
+    } else {
+      msg.textContent = '오류: ' + (d.error || '저장 실패');
+      msg.className = 'err';
+    }
+  } catch(e) {
+    msg.textContent = '네트워크 오류: ' + e.message;
+    msg.className = 'err';
+  }
+}
+
+// ── 기업 목록 ─────────────────────────────────────────────────────────────
+async function loadCorps(append = false) {
+  if (!append) state.corpOffset = 0;
+
+  const params = new URLSearchParams({ limit: 200, offset: state.corpOffset });
+  if (state.query)  params.set('q',    state.query);
+  if (state.filter) params.set('type', state.filter);
+
+  try {
+    const d = await fetch(`${API}/api/dart/companies?${params}`).then(r => r.json());
+    const list = document.getElementById('corp-list');
+    if (!append) list.innerHTML = '';
+
+    state.corpTotal = d.total || 0;
+    const companies = d.companies || [];
+
+    if (companies.length === 0 && !append) {
+      list.innerHTML = '<div class="empty"><div class="empty-msg">검색 결과 없음</div></div>';
+      document.getElementById('corp-count').textContent = '';
+      return;
+    }
+
+    companies.forEach(c => {
+      const item = document.createElement('div');
+      item.className = 'corp-item' + (state.selectedCorp === c.corp_code ? ' active' : '');
+      item.dataset.code = c.corp_code;
+
+      const displayName = (c.corp_name || '').trim() || `[${c.corp_code}]`;
+      const tags = [];
+      if (c.annual_cnt > 0) tags.push('<span class="rtype-tag rtype-a">사업</span>');
+      if (c.q3_cnt     > 0) tags.push('<span class="rtype-tag rtype-q">3Q</span>');
+      if (c.h1_cnt     > 0) tags.push('<span class="rtype-tag rtype-h">반기</span>');
+      if (c.q1_cnt     > 0) tags.push('<span class="rtype-tag rtype-q1">1Q</span>');
+      if (c.legacy_cnt > 0) tags.push('<span class="rtype-tag rtype-leg">구</span>');
+
+      item.innerHTML = `
+        <div class="corp-name">${escHtml(displayName)}</div>
+        <div class="corp-tags">${tags.join('')}</div>
+      `;
+      item.onclick = () => selectCorp(c.corp_code, displayName);
+      list.appendChild(item);
+    });
+
+    state.corpOffset += companies.length;
+    document.getElementById('corp-count').textContent =
+      `${state.corpOffset} / ${state.corpTotal}개 기업`;
+
+    if (state.corpOffset < state.corpTotal) {
+      const sentinel = document.createElement('div');
+      sentinel.id = 'scroll-sentinel';
+      sentinel.style.height = '1px';
+      list.appendChild(sentinel);
+      const obs = new IntersectionObserver(entries => {
+        if (entries[0].isIntersecting) {
+          obs.disconnect();
+          sentinel.remove();
+          loadCorps(true);
+        }
+      });
+      obs.observe(sentinel);
+    }
+  } catch(e) {
+    document.getElementById('corp-list').innerHTML =
+      `<div class="loading" style="color:#f87171;">오류: ${e.message}</div>`;
+  }
+}
+
+// ── 기업 선택 ─────────────────────────────────────────────────────────────
+async function selectCorp(corpCode, corpName) {
+  state.selectedCorp   = corpCode;
+  state.selectedReport = null;
+  state.compareIds.clear();
+
+  document.querySelectorAll('.corp-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.code === corpCode);
+  });
+
+  document.getElementById('rp-title').textContent = corpName;
+  document.getElementById('rp-sub').textContent   = '';
+  document.getElementById('report-list').innerHTML = '<div class="loading">로딩 중...</div>';
+  clearContent();
+  updateCompareBtn();
+  updateCompareBadge();
+  checkSavedComparisons(corpCode);  // 저장된 배치 분석 확인
+
+  try {
+    const params = new URLSearchParams({ corp_code: corpCode, limit: 50 });
+    if (state.filter) params.set('type', state.filter);
+    const d = await fetch(`${API}/api/dart/reports?${params}`).then(r => r.json());
+    const reports = d.reports || [];
+
+    document.getElementById('rp-sub').textContent = `${reports.length}건`;
+    const list = document.getElementById('report-list');
+
+    if (reports.length === 0) {
+      list.innerHTML = '<div class="empty"><div class="empty-msg">보고서 없음</div></div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    reports.forEach(r => {
+      const item = document.createElement('div');
+      item.className = 'report-item';
+      item.dataset.id = r.id;
+
+      const badge  = getTypeBadge(r.report_type);
+      const hasBiz = r.has_biz ? '<span class="biz-pill">사업내용</span>' : '';
+      const dt     = r.rcept_dt ? r.rcept_dt.replace(/(\d{4})(\d{2})(\d{2})/, '$1.$2.$3') : '';
+      const chkId  = `chk-${r.id}`;
+
+      item.innerHTML = `
+        <input type="checkbox" class="report-checkbox" id="${chkId}"
+          onclick="event.stopPropagation(); toggleCompareSelect(${r.id}, this.checked)">
+        <div class="report-item-body">
+          <div class="report-item-top">
+            <span class="${badge.cls}">${badge.label}</span>
+            <span class="report-name">${escHtml(r.report_name || '-')}</span>
+          </div>
+          <div class="report-meta">
+            <span>${dt}</span>
+            <span>${hasBiz}</span>
+            <span style="color:var(--txt2)">${fmtLen(r.biz_len || r.text_len)}</span>
+          </div>
+        </div>
+      `;
+      item.onclick = () => selectReport(r);
+      list.appendChild(item);
+    });
+  } catch(e) {
+    document.getElementById('report-list').innerHTML =
+      `<div class="loading" style="color:#f87171;">오류: ${e.message}</div>`;
+  }
+}
+
+// ── 보고서 선택 ───────────────────────────────────────────────────────────
+async function selectReport(report) {
+  state.selectedReport = report;
+
+  document.querySelectorAll('.report-item').forEach(el => {
+    el.classList.toggle('active', +el.dataset.id === +report.id);
+  });
+
+  const badge = getTypeBadge(report.report_type);
+  document.getElementById('ct-title').textContent = report.report_name || '-';
+  document.getElementById('ct-sub').textContent   =
+    `${report.corp_name || ''} | ${report.rcept_dt || ''} | ${badge.label}`;
+
+  document.getElementById('tab-row').style.display = 'flex';
+  // AI 탭은 분석 실행 후에만 표시
+  document.getElementById('tab-ai').style.display = 'none';
+
+  switchTabUI('biz');
+  showTab('biz', report);
+}
+
+// ── 탭 전환 ───────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  state.currentTab = tab;
+  switchTabUI(tab);
+  if (tab !== 'ai') showTab(tab, state.selectedReport);
+}
+
+function switchTabUI(tab) {
+  const tabs = ['biz','raw','sc','ai'];
+  document.querySelectorAll('.tab-btn').forEach((b, i) => {
+    b.classList.toggle('active', tabs[i] === tab);
+  });
+}
+
+async function showTab(tab, report) {
+  const textEl  = document.getElementById('text-content');
+  const scEl    = document.getElementById('sc-content');
+  const aiEl    = document.getElementById('ai-content');
+  const emptyEl = document.getElementById('content-empty');
+
+  emptyEl.style.display = 'none';
+  textEl.style.display  = 'none';
+  scEl.style.display    = 'none';
+  aiEl.style.display    = 'none';
+
+  if (tab === 'ai') {
+    aiEl.style.display = 'block';
+    return;
+  }
+
+  if (tab === 'sc') {
+    scEl.style.display = 'block';
+    await loadSupplyChain(report.corp_code, scEl);
+    return;
+  }
+
+  textEl.style.display = 'block';
+  textEl.textContent   = '로딩 중...';
+
+  try {
+    const d = await fetch(`${API}/api/dart/report?id=${report.id}`).then(r => r.json());
+    if (d.error) { textEl.textContent = '오류: ' + d.error; return; }
+
+    const content = tab === 'biz'
+      ? (d.biz_content || d.raw_text || '')
+      : (d.raw_text || d.biz_content || '');
+
+    textEl.textContent = content.trim() || '(내용 없음)';
+  } catch(e) {
+    textEl.textContent = '오류: ' + e.message;
+  }
+}
+
+// ── 공급망 탭 ─────────────────────────────────────────────────────────────
+async function loadSupplyChain(corpCode, container) {
+  container.innerHTML = '<div class="loading">로딩 중...</div>';
+  try {
+    const d = await fetch(`${API}/api/dart/supply_chain?corp_code=${corpCode}&limit=200`).then(r => r.json());
+    const rows = d.supply_chain || [];
+    if (rows.length === 0) {
+      container.innerHTML = '<div class="empty" style="height:200px"><div class="empty-msg">공급망 데이터 없음</div></div>';
+      return;
+    }
+    const relClass = { supplier:'rel-supplier', customer:'rel-customer', partner:'rel-partner', competitor:'rel-competitor' };
+    const relLabel = { supplier:'공급사', customer:'고객사', partner:'파트너', competitor:'경쟁사' };
+    const trs = rows.map(r => `
+      <tr>
+        <td><span class="rel-badge ${relClass[r.relation_type]||''}">${relLabel[r.relation_type]||r.relation_type}</span></td>
+        <td>${escHtml(r.partner_name||'')}</td>
+        <td style="color:var(--txt2);font-size:11px;max-width:300px;">${escHtml((r.context||'').substring(0,100))}</td>
+      </tr>
+    `).join('');
+    container.innerHTML = `
+      <table class="sc-table">
+        <thead><tr><th>관계</th><th>파트너명</th><th>맥락</th></tr></thead>
+        <tbody>${trs}</tbody>
+      </table>
+    `;
+  } catch(e) {
+    container.innerHTML = `<div class="loading" style="color:#f87171;">오류: ${e.message}</div>`;
+  }
+}
+
+// ── 검색 ──────────────────────────────────────────────────────────────────
+function onSearch(val) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    state.query = val.trim();
+    loadCorps();
+  }, 300);
+}
+
+// ── 유틸 ──────────────────────────────────────────────────────────────────
+function clearContent() {
+  document.getElementById('text-content').style.display  = 'none';
+  document.getElementById('sc-content').style.display    = 'none';
+  document.getElementById('ai-content').style.display    = 'none';
+  document.getElementById('content-empty').style.display = 'flex';
+  document.getElementById('tab-row').style.display       = 'none';
+  document.getElementById('tab-ai').style.display        = 'none';
+  document.getElementById('ct-title').textContent = '보고서를 선택하세요';
+  document.getElementById('ct-sub').textContent   = '';
+}
+
+const TYPE_MAP = {
+  '2025_annual': { cls: 'rtb-annual', label: '사업보고서' },
+  '2025_q3':     { cls: 'rtb-q3',    label: '3분기보고서' },
+  '2025_h1':     { cls: 'rtb-half',  label: '반기보고서'  },
+  '2025_q1':     { cls: 'rtb-q1',    label: '1분기보고서' },
+  'a':           { cls: 'rtb-annual', label: '사업보고서(구)' },
+};
+
+function getTypeBadge(type) {
+  if (!type) return { cls: 'report-type-badge rtb-other', label: '기타' };
+  const key    = type.toLowerCase();
+  const mapped = TYPE_MAP[key] || TYPE_MAP[type];
+  if (mapped) return { cls: `report-type-badge ${mapped.cls}`, label: mapped.label };
+  if (key.includes('annual') || key.includes('사업')) return { cls: 'report-type-badge rtb-annual', label: '사업보고서' };
+  if (key.includes('q3') || key.includes('3분기'))   return { cls: 'report-type-badge rtb-q3',    label: '3분기보고서' };
+  if (key.includes('h1') || key.includes('반기'))    return { cls: 'report-type-badge rtb-half',  label: '반기보고서' };
+  if (key.includes('q1') || key.includes('1분기'))   return { cls: 'report-type-badge rtb-q1',    label: '1분기보고서' };
+  return { cls: 'report-type-badge rtb-other', label: type };
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtLen(n) {
+  if (!n) return '';
+  if (n > 10000) return `${(n/10000).toFixed(1)}만자`;
+  return `${n.toLocaleString()}자`;
+}
+
+// ── 초기 모델 선택 표시 ───────────────────────────────────────────────────
+markSelectedModel();
+</script>
+</body>
+</html>
