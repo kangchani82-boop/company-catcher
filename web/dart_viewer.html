@@ -131,6 +131,8 @@
 .search-result-meta { font-size: 10px; color: var(--txt2); margin-top: 2px; }
 .search-result-snippet { font-size: 11px; color: var(--txt2); margin-top: 3px; line-height: 1.4; }
 .search-result-snippet mark { background: rgba(37,99,235,.3); color: var(--txt); border-radius: 2px; }
+.ql-badge { font-size: 9px; background: rgba(91,106,240,.15); color: var(--accent); border: 1px solid rgba(91,106,240,.3); border-radius: 4px; padding: 2px 6px; text-decoration: none; white-space: nowrap; }
+.ql-badge-danger { background: rgba(231,76,60,.1); color: #e74c3c; border-color: rgba(231,76,60,.3); }
 body {
   background: var(--bg);
   color: var(--txt);
@@ -710,9 +712,10 @@ header h1 span { color: var(--accent); }
     <span>보고서 <b id="st-total">-</b></span>
     <span>사업내용 <b id="st-biz">-</b></span>
     <span>공급망 <b id="st-sc">-</b></span>
-    <span>비교분석 <b id="st-cmp">-</b></span>
-    <span onclick="openArticlesPanel()" style="cursor:pointer;text-decoration:underline dotted;"
-          title="기사 초안 목록 열기">기사초안 <b id="st-articles">-</b></span>
+    <a href="/comparisons.html" style="color:inherit;text-decoration:none;cursor:pointer;"
+       title="비교분석 목록 열기">비교분석 <b id="st-cmp">-</b></a>
+    <a href="/articles.html" style="color:inherit;text-decoration:none;cursor:pointer;"
+       title="기사 초안 목록">기사초안 <b id="st-articles">-</b></a>
     <span id="dashboard-toggle-btn" onclick="toggleDashboard()"
           style="cursor:pointer;border:1px solid var(--border);border-radius:4px;padding:2px 8px;
                  font-size:11px;color:var(--txt2);transition:all .15s;user-select:none;"
@@ -720,7 +723,7 @@ header h1 span { color: var(--accent); }
   </div>
 
   <!-- 취재 단서 알림 배지 -->
-  <div id="alert-indicator" onclick="toggleAlertPanel()">
+  <div id="alert-indicator" onclick="location.href='/leads.html'" style="cursor:pointer;" title="취재 단서 목록으로 이동">
     <span class="alert-badge sev5" id="alert-badge-5" style="display:none">🔴 <span id="alert-cnt-5">0</span></span>
     <span class="alert-badge sev4" id="alert-badge-4" style="display:none">🟠 <span id="alert-cnt-4">0</span></span>
     <span class="alert-badge sev3" id="alert-badge-3" style="display:none">🟡 <span id="alert-cnt-3">0</span></span>
@@ -836,6 +839,17 @@ header h1 span { color: var(--accent); }
       </div>
     </div>
 
+    <!-- Panel 6: 재무 커버리지 + 수익성 분포 (full width) -->
+    <div class="db-panel db-panel-wide">
+      <div class="db-panel-title">💰 재무 데이터 현황
+        <span id="db-fin-coverage" style="font-weight:400;font-size:10px;margin-left:8px;color:var(--acc)"></span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px" id="db-fin-kpis"></div>
+      <div class="db-chart-wrap" style="height:150px;">
+        <canvas id="chart-fin-margin"></canvas>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -944,10 +958,18 @@ header h1 span { color: var(--accent); }
     <div class="modal-field">
       <label>
         <span class="api-status-dot" id="dot-gemini"></span>
-        Gemini API Key <small>(Flash · Pro 사용)</small>
+        Gemini API Key 1 — 파싱1 <small>(Flash · Pro 사용)</small>
       </label>
       <input type="password" id="input-gemini-key" placeholder="AIza..." autocomplete="off">
       <div class="key-hint" id="hint-gemini" style="display:none;"></div>
+    </div>
+    <div class="modal-field">
+      <label>
+        <span class="api-status-dot" id="dot-gemini2"></span>
+        Gemini API Key 2 — 파싱2 <small>(병렬 처리용 보조 키)</small>
+      </label>
+      <input type="password" id="input-gemini-key2" placeholder="AIza..." autocomplete="off">
+      <div class="key-hint" id="hint-gemini2" style="display:none;"></div>
       <a href="https://aistudio.google.com/app/apikey" target="_blank">▸ Google AI Studio에서 무료 키 발급</a>
     </div>
     <div class="modal-field">
@@ -1101,16 +1123,31 @@ async function onHeaderSearch(val) {
       const items = d.results || [];
       if (!items.length) { res.classList.remove('open'); return; }
 
-      res.innerHTML = items.map(r => `
-        <div class="search-result-item" onclick="searchResultClick('${r.corp_code}','${escHtml(r.corp_name||'')}')">
-          <div class="search-result-corp">${escHtml(r.corp_name||r.corp_code)}</div>
+      // 기업별로 그룹핑 (중복 corp_code 제거)
+      const seen = new Set();
+      const uniqCorps = items.filter(r => {
+        if (seen.has(r.corp_code)) return false;
+        seen.add(r.corp_code); return true;
+      });
+
+      res.innerHTML = uniqCorps.map(r => `
+        <div class="search-result-item">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+            <div class="search-result-corp" style="flex:1;cursor:pointer"
+                 onclick="searchResultClick('${r.corp_code}','${escHtml(r.corp_name||'')}')">${escHtml(r.corp_name||r.corp_code)}</div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <a class="ql-badge" href="/company_detail.html?corp_code=${encodeURIComponent(r.corp_code)}&corp_name=${encodeURIComponent(r.corp_name||r.corp_code)}">🏢 기업</a>
+              <a class="ql-badge" href="/comparisons.html?q=${encodeURIComponent(r.corp_name||r.corp_code)}">📊 분석${r.cmp_count?` ${r.cmp_count}`:''}</a>
+              <a class="ql-badge ql-badge-danger" href="/leads.html?corp_code=${encodeURIComponent(r.corp_code)}">🚨 단서${r.lead_count?` ${r.lead_count}`:''}</a>
+            </div>
+          </div>
           <div class="search-result-meta">
             <span>${r.report_type||''}</span>
             <span>${r.rcept_dt||''}</span>
           </div>
           ${r.snippet ? `<div class="search-result-snippet">${r.snippet}</div>` : ''}
         </div>
-      `).join('') + (d.total > 10 ? `<div class="loading">총 ${d.total.toLocaleString()}건 — 더 보려면 검색어를 구체화하세요</div>` : '');
+      `).join('') + (d.total > 10 ? `<div class="loading" style="padding:8px;font-size:11px">총 ${d.total.toLocaleString()}건 · 더 보려면 검색어를 구체화하세요</div>` : '');
       res.classList.add('open');
 
       // 위치 맞추기
@@ -1880,21 +1917,12 @@ async function openSettings(focusField) {
   // 현재 설정 상태 조회
   try {
     const d = await fetch(API + '/api/settings/status').then(r => r.json());
-    // 상태 점 표시
-    document.getElementById('dot-gemini').className =
-      'api-status-dot ' + (d.has_gemini ? 'ok' : 'missing');
-    document.getElementById('dot-claude').className =
-      'api-status-dot ' + (d.has_claude ? 'ok' : 'missing');
-    if (d.gemini_hint) {
-      const h = document.getElementById('hint-gemini');
-      h.textContent = '현재: ' + d.gemini_hint;
-      h.style.display = 'block';
-    }
-    if (d.claude_hint) {
-      const h = document.getElementById('hint-claude');
-      h.textContent = '현재: ' + d.claude_hint;
-      h.style.display = 'block';
-    }
+    document.getElementById('dot-gemini').className  = 'api-status-dot ' + (d.has_gemini  ? 'ok' : 'missing');
+    document.getElementById('dot-gemini2').className = 'api-status-dot ' + (d.has_gemini2 ? 'ok' : 'missing');
+    document.getElementById('dot-claude').className  = 'api-status-dot ' + (d.has_claude  ? 'ok' : 'missing');
+    if (d.gemini_hint)  { const h = document.getElementById('hint-gemini');  h.textContent = '현재: ' + d.gemini_hint;  h.style.display = 'block'; }
+    if (d.gemini2_hint) { const h = document.getElementById('hint-gemini2'); h.textContent = '현재: ' + d.gemini2_hint; h.style.display = 'block'; }
+    if (d.claude_hint)  { const h = document.getElementById('hint-claude');  h.textContent = '현재: ' + d.claude_hint;  h.style.display = 'block'; }
   } catch(e) {}
 
   document.getElementById('settings-msg').textContent = '';
@@ -1912,17 +1940,20 @@ async function openSettings(focusField) {
 function closeSettings() {
   document.getElementById('settings-modal').style.display = 'none';
   document.getElementById('input-gemini-key').value   = '';
+  document.getElementById('input-gemini-key2').value  = '';
   document.getElementById('input-anthropic-key').value = '';
-  document.getElementById('hint-gemini').style.display = 'none';
+  document.getElementById('hint-gemini').style.display  = 'none';
+  document.getElementById('hint-gemini2').style.display = 'none';
   document.getElementById('hint-claude').style.display  = 'none';
 }
 
 async function saveApiKeys() {
   const gemini   = document.getElementById('input-gemini-key').value.trim();
+  const gemini2  = document.getElementById('input-gemini-key2').value.trim();
   const anthropic= document.getElementById('input-anthropic-key').value.trim();
   const msg      = document.getElementById('settings-msg');
 
-  if (!gemini && !anthropic) {
+  if (!gemini && !gemini2 && !anthropic) {
     msg.textContent = '하나 이상의 API 키를 입력하세요.';
     msg.className = 'err';
     return;
@@ -1931,6 +1962,7 @@ async function saveApiKeys() {
   try {
     const body = {};
     if (gemini)    body.gemini_key    = gemini;
+    if (gemini2)   body.gemini_key2   = gemini2;
     if (anthropic) body.anthropic_key = anthropic;
 
     const d = await fetch(API + '/api/settings', {
@@ -2276,26 +2308,30 @@ function toggleDashboard() {
 async function loadDashboard() {
   dashboardLoaded = true;
   try {
-    const [leadsResp, compsResp, articlesResp, statsResp] = await Promise.all([
+    const [leadsResp, compsResp, articlesResp, statsResp, finResp] = await Promise.all([
       fetch('/api/leads?limit=1000'),
       fetch('/api/ai/comparisons?limit=2000'),
       fetch('/api/articles?limit=1000'),
       fetch('/api/stats/dashboard').catch(() => ({ ok: false })),
+      fetch('/api/financials?limit=500').catch(() => ({ ok: false })),
     ]);
     const leadsData    = leadsResp.ok    ? await leadsResp.json()    : {};
     const compsData    = compsResp.ok    ? await compsResp.json()    : {};
     const articlesData = articlesResp.ok ? await articlesResp.json() : {};
     const statsData    = statsResp.ok    ? await statsResp.json()    : {};
+    const finData      = finResp.ok      ? await finResp.json()      : {};
 
     const leads    = leadsData.leads       || [];
     const comps    = compsData.comparisons || [];
     const articles = articlesData.articles || [];
+    const fins     = finData.financials    || [];
 
     renderLeadsTypeChart(leads);
     renderFunnelChart(comps, leads, articles, statsData);
     renderProgressChart(comps);
     renderActivityChart(comps, leads, articles);
     renderRulesChart(leads);
+    renderFinancialsDashboard(fins);
   } catch (e) {
     console.error('Dashboard load error:', e);
   }
@@ -2498,6 +2534,15 @@ function renderActivityChart(comps, leads, articles) {
   });
 }
 
+// 재무 수치 포맷 (조/억 단위)
+function fmtW(v) {
+  if (v == null) return '-';
+  const abs = Math.abs(v);
+  if (abs >= 1e12) return (v/1e12).toFixed(1)+'조';
+  if (abs >= 1e8)  return (v/1e8).toFixed(0)+'억';
+  return v.toFixed(0);
+}
+
 // ── Panel 5: 알림 룰 적중률 (lead_type 기반 가로 막대) ────────────────────
 function renderRulesChart(leads) {
   const RULE_NAMES = {
@@ -2520,6 +2565,73 @@ function renderRulesChart(leads) {
   });
 
   const labels = Object.keys(RULE_NAMES).map(k => RULE_NAMES[k]);
+
+  // ── Panel 6: 재무 데이터 현황 ─────────────────────────────────────────────
+  function renderFinancialsDashboard(fins) {
+    const covEl   = document.getElementById('db-fin-coverage');
+    const kpisEl  = document.getElementById('db-fin-kpis');
+    if (!fins.length) {
+      if (covEl) covEl.textContent = '데이터 없음';
+      return;
+    }
+
+    // 최신 연도 기준 통계
+    const latest = fins.filter(f => f.report_type === 'annual');
+    const withRev = latest.filter(f => f.revenue != null && f.revenue > 0);
+    const withOI  = latest.filter(f => f.operating_income != null);
+    const profitable = withOI.filter(f => f.operating_income > 0);
+    const avgMargin = withOI.length ? withOI.reduce((s,f) => s + (f.operating_margin||0), 0) / withOI.length : null;
+    const totalRev  = withRev.reduce((s,f) => s + f.revenue, 0);
+
+    if (covEl) covEl.textContent = `${latest.length}개사 최신 데이터`;
+
+    if (kpisEl) kpisEl.innerHTML = `
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--txt2);margin-bottom:4px">TOTAL 매출합계</div>
+        <div style="font-size:16px;font-weight:700;color:var(--acc)">${fmtW(totalRev)}</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--txt2);margin-bottom:4px">흑자기업 비율</div>
+        <div style="font-size:16px;font-weight:700;color:${profitable.length/Math.max(1,withOI.length)>0.5?'#2ecc71':'#e74c3c'}">
+          ${withOI.length ? Math.round(profitable.length/withOI.length*100)+'%' : '-'}
+        </div>
+        <div style="font-size:9px;color:var(--txt2)">${profitable.length}/${withOI.length}개사</div>
+      </div>
+      <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px;text-align:center">
+        <div style="font-size:9px;color:var(--txt2);margin-bottom:4px">평균 영업이익률</div>
+        <div style="font-size:16px;font-weight:700;color:${avgMargin>=0?'#2ecc71':'#e74c3c'}">
+          ${avgMargin!=null?(avgMargin>=0?'+':'')+avgMargin.toFixed(1)+'%':'-'}
+        </div>
+      </div>`;
+
+    // 영업이익률 분포 히스토그램
+    const ctx = document.getElementById('chart-fin-margin');
+    if (!ctx || !withOI.length) return;
+    const margins = withOI.map(f => f.operating_margin||0).filter(v => v > -100 && v < 100);
+    const bins = [-100,-50,-30,-20,-10,-5,0,5,10,20,30,50,100];
+    const counts = new Array(bins.length-1).fill(0);
+    margins.forEach(m => {
+      for (let i=0; i<bins.length-1; i++) {
+        if (m >= bins[i] && m < bins[i+1]) { counts[i]++; break; }
+      }
+    });
+    const labels = bins.slice(0,-1).map((b,i) => `${b}~${bins[i+1]}%`);
+    const colors = counts.map((_,i) => bins[i] < 0 ? 'rgba(231,76,60,.7)' : 'rgba(46,204,113,.7)');
+    if (_dbCharts.finMargin) _dbCharts.finMargin.destroy();
+    _dbCharts.finMargin = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: [{ label:'기업 수', data:counts, backgroundColor:colors, borderRadius:3 }] },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false },
+          tooltip: { callbacks: { label: c => `${c.parsed.y}개사` } } },
+        scales: {
+          x: { ticks:{color:'#8b949e',font:{size:9}}, grid:{display:false} },
+          y: { ticks:{color:'#8b949e',font:{size:9},precision:0}, grid:{color:'rgba(255,255,255,.05)'} }
+        }
+      }
+    });
+  }
 
   const ctx = document.getElementById('chart-rules');
   if (!ctx) return;

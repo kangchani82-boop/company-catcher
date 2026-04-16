@@ -377,42 +377,62 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
 
 
 def build_prompt(reports: list) -> str:
-    """분석 프롬프트 생성 (biz_content 전용)"""
+    """분석 프롬프트 생성 (biz_content 전용)
+    reports: rcept_dt 기준으로 정렬된 리스트 [오래된 보고서, 최신 보고서]
+    """
     sep = "─" * 60
-    parts = []
-    for r in reports:
-        parts.append(f"[{r['label']}]\n{r['content']}")
-    combined = f"\n{sep}\n".join(parts)
+    assert len(reports) == 2
+    old_r = reports[0]  # 분기 등 오래된 보고서 — 베이스라인
+    new_r = reports[1]  # 사업보고서(연간) — 변화의 도착점
 
-    return f"""아래는 동일 기업의 DART 공시 사업보고서 중 **'2. 사업의 내용'** 섹션 {len(reports)}개입니다.
-각 보고서의 사업 내용만을 기반으로 비교 분석해주세요.
+    return f"""아래는 동일 기업의 DART 공시 **'2. 사업의 내용'** 섹션 두 개입니다.
 
 {sep}
-{combined}
+▶ [과거 기준 보고서] {old_r['label']}
+(이 시점까지의 사업 내용 — 비교의 출발점)
+
+{old_r['content']}
+
 {sep}
+▶ [최신 현재 보고서] {new_r['label']}
+(가장 최근·포괄적인 연간 사업 보고 — 변화의 도착점)
+
+{new_r['content']}
+{sep}
+
+## ⚠ 분석 방향 (필수 준수)
+
+- **과거 기준**: {old_r['label']} — 이 보고서가 베이스라인입니다.
+- **최신 현재**: {new_r['label']} — 이 보고서가 가장 최신·포괄적입니다.
+- **핵심 질문**: "최신 보고서(사업보고서·연간)에서 과거 분기보고서 대비 무엇이 **새로 등장했거나 변화했는가**?"
+- 사업보고서는 1년 전체를 다루고, 분기보고서는 그 중 일부 기간만 다룹니다.
+  따라서 비교 방향은 항상 **"분기(과거) → 사업보고서(최신)"** 입니다.
+  사업보고서에만 있고 분기보고서에 없는 내용 = 연중 새롭게 추가된 사업·전략·리스크.
 
 ## 분석 요청 항목
 
 1. **핵심 변화 요약**
-   - 기간별로 사업 내용에서 달라진 핵심 사항을 표로 정리
+   - 최신 보고서 기준으로 과거 대비 달라진 핵심 사항을 표로 정리
+   - 표 컬럼: 항목 | 과거(분기) | 최신(사업보고서) | 변화 방향
 
-2. **사업 전략 변화**
-   - 신규 사업 진출, 기존 사업 확장·축소·철수
-   - 주력 제품·서비스의 변화
+2. **신규 사업·전략 변화**
+   - 사업보고서에만 새로 등장한 신규 사업, 제품, 서비스
+   - 기존 사업의 확장·축소·철수
 
 3. **시장 및 경쟁환경 변화**
-   - 주요 고객, 시장 점유율, 경쟁사 관련 서술 변화
+   - 주요 고객, 점유율, 경쟁사 관련 서술이 어떻게 달라졌는가
 
 4. **리스크 요인 변화**
-   - 새롭게 등장하거나 해소된 리스크 (원재료, 규제, 기술, 시장)
+   - 사업보고서에 새로 등장했거나 해소된 리스크 (원재료·규제·기술·시장)
 
 5. **수치·실적 언급 변화**
-   - 사업 내용에 등장하는 매출·물량·점유율 등 구체 수치 비교
+   - 매출·물량·점유율 등 구체 수치가 어떻게 달라졌는가
 
-6. **투자자 관점 인사이트**
-   - 사업 내용에서 포착할 수 있는 중요 시그널 (긍정/부정)
+6. **취재 가치 판단**
+   - 이 변화 중 언론 보도 가치가 높은 시그널은 무엇인가? (긍정/부정 모두)
+   - 투자자·독자에게 중요한 정보를 1~3가지로 요약
 
-분석은 한국어로 작성하고, 각 항목마다 보고서 원문의 구체적인 표현·수치를 근거로 제시해주세요."""
+분석은 한국어로 작성하고, 각 항목마다 원문의 구체적인 표현·수치를 인용해 근거를 제시해주세요."""
 
 
 # ─── 단일 태스크 처리 (병렬 워커용) ───────────────────────────────────────
@@ -463,12 +483,18 @@ def process_task(task: dict) -> dict:
             return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
         return dt or ""
 
-    reports = [
+    # rcept_dt 기준으로 정렬: 오래된 보고서(분기) → 최신 보고서(사업보고서) 순
+    reports = sorted([
         {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
-         "content": biz_a},
+         "content": biz_a,
+         "rcept_dt": rr_a['rcept_dt'] or ''},
         {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
-         "content": biz_b},
-    ]
+         "content": biz_b,
+         "rcept_dt": rr_b['rcept_dt'] or ''},
+    ], key=lambda x: x['rcept_dt'])
+    # build_prompt에서 rcept_dt 키는 불필요하므로 제거
+    for r in reports:
+        r.pop('rcept_dt', None)
     prompt = build_prompt(reports)
 
     # 워커별 딜레이 (per-key rate limit)
@@ -652,9 +678,6 @@ def main():
     """, [args.type_a, args.type_b, args.model]).fetchone()[0]
     print(f"기완료 기업: {done_count}개")
 
-    # limit 적용
-    rows = rows[:args.limit]
-
     # 진행 카운터 (스레드 안전)
     counters = {"processed": 0, "success": 0, "errors": 0, "skipped": 0}
     start_time = time.time()
@@ -662,6 +685,8 @@ def main():
 
     # ── 단일 워커 모드 (--workers 1) ────────────────────────────────────────
     if args.workers == 1:
+        # 단일 모드: limit 적용 후 순차 처리 (already_done은 루프 내에서 skip)
+        rows = rows[:args.limit]
         processed = 0
         success   = 0
         skipped   = 0
@@ -768,9 +793,17 @@ def main():
         return
 
     # ── 병렬 워커 모드 (--workers 2) ─────────────────────────────────────────
-    # 태스크 목록 생성 (인터리빙: task_i → key_idx = i % num_workers)
+    # 태스크 목록 생성: 미완료 기업만 limit 개까지 선별
+    pending = []
+    for row in rows:
+        if not args.all and already_done(db, row["corp_code"], args.type_a, args.type_b, args.model):
+            continue
+        pending.append(row)
+        if len(pending) >= args.limit:
+            break
+
     tasks = []
-    for i, row in enumerate(rows):
+    for i, row in enumerate(pending):
         key_idx = i % args.workers
         tasks.append({
             "corp_code":  row["corp_code"],
@@ -785,7 +818,7 @@ def main():
             "delay":      delay,
             "overwrite":  args.all,
             "task_num":   i + 1,
-            "total":      len(rows),
+            "total":      len(pending),
         })
 
     processed = 0

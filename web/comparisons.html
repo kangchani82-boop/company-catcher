@@ -377,11 +377,16 @@
     const charA = item.char_count_a ? `${Math.round(item.char_count_a/1000)}k자` : '';
     const charB = item.char_count_b ? `${Math.round(item.char_count_b/1000)}k자` : '';
     return `
-      <div class="comp-card" id="card-${item.id}" onclick="openComparison(${item.id}, '${escHtml(item.corp_code||'')}', '${escHtml(item.corp_name||'')}')">
+      <div class="comp-card" id="card-${item.id}" onclick="location.href='/comparison_detail.html?id=${item.id}'">
         <div class="comp-card-header">
-          <span class="corp-badge">${escHtml(item.corp_name || '')}</span>
+          <a class="corp-badge" href="/company_detail.html?corp_code=${encodeURIComponent(item.corp_code||'')}&corp_name=${encodeURIComponent(item.corp_name||'')}"
+             onclick="event.stopPropagation()" style="text-decoration:none">${escHtml(item.corp_name || '')}</a>
           <span class="type-badge">${escHtml(item.model || 'flash')}</span>
-          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(item.analyzed_at)}</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:var(--txt2);">${fmtDate(item.analyzed_at)}</span>
+            <button class="btn-exclude" onclick="event.stopPropagation(); excludeComparison(${item.id}, this)"
+              title="기사 가치 없음 — 목록에서 제외">🚫 제외</button>
+          </span>
         </div>
         <div class="comp-route">
           <span class="type-tag">${escHtml(typeLabel(item.report_type_a))}</span>
@@ -394,6 +399,16 @@
           ${charB ? `<span>· B: ${charB}</span>` : ''}
         </div>
       </div>`;
+  }
+
+  function excludeComparison(id, btn) {
+    excludeItem({
+      url: `${API}/api/comparisons/${id}/exclude`,
+      body: { status: 'excluded' },
+      cardId: `card-${id}`,
+      confirmMsg: '이 비교분석을 목록에서 제외할까요?\n(기사화 가치 없음으로 판단)',
+      btn, btnLabel: '🚫 제외',
+    });
   }
 
   // ── 상세 뷰 열기 ──────────────────────────────────────────────────────────
@@ -452,9 +467,10 @@
 
     document.getElementById('detail-title').innerHTML =
       `${escHtml(comp.corp_name || '')} — <span class="type-tag">${escHtml(ta)}</span> → <span class="type-tag">${escHtml(tb)}</span>`;
-    document.getElementById('detail-meta').textContent =
+    document.getElementById('detail-meta').innerHTML =
       [comp.model ? `모델: ${comp.model}` : '', charA, charB, comp.analyzed_at ? `분석일시: ${fmtDate(comp.analyzed_at)}` : '']
-        .filter(Boolean).join(' · ');
+        .filter(Boolean).join(' · ')
+      + `&nbsp;&nbsp;<a href="/comparison_detail.html?id=${comp.id}" style="color:var(--acc);font-size:11px;">↗ 전체 페이지</a>`;
 
     const result = comp.result || '분석 결과가 없습니다.';
     document.getElementById('detail-body').innerHTML = renderMarkdown(result);
@@ -535,29 +551,27 @@
   }
 
   function renderMiniLead(lead) {
-    const corpCode = lead.corp_code ? encodeURIComponent(lead.corp_code) : '';
     return `
-      <div class="mini-lead">
+      <div class="mini-lead" onclick="location.href='/lead_detail.html?id=${lead.id}'" style="cursor:pointer">
         <div class="mini-lead-top">
           <span class="sev-dot ${sevDotClass(lead.severity)}"></span>
           <span class="mini-lead-corp">${escHtml(lead.corp_name || '')}</span>
           <span class="mini-lead-type">${leadTypeKo(lead.lead_type)}</span>
         </div>
         <div class="mini-lead-title" title="${escHtml(lead.title || '')}">${escHtml(lead.title || '제목 없음')}</div>
-        <a class="mini-lead-link" href="leads.html${corpCode ? '?corp_code=' + corpCode : ''}">→ 단서 보기</a>
+        <a class="mini-lead-link" href="/lead_detail.html?id=${lead.id}">→ 상세 보기</a>
       </div>`;
   }
 
   function renderMiniArticle(article) {
-    const corpCode = article.corp_code ? encodeURIComponent(article.corp_code) : '';
     return `
-      <div class="mini-article">
+      <div class="mini-article" onclick="location.href='/article_detail.html?id=${article.id}'" style="cursor:pointer">
         <div class="mini-article-top">
           ${articleStatusBadge(article.status)}
           <span class="mini-article-corp">${escHtml(article.corp_name || '')}</span>
         </div>
         <div class="mini-article-headline" title="${escHtml(article.headline || '')}">${escHtml(article.headline || '제목 없음')}</div>
-        <a class="mini-article-link" href="articles.html${corpCode ? '?corp_code=' + corpCode : ''}">→ 초안 보기</a>
+        <a class="mini-article-link" href="/article_detail.html?id=${article.id}">→ 상세 보기</a>
       </div>`;
   }
 

@@ -252,21 +252,45 @@ const COMMON_CSS = `
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track { background: var(--bg1); }
   ::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+
+  /* 기업 필터 배너 (leads/articles/comparisons 공통) */
+  .corp-filter-banner {
+    width: 100%; display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; margin-bottom: 8px;
+    background: rgba(91,106,240,.1); border: 1px solid rgba(91,106,240,.3);
+    border-radius: 8px; font-size: 12px; color: var(--txt1);
+  }
+  .corp-filter-banner a { color: var(--acc); text-decoration: none; margin-left: auto; }
+
+  /* 제외 버튼 (leads/articles/comparisons 카드 공통) */
+  .btn-exclude {
+    font-size: 10px; color: #e74c3c;
+    border: 1px solid rgba(231,76,60,.3); border-radius: 4px;
+    padding: 2px 7px; background: none; cursor: pointer; white-space: nowrap;
+  }
+  .btn-exclude:hover { background: rgba(231,76,60,.08); }
 `;
 
 // ── 공통 네비게이션 HTML 생성 ─────────────────────────────────────────────────
 function buildNav(activePage) {
   const items = [
-    { href: '/',                  key: 'home',        label: '🏠 기업분석' },
-    { href: '/comparisons.html',  key: 'comparisons', label: '📊 비교분석' },
-    { href: '/leads.html',        key: 'leads',       label: '🚨 취재단서' },
-    { href: '/articles.html',     key: 'articles',    label: '✍ 기사초안' },
+    { href: '/',                  key: 'home',         label: '🏠 기업분석' },
+    { href: '/comparisons.html',  key: 'comparisons',  label: '📊 비교분석' },
+    { href: '/leads.html',        key: 'leads',        label: '🚨 취재단서' },
+    { href: '/articles.html',     key: 'articles',     label: '✍ 기사초안' },
+    { href: '/supply_chain.html', key: 'supply_chain', label: '🔗 공급망' },
+    { href: '/alert_rules',      key: 'alert_rules',  label: '⚙️ 규칙관리' },
   ];
   return `<nav class="top-nav">
     <a href="/" class="brand">CompanyCatcher</a>
     ${items.map(it => `
       <a href="${it.href}" class="${activePage===it.key?'active':''}">${it.label}</a>
     `).join('')}
+    <button onclick="openSettingsModal()" title="API 키 설정"
+      style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;
+             color:var(--txt2);padding:4px 10px;cursor:pointer;font-size:12px;transition:all .15s;"
+      onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'"
+      onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--txt2)'">⚙ 설정</button>
   </nav>`;
 }
 
@@ -334,6 +358,42 @@ function copyArticleText() {
   navigator.clipboard.writeText(body).then(() => alert('클립보드에 복사되었습니다.'));
 }
 
+// ── 기업 필터 배너 (leads/articles 공통) ────────────────────────────────────
+function renderCorpFilterBanner(resetHref, label) {
+  if (document.getElementById('corp-filter-banner')) return;
+  const anchor = document.getElementById('top-bar') || document.querySelector('.top-bar');
+  if (!anchor) return;
+  const banner = document.createElement('div');
+  banner.id = 'corp-filter-banner';
+  banner.className = 'corp-filter-banner';
+  banner.innerHTML = `🏢 <strong>${escHtml(label)}</strong> 기업만 표시 중
+    <a href="${escHtml(resetHref)}">✕ 필터 해제</a>`;
+  anchor.parentNode.insertBefore(banner, anchor.nextSibling);
+}
+
+// ── 카드 제외 처리 (leads/articles/comparisons 공통) ────────────────────────
+async function excludeItem({ url, body, cardId, confirmMsg, btn, btnLabel }) {
+  if (!confirm(confirmMsg)) return;
+  if (btn) { btn.disabled = true; btn.textContent = '처리중...'; }
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || '오류');
+    const card = document.getElementById(cardId);
+    if (card) {
+      card.style.transition = 'opacity .3s';
+      card.style.opacity = '0';
+      setTimeout(() => card.remove(), 300);
+    }
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = btnLabel || '🚫 제외'; }
+    alert('오류: ' + e.message);
+  }
+}
+
 // ── 기사 초안 생성 (API 호출) ────────────────────────────────────────────────
 async function generateDraftFromLead(leadId, corpName, btn) {
   if (btn) { btn.disabled = true; btn.textContent = '⏳...'; }
@@ -349,5 +409,130 @@ async function generateDraftFromLead(leadId, corpName, btn) {
     alert(`기사 초안 생성 오류: ${e.message}`);
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = '✍ 초안'; }
+  }
+}
+
+// ── API 키 설정 모달 ─────────────────────────────────────────────────────────
+function openSettingsModal() {
+  if (document.getElementById('_settings_modal')) {
+    document.getElementById('_settings_modal').style.display = 'flex';
+    _loadSettingsStatus();
+    return;
+  }
+
+  const el = document.createElement('div');
+  el.id = '_settings_modal';
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  el.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:14px;
+                padding:28px;width:500px;max-width:95vw;">
+      <div style="display:flex;align-items:center;margin-bottom:20px;">
+        <div style="font-size:16px;font-weight:700;">⚙ API 키 설정</div>
+        <button onclick="document.getElementById('_settings_modal').style.display='none'"
+          style="margin-left:auto;background:none;border:none;color:var(--txt2);font-size:20px;cursor:pointer;">✕</button>
+      </div>
+
+      <div id="_settings_status" style="margin-bottom:16px;font-size:12px;color:var(--txt3);">로딩 중…</div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11px;color:var(--txt3);display:block;margin-bottom:4px;">Gemini API Key 1 (파싱1)</label>
+        <input id="_s_gemini1" type="password" placeholder="AIzaSy…"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);
+                 background:var(--bg1);color:var(--txt1);font-size:13px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11px;color:var(--txt3);display:block;margin-bottom:4px;">Gemini API Key 2 (파싱2)</label>
+        <input id="_s_gemini2" type="password" placeholder="AIzaSy…"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);
+                 background:var(--bg1);color:var(--txt1);font-size:13px;box-sizing:border-box;">
+      </div>
+      <div style="margin-bottom:20px;">
+        <label style="font-size:11px;color:var(--txt3);display:block;margin-bottom:4px;">Anthropic (Claude) API Key</label>
+        <input id="_s_anthropic" type="password" placeholder="sk-ant-…"
+          style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);
+                 background:var(--bg1);color:var(--txt1);font-size:13px;box-sizing:border-box;">
+      </div>
+
+      <div style="font-size:11px;color:var(--txt3);margin-bottom:16px;">
+        빈칸으로 두면 해당 키는 변경되지 않습니다. 새 키만 입력하세요.
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button onclick="document.getElementById('_settings_modal').style.display='none'"
+          style="padding:8px 16px;border-radius:8px;border:1px solid var(--border);
+                 background:var(--bg3);color:var(--txt2);font-size:13px;cursor:pointer;">취소</button>
+        <button id="_s_save_btn" onclick="_saveSettings()"
+          style="padding:8px 20px;border-radius:8px;border:none;
+                 background:var(--acc);color:#fff;font-size:13px;cursor:pointer;font-weight:600;">💾 저장</button>
+      </div>
+    </div>`;
+
+  el.addEventListener('click', e => { if (e.target === el) el.style.display = 'none'; });
+  document.body.appendChild(el);
+  _loadSettingsStatus();
+}
+
+async function _loadSettingsStatus() {
+  const el = document.getElementById('_settings_status');
+  if (!el) return;
+  try {
+    const d = await fetch('/api/settings/status').then(r => r.json());
+    const dot = ok => ok
+      ? '<span style="color:#22c55e;font-weight:700;">●</span> 설정됨'
+      : '<span style="color:#e74c3c;font-weight:700;">●</span> 미설정';
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;text-align:center;">
+          <div style="font-size:10px;color:var(--txt3);margin-bottom:2px;">Gemini Key 1</div>
+          <div>${dot(d.has_gemini)} ${d.gemini_hint ? `<span style="color:var(--txt3);font-size:10px;">(${escHtml(d.gemini_hint)})</span>` : ''}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;text-align:center;">
+          <div style="font-size:10px;color:var(--txt3);margin-bottom:2px;">Gemini Key 2</div>
+          <div>${dot(d.has_gemini2)} ${d.gemini2_hint ? `<span style="color:var(--txt3);font-size:10px;">(${escHtml(d.gemini2_hint)})</span>` : ''}</div>
+        </div>
+        <div style="background:var(--bg3);border-radius:6px;padding:8px;text-align:center;">
+          <div style="font-size:10px;color:var(--txt3);margin-bottom:2px;">Claude Key</div>
+          <div>${dot(d.has_claude)} ${d.claude_hint ? `<span style="color:var(--txt3);font-size:10px;">(${escHtml(d.claude_hint)})</span>` : ''}</div>
+        </div>
+      </div>`;
+  } catch(e) {
+    el.textContent = '상태 로딩 실패';
+  }
+}
+
+async function _saveSettings() {
+  const btn = document.getElementById('_s_save_btn');
+  const g1  = document.getElementById('_s_gemini1').value.trim();
+  const g2  = document.getElementById('_s_gemini2').value.trim();
+  const ant = document.getElementById('_s_anthropic').value.trim();
+
+  if (!g1 && !g2 && !ant) { alert('변경할 키를 입력하세요.'); return; }
+
+  btn.disabled = true; btn.textContent = '저장 중…';
+  try {
+    const body = {};
+    if (g1)  body.gemini_key  = g1;
+    if (g2)  body.gemini_key2 = g2;
+    if (ant) body.anthropic_key = ant;
+
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || '저장 실패');
+
+    // 입력칸 초기화
+    document.getElementById('_s_gemini1').value = '';
+    document.getElementById('_s_gemini2').value = '';
+    document.getElementById('_s_anthropic').value = '';
+
+    await _loadSettingsStatus();
+    btn.textContent = '저장됨!';
+    setTimeout(() => { btn.disabled = false; btn.textContent = '💾 저장'; }, 2000);
+  } catch(e) {
+    alert('오류: ' + e.message);
+    btn.disabled = false; btn.textContent = '💾 저장';
   }
 }

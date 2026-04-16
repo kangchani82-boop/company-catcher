@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기사초안 상세 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .detail-outer { max-width: 1400px; margin: 0 auto; padding: 20px 16px; display: flex; gap: 20px; }
+    .detail-main  { flex: 1; min-width: 0; }
+    .detail-side  { width: 300px; flex-shrink: 0; }
+
+    /* 헤더 배너 */
+    .article-header {
+      background: linear-gradient(135deg, #c0392b, #e67e22);
+      border-radius: 12px; padding: 20px 24px; margin-bottom: 16px; position: relative; overflow: hidden;
+    }
+    .article-header::before {
+      content: ''; position: absolute; inset: 0; opacity: .06;
+      background: repeating-linear-gradient(45deg,#fff,#fff 1px,transparent 1px,transparent 8px);
+    }
+    .article-header-inner { position: relative; z-index: 1; }
+    .article-eyebrow { font-size: 11px; color: rgba(255,255,255,.7); margin-bottom: 6px; letter-spacing: .5px; }
+    .article-headline {
+      font-size: 22px; font-weight: 700; color: #fff; line-height: 1.4; margin-bottom: 8px;
+    }
+    .article-subheadline { font-size: 13px; color: rgba(255,255,255,.85); line-height: 1.5; margin-bottom: 10px; }
+    .article-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: rgba(255,255,255,.75); }
+
+    /* 툴바 */
+    .toolbar { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
+    .toolbar-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 5px; transition: all .15s;
+    }
+    .toolbar-btn:hover { border-color: var(--acc); color: var(--acc); }
+    .toolbar-btn.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .toolbar-btn.primary:hover { background: var(--acc2); }
+    .toolbar-btn.success { background: #27ae60; border-color: #27ae60; color: #fff; }
+    .toolbar-btn.success:hover { background: #2ecc71; }
+    .spacer { flex: 1; }
+
+    /* 기사 본문 에디터 */
+    .article-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 24px; margin-bottom: 14px;
+    }
+    .article-body {
+      font-size: 14px; color: var(--txt1); line-height: 2; min-height: 200px;
+      outline: none; white-space: pre-wrap;
+      border: 1px solid transparent; border-radius: 8px; padding: 4px 0; transition: border-color .15s;
+    }
+    .article-body:focus { border-color: var(--acc); padding: 4px 8px; }
+    .edit-hint { font-size: 11px; color: var(--txt2); margin-top: 8px; }
+
+    /* 섹션 카드 */
+    .section-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; margin-bottom: 14px;
+    }
+    .section-title {
+      font-size: 11px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 12px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* 상태 워크플로 */
+    .status-flow { display: flex; gap: 6px; flex-wrap: wrap; }
+    .status-btn {
+      border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+      border: 1px solid; font-weight: 600; transition: all .15s; background: none;
+    }
+    .status-btn.active { cursor: default; opacity: .7; }
+
+    /* 메타 그리드 */
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .meta-item .label { font-size: 10px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 3px; }
+    .meta-item .value { font-size: 12px; color: var(--txt1); }
+
+    /* 에디터 노트 */
+    .editor-note-box {
+      background: rgba(243,156,18,.07); border: 1px solid rgba(243,156,18,.25);
+      border-radius: 8px; padding: 12px 14px; font-size: 12px; color: var(--txt1); line-height: 1.7;
+    }
+    .editor-note-label { font-size: 10px; font-weight: 700; color: #f39c12; margin-bottom: 6px; }
+
+    /* 사이드바 */
+    .side-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 14px;
+    }
+    .side-title {
+      font-size: 12px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 10px;
+    }
+    .kw-tag {
+      display: inline-block; background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 9px; font-size: 11px; color: var(--txt1); margin: 2px;
+    }
+    .mini-card {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 6px; text-decoration: none; display: block;
+      color: inherit; transition: border-color .15s;
+    }
+    .mini-card:hover { border-color: var(--acc); }
+    .mini-card-title { font-size: 12px; color: var(--txt1); line-height: 1.4; margin-bottom: 3px; }
+    .mini-card-meta  { font-size: 10px; color: var(--txt2); }
+
+    /* 자동저장 표시 */
+    #autosave-hint { font-size: 11px; color: var(--txt2); margin-left: auto; }
+    #autosave-hint.saved { color: #2ecc71; }
+
+    .loading { text-align:center;color:var(--txt2);padding:80px;font-size:14px; }
+    .error-box { background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);
+      border-radius:10px;padding:20px;text-align:center;color:#e74c3c; }
+
+    @media print {
+      .toolbar, .detail-side, nav { display: none !important; }
+      .article-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="nav-container"></div>
+  <div class="detail-outer">
+    <div class="detail-main" id="main-content">
+      <div class="loading">⏳ 기사초안 로딩 중...</div>
+    </div>
+    <div class="detail-side" id="side-content"></div>
+  </div>
+</div>
+<script>
+initPage('articles');
+
+const API_BASE = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? `http://${location.host}` : '';
+const params    = new URLSearchParams(location.search);
+const articleId = params.get('id');
+
+let currentArticle = null;
+let autosaveTimer  = null;
+
+async function loadData() {
+  if (!articleId) { showError('URL에 id 파라미터가 필요합니다'); return; }
+  try {
+    const resp = await fetch(`${API_BASE}/api/articles/${articleId}`);
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || '기사를 불러올 수 없습니다'); return; }
+    currentArticle = data.article;
+    renderMain(data.article);
+    renderSide(data.article);
+  } catch(e) {
+    showError('서버 연결 오류: ' + e.message);
+  }
+}
+
+function showError(msg) {
+  document.getElementById('main-content').innerHTML =
+    `<div class="error-box"><div style="font-size:28px;margin-bottom:8px">😔</div><div>${escHtml(msg)}</div>
+     <a href="/articles.html" class="toolbar-btn" style="display:inline-block;margin-top:14px">← 목록으로</a></div>`;
+}
+
+function renderMain(a) {
+  const kw = (() => { try { return JSON.parse(a.keywords||'[]'); } catch { return []; } })();
+  document.title = `${a.headline||'기사초안'} — Company Catcher`;
+
+  document.getElementById('main-content').innerHTML = `
+    <!-- 배너 헤더 -->
+    <div class="article-header">
+      <div class="article-header-inner">
+        <div class="article-eyebrow">✍ 기사초안 #${a.id} &nbsp;·&nbsp;
+          <a href="/company_detail.html?corp_code=${encodeURIComponent(a.corp_code||'')}&corp_name=${encodeURIComponent(a.corp_name||a.corp_code||'')}"
+             style="color:inherit;text-decoration:none;border-bottom:1px dashed rgba(255,255,255,.3);cursor:pointer">${escHtml(a.corp_name||a.corp_code||'')}</a>
+          &nbsp;·&nbsp; ${articleStatusBadge(a.status)}</div>
+        <div class="article-headline" id="edit-headline" contenteditable="true"
+             oninput="onMetaChange()" title="클릭하여 제목 편집"
+             style="outline:none;border-bottom:1px dashed rgba(255,255,255,.3);cursor:text">${escHtml(a.headline||'제목 없음')}</div>
+        <div class="article-subheadline" id="edit-subheadline" contenteditable="true"
+             oninput="onMetaChange()" title="클릭하여 부제목 편집"
+             style="outline:none;border-bottom:1px dashed rgba(255,255,255,.2);cursor:text;min-height:20px">${escHtml(a.subheadline||'부제목을 입력하세요...')}</div>
+        <div class="article-meta">
+          <span>🤖 ${escHtml(a.model||'')}</span>
+          <span>🕒 ${fmtDate(a.created_at)}</span>
+          ${kw.length ? `<span>🏷 ${kw.slice(0,3).join(', ')}</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <!-- 툴바 -->
+    <div class="toolbar">
+      <a href="/articles.html" class="toolbar-btn">← 기사초안 목록</a>
+      ${a.lead_id ? `<a href="/lead_detail.html?id=${a.lead_id}" class="toolbar-btn">🚨 취재단서 보기</a>` : ''}
+      <span class="spacer"></span>
+      <span id="autosave-hint"></span>
+      <button class="toolbar-btn" onclick="copyArticle()">📋 복사</button>
+      <button class="toolbar-btn" onclick="window.print()">🖨 인쇄</button>
+      <button class="toolbar-btn" onclick="exportArticle('docx')" title="Word 문서로 내보내기">📄 Word</button>
+      <button class="toolbar-btn" onclick="exportArticle('pdf')" title="PDF로 내보내기">🗎 PDF</button>
+      <button class="toolbar-btn" style="color:#e74c3c;border-color:rgba(231,76,60,.3);"
+        onclick="excludeThisArticle()">🚫 제외</button>
+    </div>
+
+    <!-- 기사 본문 -->
+    <div class="article-card">
+      <div id="article-body" class="article-body"
+           contenteditable="true"
+           oninput="onBodyChange()">${escHtml(a.content||'')}</div>
+      <div class="edit-hint">💡 클릭하여 바로 편집할 수 있습니다. 변경 후 2초 뒤 자동저장됩니다.</div>
+    </div>
+
+    <!-- 에디터 노트 -->
+    ${a.editor_note ? `
+    <div class="section-card">
+      <div class="section-title">📋 편집 메모</div>
+      <div class="editor-note-box">
+        <div class="editor-note-label">📋 편집장 메모</div>
+        ${escHtml(a.editor_note)}
+      </div>
+    </div>` : ''}
+
+    <!-- 상태 워크플로 -->
+    <div class="section-card">
+      <div class="section-title">🔄 상태 관리</div>
+      <div style="margin-bottom:10px">${articleStatusBadge(a.status)}</div>
+      <div class="status-flow" id="status-flow">
+        ${renderStatusBtns(a.status)}
+      </div>
+    </div>
+
+    <!-- 메타 정보 -->
+    <div class="section-card">
+      <div class="section-title">ℹ 메타 정보</div>
+      <div class="meta-grid">
+        <div class="meta-item"><div class="label">기업명</div><div class="value">${escHtml(a.corp_name||a.corp_code||'-')}</div></div>
+        <div class="meta-item"><div class="label">AI 모델</div><div class="value">${escHtml(a.model||'-')}</div></div>
+        <div class="meta-item"><div class="label">생성일시</div><div class="value">${fmtDate(a.created_at)}</div></div>
+        <div class="meta-item"><div class="label">수정일시</div><div class="value">${fmtDate(a.updated_at)||'-'}</div></div>
+        ${a.lead_id ? `<div class="meta-item"><div class="label">취재단서 ID</div><div class="value">#${a.lead_id}</div></div>` : ''}
+        <div class="meta-item"><div class="label">글자수</div><div class="value" id="char-count">${(a.content||'').length}자</div></div>
+      </div>
+      ${kw.length ? `
+      <div style="margin-top:12px">
+        <div class="label" style="font-size:10px;color:var(--txt2);text-transform:uppercase;margin-bottom:6px">키워드</div>
+        ${kw.map(k=>`<span class="kw-tag">${escHtml(k)}</span>`).join('')}
+      </div>` : ''}
+    </div>
+  `;
+}
+
+function renderStatusBtns(current) {
+  const statuses = [
+    { key: 'draft',     label: '📝 초안',    color: '#5b6af0' },
+    { key: 'editing',   label: '✏️ 편집중',   color: '#e67e22' },
+    { key: 'ready',     label: '✅ 게재가능', color: '#2ecc71' },
+    { key: 'published', label: '🗞️ 게재완료', color: '#3498db' },
+    { key: 'rejected',  label: '❌ 반려',    color: '#e74c3c' },
+  ];
+  return statuses.map(s => `
+    <button class="status-btn ${s.key===current?'active':''}"
+      style="color:${s.color};border-color:${s.color};${s.key===current?`background:${s.color}20`:''}"
+      onclick="changeStatus('${s.key}')" ${s.key===current?'disabled':''}>${s.label}</button>
+  `).join('');
+}
+
+async function changeStatus(newStatus) {
+  try {
+    const resp = await fetch(`${API_BASE}/api/articles/${articleId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      body: JSON.stringify({ status: newStatus })
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || '오류');
+    document.getElementById('status-flow').innerHTML = renderStatusBtns(newStatus);
+    alert(`상태가 "${newStatus}"(으)로 변경되었습니다.`);
+  } catch(e) {
+    alert('상태 변경 오류: ' + e.message);
+  }
+}
+
+function onBodyChange() {
+  const body = document.getElementById('article-body');
+  const cnt  = document.getElementById('char-count');
+  if (body && cnt) cnt.textContent = (body.innerText||'').length + '자';
+  scheduleAutoSave();
+}
+
+function onMetaChange() {
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave() {
+  clearTimeout(autosaveTimer);
+  const hint = document.getElementById('autosave-hint');
+  if (hint) { hint.textContent = '✏ 편집 중...'; hint.style.color = 'var(--txt2)'; }
+  autosaveTimer = setTimeout(autoSave, 2000);
+}
+
+async function autoSave() {
+  const body      = document.getElementById('article-body');
+  const headlineEl = document.getElementById('edit-headline');
+  const subheadEl  = document.getElementById('edit-subheadline');
+  if (!body || !articleId) return;
+
+  const content    = body.innerText || '';
+  const headline   = headlineEl ? (headlineEl.innerText||'').trim() : null;
+  const subheadline = subheadEl  ? (subheadEl.innerText||'').trim()  : null;
+
+  const hint = document.getElementById('autosave-hint');
+  try {
+    const payload = { content };
+    if (headline)    payload.headline    = headline;
+    if (subheadline) payload.subheadline = subheadline;
+
+    const resp = await fetch(`${API_BASE}/api/articles/${articleId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      body: JSON.stringify(payload)
+    });
+    if (resp.ok) {
+      if (hint) {
+        hint.textContent = '✓ 저장됨';
+        hint.style.color = '#2ecc71';
+        setTimeout(() => { if (hint) { hint.textContent = ''; } }, 2500);
+      }
+      // 페이지 타이틀도 업데이트
+      if (headline) document.title = `${headline} — Company Catcher`;
+    }
+  } catch(e) { /* silent */ }
+}
+
+function copyArticle() {
+  const body = document.getElementById('article-body');
+  if (!body) return;
+  const headline = currentArticle?.headline || '';
+  const sub      = currentArticle?.subheadline || '';
+  const text     = [headline, sub, '', body.innerText].filter(Boolean).join('\n');
+  navigator.clipboard.writeText(text).then(() => alert('클립보드에 복사되었습니다.'));
+}
+
+function renderSide(a) {
+  const kw = (() => { try { return JSON.parse(a.keywords||'[]'); } catch { return []; } })();
+  const side = document.getElementById('side-content');
+
+  side.innerHTML = `
+    <!-- 뉴스 검색 -->
+    <div class="side-card">
+      <div class="side-title">🔍 뉴스 검색</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${newsSearchLinks(a.corp_name||'', a.headline||'')}
+        ${kw.slice(0,2).map(k=>newsSearchLinks(a.corp_name||'', k)).join('')}
+      </div>
+    </div>
+
+    <!-- 취재단서 연결 -->
+    ${a.lead_id ? `
+    <div class="side-card">
+      <div class="side-title">🚨 연결된 취재단서</div>
+      <a class="mini-card" href="/lead_detail.html?id=${a.lead_id}">
+        <div class="mini-card-title">취재단서 #${a.lead_id}</div>
+        <div class="mini-card-meta">상세보기 →</div>
+      </a>
+    </div>` : ''}
+
+    <!-- 키워드 -->
+    ${kw.length ? `
+    <div class="side-card">
+      <div class="side-title">🏷 키워드</div>
+      ${kw.map(k=>`<span class="kw-tag">${escHtml(k)}</span>`).join('')}
+    </div>` : ''}
+
+    <!-- 빠른 액션 -->
+    <div class="side-card">
+      <div class="side-title">⚡ 빠른 액션</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <button class="toolbar-btn primary" style="width:100%;justify-content:center" onclick="copyArticle()">
+          📋 전체 복사
+        </button>
+        <button class="toolbar-btn" style="width:100%;justify-content:center" onclick="exportArticle('docx')">
+          📄 Word 내보내기
+        </button>
+        <button class="toolbar-btn" style="width:100%;justify-content:center" onclick="exportArticle('pdf')">
+          🗎 PDF 내보내기
+        </button>
+        <button class="toolbar-btn" style="width:100%;justify-content:center" onclick="window.print()">
+          🖨 인쇄
+        </button>
+        <a class="toolbar-btn" style="width:100%;justify-content:center;box-sizing:border-box"
+          href="/leads.html?corp_code=${encodeURIComponent(a.corp_code||'')}">
+          🚨 이 기업 취재단서
+        </a>
+        <a class="toolbar-btn" style="width:100%;justify-content:center;box-sizing:border-box"
+          href="/comparisons.html?q=${encodeURIComponent(a.corp_name||'')}">
+          📊 비교분석 보기
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+async function excludeThisArticle() {
+  if (!articleId) return;
+  if (!confirm('이 기사초안을 제외(반려)할까요?\n"반려" 필터로 언제든 다시 볼 수 있습니다.')) return;
+  try {
+    const resp = await fetch(`${API_BASE}/api/articles/${articleId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      body: JSON.stringify({ status: 'rejected' }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || '오류');
+    alert('반려(제외) 처리되었습니다. 목록으로 돌아갑니다.');
+    location.href = '/articles.html';
+  } catch(e) {
+    alert('오류: ' + e.message);
+  }
+}
+
+async function exportArticle(fmt) {
+  if (!articleId) return;
+  // 현재 편집 중인 본문이 있으면 먼저 저장
+  const bodyEl = document.getElementById('article-body');
+  if (bodyEl) {
+    const content = bodyEl.innerText || '';
+    try {
+      await fetch(`${API_BASE}/api/articles/${articleId}/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+        body: JSON.stringify({ content })
+      });
+    } catch(e) { /* silent */ }
+  }
+  // 파일 다운로드
+  const url = `${API_BASE}/api/articles/${articleId}/export?format=${fmt}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
+loadData();
+</script>
+</body>
+</html>

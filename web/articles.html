@@ -159,6 +159,9 @@
       <!-- 하단 액션 -->
       <div class="art-modal-footer">
         <button class="btn-copy" onclick="copyArticle()">📋 복사</button>
+        <button class="btn-close-modal" id="art-modal-detail-btn"
+          onclick="location.href='/article_detail.html?id='+currentArticleId"
+          style="background:var(--acc);color:#fff;border-color:var(--acc);">↗ 상세 페이지</button>
         <button class="btn-close-modal"
           onclick="document.getElementById('article-modal').style.display='none'">닫기</button>
         <div class="news-links" id="art-modal-news-links"></div>
@@ -178,6 +181,9 @@
   let currentCorpName  = '';
 
   // ── URL 파라미터 ──────────────────────────────────────────────────────────
+  const CORP_CODE_FILTER = new URLSearchParams(location.search).get('corp_code') || '';
+  const CORP_NAME_FILTER = new URLSearchParams(location.search).get('corp_name') || '';
+
   function getUrlParams() {
     const p = new URLSearchParams(location.search);
     return {
@@ -203,6 +209,8 @@
     document.getElementById('search-input').value  = p.q;
     document.getElementById('sort-select').value   = p.sort;
     document.getElementById('status-filter').value = p.status;
+
+    if (CORP_CODE_FILTER) renderCorpFilterBanner('/articles.html', CORP_NAME_FILTER || CORP_CODE_FILTER);
     fetchArticles();
   }
 
@@ -233,8 +241,9 @@
     if (updateUrl) pushUrl({ page: currentPage, q, sort, status });
 
     const params = new URLSearchParams({ limit: PER_PAGE, offset, sort });
-    if (q)      params.set('q',      q);
-    if (status) params.set('status', status);
+    if (q)                params.set('q',        q);
+    if (status)           params.set('status',   status);
+    if (CORP_CODE_FILTER) params.set('corp_code', CORP_CODE_FILTER);
 
     const grid = document.getElementById('articles-grid');
     grid.innerHTML = '<div class="loading">로딩 중...</div>';
@@ -268,11 +277,16 @@
     const wordCount = art.word_count ? `${art.word_count}단어` : '';
     const charCount = art.char_count ? `${art.char_count}자` : '';
     return `
-      <div class="art-card" onclick="openArticle(${art.id})">
+      <div class="art-card" id="art-card-${art.id}" onclick="location.href='/article_detail.html?id=${art.id}'">
         <div class="card-header" style="margin-bottom:6px;">
           ${articleStatusBadge(art.status || 'draft')}
-          <span class="corp-badge">${escHtml(art.corp_name || '')}</span>
-          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(art.created_at)}</span>
+          <a class="corp-badge" href="/company_detail.html?corp_code=${encodeURIComponent(art.corp_code||'')}&corp_name=${encodeURIComponent(art.corp_name||'')}"
+             onclick="event.stopPropagation()" style="text-decoration:none">${escHtml(art.corp_name || '')}</a>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:var(--txt2);">${fmtDate(art.created_at)}</span>
+            <button class="btn-exclude" onclick="event.stopPropagation(); excludeArticle(${art.id}, this)"
+              title="기사 가치 없음 — 목록에서 제외">🚫 제외</button>
+          </span>
         </div>
         <div class="art-headline">${escHtml(art.headline || '(제목 없음)')}</div>
         ${art.subheadline ? `<div class="art-sub">${escHtml(art.subheadline)}</div>` : ''}
@@ -283,6 +297,16 @@
           ${charCount ? `<span>· ${charCount}</span>` : ''}
         </div>
       </div>`;
+  }
+
+  function excludeArticle(id, btn) {
+    excludeItem({
+      url: `${API}/api/articles/${id}/status`,
+      body: { status: 'rejected' },
+      cardId: `art-card-${id}`,
+      confirmMsg: '이 기사초안을 목록에서 제외할까요?\n(반려 처리되며 "반려" 필터로 다시 볼 수 있습니다)',
+      btn, btnLabel: '🚫 제외',
+    });
   }
 
   // ── 상세 모달 ─────────────────────────────────────────────────────────────

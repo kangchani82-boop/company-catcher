@@ -121,6 +121,10 @@
   let searchTimer = null;
 
   // ── URL 파라미터 관리 ────────────────────────────────────────────────────
+  // URL에서 corp_code 파라미터 (기업 상세→취재단서 링크에서 올 때)
+  const CORP_CODE_FILTER = new URLSearchParams(location.search).get('corp_code') || '';
+  const CORP_NAME_FILTER = new URLSearchParams(location.search).get('corp_name') || '';
+
   function getUrlParams() {
     const p = new URLSearchParams(location.search);
     return {
@@ -153,6 +157,8 @@
     document.getElementById('sev-filter').value    = p.sev;
     document.getElementById('type-filter').value   = p.type;
     document.getElementById('status-filter').value = p.status;
+
+    if (CORP_CODE_FILTER) renderCorpFilterBanner('/leads.html', CORP_NAME_FILTER || CORP_CODE_FILTER);
     fetchLeads();
   }
 
@@ -189,9 +195,10 @@
       min_severity: sev,
       sort,
     });
-    if (q)      params.set('q',    q);
-    if (type)   params.set('type', type);
-    if (status) params.set('status', status);
+    if (q)                 params.set('q',         q);
+    if (type)              params.set('type',       type);
+    if (status)            params.set('status',     status);
+    if (CORP_CODE_FILTER)  params.set('corp_code',  CORP_CODE_FILTER);
 
     const grid = document.getElementById('leads-grid');
     grid.innerHTML = '<div class="loading">로딩 중...</div>';
@@ -245,18 +252,33 @@
     const summary   = (lead.summary || '').substring(0, 120);
     const evidence  = (lead.evidence || '').substring(0, 80);
     return `
-      <div class="card" onclick="openLead(${lead.id})">
+      <div class="card" id="lead-card-${lead.id}" onclick="location.href='/lead_detail.html?id=${lead.id}'" style="cursor:pointer;">
         <div class="card-header">
           ${sevBadge(lead.severity)}
           <span class="type-badge">${escHtml(typeLabel)}</span>
-          <span class="corp-badge">${escHtml(lead.corp_name || '')}</span>
+          <a class="corp-badge" href="/company_detail.html?corp_code=${encodeURIComponent(lead.corp_code||'')}&corp_name=${encodeURIComponent(lead.corp_name||'')}"
+             onclick="event.stopPropagation()" style="text-decoration:none">${escHtml(lead.corp_name || '')}</a>
           ${leadStatusBadge(lead.status || 'new')}
-          <span style="margin-left:auto;font-size:11px;color:var(--txt2);">${fmtDate(lead.created_at)}</span>
+          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+            <span style="font-size:11px;color:var(--txt2);">${fmtDate(lead.created_at)}</span>
+            <button class="btn-exclude" onclick="event.stopPropagation(); excludeLead(${lead.id}, this)"
+              title="기사 가치 없음 — 목록에서 제외">🚫 제외</button>
+          </span>
         </div>
         <div class="card-title">${escHtml(lead.title || '')}</div>
         ${summary ? `<div class="card-preview" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(summary)}</div>` : ''}
         ${evidence ? `<div class="evidence-line">${escHtml(evidence)}</div>` : ''}
       </div>`;
+  }
+
+  function excludeLead(id, btn) {
+    excludeItem({
+      url: `${API}/api/leads/${id}/status`,
+      body: { status: 'archived' },
+      cardId: `lead-card-${id}`,
+      confirmMsg: '이 취재단서를 목록에서 제외할까요?\n(보관 처리되며 "보관" 필터로 다시 볼 수 있습니다)',
+      btn, btnLabel: '🚫 제외',
+    });
   }
 
   // ── 상세 모달 ─────────────────────────────────────────────────────────────
@@ -338,9 +360,13 @@
           onclick="generateDraftFromLead(${lead.id}, '${escHtml(lead.corp_name||'')}', this)">
           ✍ 기사 초안 생성
         </button>
+        <button class="btn-secondary"
+          onclick="location.href='/lead_detail.html?id=${lead.id}'">
+          ↗ 상세 페이지
+        </button>
         ${lead.comparison_id ? `
           <button class="btn-secondary"
-            onclick="location.href='/comparisons.html?id=${lead.comparison_id}'">
+            onclick="location.href='/comparison_detail.html?id=${lead.comparison_id}'">
             📊 비교분석 보기
           </button>` : ''}
         <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">

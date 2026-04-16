@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공급망 네트워크 — Company Catcher</title>
+  <script src="common.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .supply-wrap { max-width: 1400px; margin: 0 auto; padding: 16px; }
+
+    /* 상단 컨트롤 */
+    .control-bar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;
+    }
+    .page-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .count-badge { font-size: 11px; color: var(--txt2); font-weight: 400; }
+    .ctrl-input {
+      flex: 1; min-width: 180px; background: var(--bg3); border: 1px solid var(--border);
+      color: var(--txt1); border-radius: 8px; padding: 7px 12px; font-size: 12px; outline: none;
+    }
+    .ctrl-input:focus { border-color: var(--acc); }
+    .ctrl-select {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 7px 10px; font-size: 12px; cursor: pointer; outline: none;
+    }
+    .ctrl-btn {
+      background: var(--acc); color: #fff; border: none; border-radius: 8px;
+      padding: 7px 16px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background .15s;
+    }
+    .ctrl-btn:hover { background: var(--acc2); }
+    .ctrl-btn.secondary {
+      background: var(--bg3); color: var(--txt1); border: 1px solid var(--border);
+    }
+    .ctrl-btn.secondary:hover { border-color: var(--acc); color: var(--acc); }
+
+    /* 메인 레이아웃 */
+    .main-layout { display: flex; gap: 12px; height: calc(100vh - 140px); }
+
+    /* 그래프 캔버스 */
+    .graph-panel {
+      flex: 1; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; position: relative;
+    }
+    #graph-svg { width: 100%; height: 100%; }
+
+    /* 범례 */
+    .legend {
+      position: absolute; top: 12px; left: 12px; background: rgba(26,29,39,.9);
+      border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 11px;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .legend-line { width: 20px; height: 2px; flex-shrink: 0; }
+
+    /* 그래프 컨트롤 */
+    .graph-controls {
+      position: absolute; bottom: 12px; right: 12px; display: flex; gap: 6px;
+    }
+    .graph-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+      transition: all .15s; font-weight: 700;
+    }
+    .graph-btn:hover { border-color: var(--acc); color: var(--acc); }
+
+    /* 사이드 패널 */
+    .side-panel {
+      width: 300px; flex-shrink: 0; overflow-y: auto;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .info-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+    }
+    .info-title {
+      font-size: 12px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    }
+    .info-corp-name { font-size: 15px; font-weight: 700; color: var(--txt1); margin-bottom: 6px; }
+    .info-meta { font-size: 11px; color: var(--txt2); margin-bottom: 8px; }
+
+    /* 관계 목록 */
+    .rel-list { display: flex; flex-direction: column; gap: 6px; }
+    .rel-item {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; font-size: 11px;
+    }
+    .rel-partner { font-weight: 600; color: var(--txt1); margin-bottom: 3px; }
+    .rel-context { color: var(--txt2); line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .rel-type-badge {
+      display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 9px;
+      font-weight: 700; margin-right: 4px;
+    }
+
+    .tooltip-box {
+      position: fixed; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; font-size: 11px; pointer-events: none;
+      z-index: 9999; max-width: 260px; line-height: 1.6; box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      display: none;
+    }
+
+    .loading { text-align: center; color: var(--txt2); padding: 80px; font-size: 14px; }
+    .empty   { text-align: center; color: var(--txt2); padding: 40px; font-size: 13px; }
+    .search-suggestions {
+      position: absolute; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; z-index: 100; top: 36px; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+    }
+    .suggestion-item {
+      padding: 8px 14px; cursor: pointer; font-size: 12px; color: var(--txt1); border-bottom: 1px solid var(--border);
+    }
+    .suggestion-item:hover { background: var(--bg3); }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="nav-container"></div>
+  <div class="supply-wrap">
+    <!-- 컨트롤 바 -->
+    <div class="control-bar">
+      <div class="page-title">🌐 공급망 네트워크 <span class="count-badge" id="total-count"></span></div>
+      <div style="position:relative;flex:1;min-width:180px">
+        <input class="ctrl-input" id="corp-search" type="text" placeholder="기업명 검색..."
+               oninput="onCorpSearch()" autocomplete="off">
+        <div id="search-suggestions" class="search-suggestions" style="display:none"></div>
+      </div>
+      <select class="ctrl-select" id="rel-filter" onchange="onFilterChange()">
+        <option value="">전체 관계</option>
+        <option value="customer">고객사</option>
+        <option value="supplier">공급사</option>
+        <option value="partner">파트너</option>
+        <option value="competitor">경쟁사</option>
+        <option value="subsidiary">자회사</option>
+        <option value="parent">모회사</option>
+      </select>
+      <select class="ctrl-select" id="depth-select">
+        <option value="1">1단계</option>
+        <option value="2" selected>2단계</option>
+      </select>
+      <button class="ctrl-btn secondary" onclick="resetGraph()">↺ 초기화</button>
+    </div>
+
+    <!-- 메인 -->
+    <div class="main-layout">
+
+      <!-- 그래프 패널 -->
+      <div class="graph-panel" id="graph-panel">
+        <svg id="graph-svg"></svg>
+        <!-- 범례 -->
+        <div class="legend">
+          <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:6px;text-transform:uppercase">관계 유형</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> 고객사 (customer)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3498db"></div> 공급사 (supplier)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> 파트너 (partner)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> 경쟁사 (competitor)</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#9b59b6"></div> 자회사/모회사</div>
+          <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;color:var(--txt2)">
+            노드 크기 = 연결 수<br>클릭하면 상세 정보
+          </div>
+        </div>
+        <!-- 그래프 컨트롤 -->
+        <div class="graph-controls">
+          <button class="graph-btn" onclick="zoomIn()">+</button>
+          <button class="graph-btn" onclick="zoomOut()">−</button>
+          <button class="graph-btn" onclick="fitView()">⊡</button>
+        </div>
+        <div id="graph-loading" class="loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+          기업명을 검색하여 공급망 네트워크를 시작하세요
+        </div>
+      </div>
+
+      <!-- 사이드 패널 -->
+      <div class="side-panel" id="side-panel">
+        <div class="info-card">
+          <div class="info-title">🔍 분석 안내</div>
+          <div style="font-size:12px;color:var(--txt2);line-height:1.8">
+            위 검색창에서 기업명을 검색하면 해당 기업의 공급망 관계를 시각화합니다.<br><br>
+            • 노드 클릭: 기업 상세 정보<br>
+            • 마우스 휠: 확대/축소<br>
+            • 드래그: 화면 이동<br>
+            • 노드 드래그: 위치 이동
+          </div>
+        </div>
+        <div class="info-card" id="node-detail" style="display:none">
+          <div class="info-title">📌 선택된 기업</div>
+          <div id="node-detail-content"></div>
+        </div>
+        <div class="info-card" id="rel-detail" style="display:none">
+          <div class="info-title">🔗 관계 목록</div>
+          <div id="rel-list-content"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- 툴팁 -->
+<div class="tooltip-box" id="tooltip"></div>
+
+<script>
+initPage('home');
+
+const API_BASE = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? `http://${location.host}` : '';
+
+// ── 색상 매핑 ──────────────────────────────────────────────────────────────
+const REL_COLORS = {
+  customer:   '#e74c3c',
+  supplier:   '#3498db',
+  partner:    '#2ecc71',
+  competitor: '#f1c40f',
+  subsidiary: '#9b59b6',
+  parent:     '#9b59b6',
+};
+const REL_KO = {
+  customer: '고객사', supplier: '공급사', partner: '파트너',
+  competitor: '경쟁사', subsidiary: '자회사', parent: '모회사',
+};
+
+// ── D3 설정 ────────────────────────────────────────────────────────────────
+let simulation = null;
+let svgEl = null;
+let gEl   = null;
+let zoomBehavior = null;
+let currentCorpCode = null;
+let currentCorpName = null;
+let graphData = { nodes: [], links: [] };
+let searchTimer = null;
+
+function initSvg() {
+  const svg = d3.select('#graph-svg');
+  svg.selectAll('*').remove();
+
+  zoomBehavior = d3.zoom()
+    .scaleExtent([0.1, 5])
+    .on('zoom', (e) => gEl.attr('transform', e.transform));
+
+  svg.call(zoomBehavior);
+  gEl = svg.append('g');
+
+  // 화살표 마커
+  svg.append('defs').selectAll('marker')
+    .data(['customer','supplier','partner','competitor','subsidiary','parent','default'])
+    .join('marker')
+    .attr('id', d => `arrow-${d}`)
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 20).attr('refY', 0)
+    .attr('markerWidth', 6).attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', d => REL_COLORS[d] || '#666');
+
+  svgEl = svg;
+}
+
+// ── 데이터 로드 ────────────────────────────────────────────────────────────
+async function loadGraph(corpCode, corpName) {
+  currentCorpCode = corpCode;
+  currentCorpName = corpName;
+  const relFilter = document.getElementById('rel-filter').value;
+
+  document.getElementById('graph-loading').textContent = '⏳ 공급망 데이터 로딩 중...';
+  document.getElementById('graph-loading').style.display = 'flex';
+
+  let url = `${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(corpCode)}&limit=200`;
+  if (relFilter) url += `&relation=${encodeURIComponent(relFilter)}`;
+
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || '오류');
+
+    const edges = data.supply_chain || [];
+    document.getElementById('total-count').textContent = `${edges.length}개 관계`;
+    buildGraph(corpCode, corpName, edges);
+  } catch(e) {
+    document.getElementById('graph-loading').textContent = '오류: ' + e.message;
+  }
+}
+
+function buildGraph(centerCode, centerName, edges) {
+  const nodeMap = new Map();
+  const links   = [];
+
+  // 중심 노드
+  nodeMap.set(centerCode, { id: centerCode, name: centerName, type: 'center', degree: 0 });
+
+  for (const edge of edges) {
+    const pKey = `partner::${edge.partner_name}`;
+    if (!nodeMap.has(pKey)) {
+      nodeMap.set(pKey, {
+        id: pKey, name: edge.partner_name, type: 'partner',
+        rel_type: edge.relation_type, context: edge.context, degree: 0,
+      });
+    }
+    const relType = edge.relation_type || 'default';
+    links.push({
+      source: centerCode,
+      target: pKey,
+      relation: relType,
+      context: edge.context || '',
+    });
+    nodeMap.get(pKey).degree++;
+    nodeMap.get(centerCode).degree++;
+  }
+
+  const nodes = [...nodeMap.values()];
+  graphData = { nodes, links };
+  renderGraph(nodes, links);
+}
+
+function renderGraph(nodes, links) {
+  document.getElementById('graph-loading').style.display = 'none';
+  initSvg();
+
+  const svgNode = document.getElementById('graph-svg');
+  const W = svgNode.clientWidth || 900;
+  const H = svgNode.clientHeight || 600;
+
+  // 시뮬레이션
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.6))
+    .force('charge', d3.forceManyBody().strength(-300))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 10));
+
+  // 링크
+  const link = gEl.append('g').attr('class','links').selectAll('line')
+    .data(links).join('line')
+    .attr('stroke', d => REL_COLORS[d.relation] || '#666')
+    .attr('stroke-width', 1.5)
+    .attr('stroke-opacity', 0.7)
+    .attr('marker-end', d => `url(#arrow-${d.relation || 'default'})`);
+
+  // 노드 그룹
+  const node = gEl.append('g').attr('class','nodes').selectAll('g')
+    .data(nodes).join('g')
+    .attr('cursor','pointer')
+    .call(d3.drag()
+      .on('start', (e,d) => { if (!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
+      .on('end',   (e,d) => { if (!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (e,d) => { e.stopPropagation(); selectNode(d); })
+    .on('mouseover', (e,d) => showTooltip(e, d))
+    .on('mousemove', (e) => moveTooltip(e))
+    .on('mouseout',  () => hideTooltip());
+
+  // 원
+  node.append('circle')
+    .attr('r', d => nodeRadius(d))
+    .attr('fill', d => d.type==='center' ? 'var(--acc)' : (REL_COLORS[d.rel_type] || '#555'))
+    .attr('stroke', d => d.type==='center' ? '#fff' : 'transparent')
+    .attr('stroke-width', d => d.type==='center' ? 3 : 1);
+
+  // 레이블
+  node.append('text')
+    .text(d => truncate(d.name, 10))
+    .attr('text-anchor','middle')
+    .attr('dy', d => nodeRadius(d) + 12)
+    .attr('font-size', 10)
+    .attr('fill','var(--txt2)')
+    .attr('pointer-events','none');
+
+  // 틱
+  simulation.on('tick', () => {
+    link
+      .attr('x1', d => d.source.x)
+      .attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x)
+      .attr('y2', d => d.target.y);
+    node.attr('transform', d => `translate(${d.x},${d.y})`);
+  });
+
+  setTimeout(fitView, 800);
+}
+
+function nodeRadius(d) {
+  if (d.type === 'center') return 18;
+  return Math.min(14, 5 + (d.degree || 1) * 1.5);
+}
+
+function truncate(s, n) { return s && s.length > n ? s.substring(0,n)+'…' : (s||''); }
+
+// ── 노드 선택 ──────────────────────────────────────────────────────────────
+function selectNode(d) {
+  // 선택 강조
+  d3.selectAll('circle').attr('stroke-width', n => n === d ? 3 : (n.type==='center' ? 3 : 1))
+                        .attr('stroke',       n => n === d ? '#fff' : (n.type==='center' ? '#fff' : 'transparent'));
+
+  const detail = document.getElementById('node-detail');
+  const relDiv = document.getElementById('rel-detail');
+  detail.style.display = 'block';
+
+  if (d.type === 'center') {
+    document.getElementById('node-detail-content').innerHTML = `
+      <div class="info-corp-name">${escHtml(d.name)}</div>
+      <div class="info-meta">중심 기업 · ${graphData.links.length}개 관계</div>
+      <a href="/comparison_detail.html?corp_code=${encodeURIComponent(currentCorpCode)}"
+         style="font-size:11px;color:var(--acc)">📊 비교분석 보기 →</a>
+    `;
+    relDiv.style.display = 'none';
+  } else {
+    const rels = graphData.links.filter(l => l.target.id === d.id || l.source.id === d.id);
+    document.getElementById('node-detail-content').innerHTML = `
+      <div class="info-corp-name">${escHtml(d.name)}</div>
+      <div class="info-meta">
+        <span style="background:${REL_COLORS[d.rel_type]||'#666'};color:#fff;border-radius:4px;padding:2px 7px;font-size:10px">${REL_KO[d.rel_type]||d.rel_type||'관련'}</span>
+      </div>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+        ${newsSearchLinks(currentCorpName||'', d.name)}
+      </div>
+    `;
+
+    const relHtml = rels.map(r => `
+      <div class="rel-item">
+        <div class="rel-partner">
+          <span class="rel-type-badge" style="background:${REL_COLORS[r.relation]||'#555'}20;color:${REL_COLORS[r.relation]||'#888'};border:1px solid ${REL_COLORS[r.relation]||'#555'}40">
+            ${REL_KO[r.relation]||r.relation||'관련'}
+          </span>
+          ${escHtml(r.target.name || r.source.name || d.name)}
+        </div>
+        ${r.context ? `<div class="rel-context">${escHtml(r.context)}</div>` : ''}
+      </div>
+    `).join('');
+
+    document.getElementById('rel-list-content').innerHTML = relHtml || '<div class="empty">관계 정보 없음</div>';
+    relDiv.style.display = 'block';
+  }
+}
+
+// ── 툴팁 ──────────────────────────────────────────────────────────────────
+function showTooltip(e, d) {
+  const tt = document.getElementById('tooltip');
+  tt.innerHTML = `
+    <div style="font-weight:700;color:var(--txt1);margin-bottom:4px">${escHtml(d.name)}</div>
+    ${d.rel_type ? `<div style="color:${REL_COLORS[d.rel_type]||'#888'}">${REL_KO[d.rel_type]||d.rel_type}</div>` : '<div style="color:var(--acc)">중심 기업</div>'}
+    ${d.context ? `<div style="color:var(--txt2);margin-top:4px;font-size:10px">${escHtml(d.context.substring(0,80))}...</div>` : ''}
+    <div style="color:var(--txt2);font-size:10px;margin-top:4px">연결 수: ${d.degree||0}</div>`;
+  tt.style.display = 'block';
+  moveTooltip(e);
+}
+
+function moveTooltip(e) {
+  const tt = document.getElementById('tooltip');
+  tt.style.left = (e.clientX + 14) + 'px';
+  tt.style.top  = (e.clientY - 28) + 'px';
+}
+
+function hideTooltip() { document.getElementById('tooltip').style.display = 'none'; }
+
+// ── 줌 컨트롤 ──────────────────────────────────────────────────────────────
+function zoomIn()  { svgEl && svgEl.transition().call(zoomBehavior.scaleBy, 1.3); }
+function zoomOut() { svgEl && svgEl.transition().call(zoomBehavior.scaleBy, 0.7); }
+function fitView() {
+  if (!svgEl || !gEl) return;
+  const svgNode = document.getElementById('graph-svg');
+  const W = svgNode.clientWidth, H = svgNode.clientHeight;
+  const bounds = gEl.node().getBBox();
+  if (!bounds.width) return;
+  const scale = Math.min(0.9 * W / bounds.width, 0.9 * H / bounds.height, 2);
+  const tx = (W - scale * bounds.width) / 2 - scale * bounds.x;
+  const ty = (H - scale * bounds.height) / 2 - scale * bounds.y;
+  svgEl.transition().duration(600).call(
+    zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
+  );
+}
+
+function resetGraph() {
+  currentCorpCode = null;
+  currentCorpName = null;
+  graphData = { nodes: [], links: [] };
+  document.getElementById('corp-search').value = '';
+  document.getElementById('total-count').textContent = '';
+  if (svgEl) svgEl.selectAll('*').remove();
+  document.getElementById('graph-loading').style.display = 'flex';
+  document.getElementById('graph-loading').textContent = '기업명을 검색하여 공급망 네트워크를 시작하세요';
+  document.getElementById('node-detail').style.display = 'none';
+  document.getElementById('rel-detail').style.display  = 'none';
+}
+
+// ── 기업 검색 자동완성 ─────────────────────────────────────────────────────
+async function onCorpSearch() {
+  clearTimeout(searchTimer);
+  const q = document.getElementById('corp-search').value.trim();
+  if (!q || q.length < 1) {
+    document.getElementById('search-suggestions').style.display = 'none';
+    return;
+  }
+  searchTimer = setTimeout(async () => {
+    try {
+      const resp = await fetch(`${API_BASE}/api/dart/companies?q=${encodeURIComponent(q)}&limit=8`);
+      const data = await resp.json();
+      const corps = data.companies || [];
+      if (!corps.length) {
+        document.getElementById('search-suggestions').style.display = 'none';
+        return;
+      }
+      const html = corps.map(c => `
+        <div class="suggestion-item" onclick="selectCorp('${escHtml(c.corp_code)}', '${escHtml(c.corp_name)}')">
+          ${escHtml(c.corp_name)}
+          ${c.stock_code ? `<span style="color:var(--txt2);margin-left:6px">${escHtml(c.stock_code)}</span>` : ''}
+        </div>`).join('');
+      document.getElementById('search-suggestions').innerHTML = html;
+      document.getElementById('search-suggestions').style.display = 'block';
+    } catch(e) { /* silent */ }
+  }, 300);
+}
+
+function selectCorp(code, name) {
+  document.getElementById('corp-search').value = name;
+  document.getElementById('search-suggestions').style.display = 'none';
+  loadGraph(code, name);
+}
+
+function onFilterChange() {
+  if (currentCorpCode) loadGraph(currentCorpCode, currentCorpName);
+}
+
+// URL 파라미터로 초기 로드
+const urlParams = new URLSearchParams(location.search);
+const initCode  = urlParams.get('corp_code');
+const initName  = urlParams.get('corp_name');
+if (initCode) {
+  document.getElementById('corp-search').value = initName || initCode;
+  loadGraph(initCode, initName || initCode);
+}
+
+// 클릭 시 자동완성 닫기
+document.addEventListener('click', e => {
+  if (!e.target.closest('#corp-search') && !e.target.closest('#search-suggestions'))
+    document.getElementById('search-suggestions').style.display = 'none';
+});
+</script>
+</body>
+</html>

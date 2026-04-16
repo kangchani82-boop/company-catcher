@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>비교분석 상세 — Company Catcher</title>
+  <script src="common.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    .detail-outer { max-width: 1400px; margin: 0 auto; padding: 20px 16px; display: flex; gap: 20px; }
+    .detail-main  { flex: 7; min-width: 0; }
+    .detail-side  { flex: 3; min-width: 240px; max-width: 360px; }
+
+    /* 헤더 카드 */
+    .detail-header-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px 22px; margin-bottom: 16px;
+    }
+    .corp-name { font-size: 20px; font-weight: 700; color: var(--txt1); margin-bottom: 8px; }
+    .meta-row  { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 12px; color: var(--txt2); }
+    .meta-chip {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+      padding: 3px 10px; font-size: 11px; color: var(--txt1); display: flex; align-items: center; gap: 4px;
+    }
+    .route-arrow { color: var(--acc); margin: 0 4px; font-size: 14px; }
+
+    /* 툴바 */
+    .toolbar {
+      display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+    }
+    .toolbar-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer; transition: all .15s;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
+    }
+    .toolbar-btn:hover { border-color: var(--acc); color: var(--acc); }
+    .toolbar-btn.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .toolbar-btn.primary:hover { background: var(--acc2); }
+    .spacer { flex: 1; }
+
+    /* 분석 본문 */
+    .analysis-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 22px; line-height: 1.9;
+    }
+    .analysis-card h1, .analysis-card h2 {
+      font-size: 15px; font-weight: 700; color: var(--txt1);
+      margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    }
+    .analysis-card h3 { font-size: 13px; font-weight: 700; color: var(--acc); margin: 14px 0 6px; }
+    .analysis-card h4 { font-size: 13px; font-weight: 600; color: var(--txt1); margin: 10px 0 4px; }
+    .analysis-card strong { color: var(--txt1); font-weight: 600; }
+    .analysis-card em { color: #f1c40f; font-style: normal; }
+    .analysis-card p { margin-bottom: 8px; font-size: 13px; color: var(--txt1); }
+    .analysis-card ul, .analysis-card ol { padding-left: 20px; margin-bottom: 8px; }
+    .analysis-card li { font-size: 13px; color: var(--txt1); margin-bottom: 4px; line-height: 1.7; }
+    .analysis-card table {
+      width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px;
+    }
+    .analysis-card th {
+      background: var(--bg3); color: var(--txt2); padding: 6px 10px;
+      border: 1px solid var(--border); font-weight: 600; text-align: left;
+    }
+    .analysis-card td {
+      padding: 6px 10px; border: 1px solid var(--border); color: var(--txt1);
+    }
+    .analysis-card td:first-child { color: var(--txt2); font-weight: 500; }
+    .analysis-card blockquote {
+      border-left: 3px solid var(--acc); padding: 8px 14px; margin: 8px 0;
+      background: rgba(91,106,240,.08); border-radius: 0 6px 6px 0;
+      font-size: 12px; color: var(--txt2);
+    }
+
+    /* 사이드바 */
+    .side-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 14px;
+    }
+    .side-title {
+      font-size: 12px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px;
+    }
+    .side-title .cnt { background: var(--bg3); border-radius: 10px; padding: 1px 8px; font-weight: 600; }
+    .mini-card {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 6px; cursor: pointer; transition: border-color .15s;
+      text-decoration: none; display: block; color: inherit;
+    }
+    .mini-card:hover { border-color: var(--acc); }
+    .mini-card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; flex-wrap: wrap; }
+    .mini-card-title { font-size: 12px; color: var(--txt1); line-height: 1.4; margin-bottom: 4px;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .mini-card-meta { font-size: 10px; color: var(--txt2); }
+    .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .sev-dot-5 { background: #e74c3c; } .sev-dot-4 { background: #e67e22; }
+    .sev-dot-3 { background: #f1c40f; } .sev-dot-2 { background: #3498db; }
+    .see-all {
+      display: block; text-align: center; font-size: 11px; color: var(--acc);
+      padding: 6px; border: 1px dashed rgba(91,106,240,.3); border-radius: 6px;
+      cursor: pointer; text-decoration: none; margin-top: 4px; transition: background .15s;
+    }
+    .see-all:hover { background: rgba(91,106,240,.08); }
+    .stat-row { display: flex; gap: 8px; }
+    .stat-box {
+      flex: 1; background: var(--bg3); border-radius: 8px; padding: 10px;
+      text-align: center; border: 1px solid var(--border);
+    }
+    .stat-val { font-size: 18px; font-weight: 700; color: var(--acc); }
+    .stat-lbl { font-size: 10px; color: var(--txt2); margin-top: 2px; }
+
+    /* 재무 지표 그리드 */
+    .fin-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .fin-item { background: var(--bg3); border-radius: 8px; padding: 10px 12px; border: 1px solid var(--border); }
+    .fin-label { font-size: 10px; color: var(--txt2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+    .fin-val { font-size: 14px; font-weight: 700; color: var(--txt1); }
+    .fin-val.pos { color: #2ecc71; }
+    .fin-val.neg { color: #e74c3c; }
+    .fin-sub { font-size: 10px; color: var(--txt2); margin-top: 2px; }
+
+    /* 재무 차트 */
+    .chart-wrap { position: relative; height: 160px; margin-top: 8px; }
+    .fin-year-tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+    .fin-tab {
+      font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+      border: 1px solid var(--border); color: var(--txt2); background: var(--bg3); transition: all .15s;
+    }
+    .fin-tab.active { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .fin-no-data { font-size: 12px; color: var(--txt2); text-align: center; padding: 20px 0; }
+
+    /* 공급망 미니 카드 */
+    .sc-item { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+    .sc-item:last-child { border-bottom: none; }
+    .sc-badge { border-radius: 4px; padding: 2px 6px; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+    .sc-name { flex: 1; color: var(--txt1); font-weight: 500; }
+    .sc-ctx { color: var(--txt2); font-size: 10px; line-height: 1.4;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+
+    /* 로딩/에러 */
+    .loading { text-align:center; color:var(--txt2); padding:80px; font-size:14px; }
+    .error-box { background: rgba(231,76,60,.1); border:1px solid rgba(231,76,60,.3);
+      border-radius:10px; padding:20px; text-align:center; color:#e74c3c; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="nav-container"></div>
+  <div class="detail-outer">
+    <div class="detail-main" id="main-content">
+      <div class="loading">⏳ 분석 결과 로딩 중...</div>
+    </div>
+    <div class="detail-side" id="side-content">
+      <div class="loading" style="padding:30px"></div>
+    </div>
+  </div>
+</div>
+<script>
+initPage('comparisons');
+document.getElementById('nav-container').innerHTML = '';
+
+const API_BASE = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? `http://${location.host}` : '';
+const params   = new URLSearchParams(location.search);
+const compId   = params.get('id');
+const corpCode = params.get('corp_code');
+const typeA    = params.get('type_a') || '2025_annual';
+const typeB    = params.get('type_b') || '2025_q1';
+const model    = params.get('model')  || 'flash';
+
+const TYPE_KO = {
+  '2025_annual':'2025 사업보고서','2025_q3':'2025 3분기','2025_h1':'2025 반기','2025_q1':'2025 1분기'
+};
+
+// ── 마크다운 전체 렌더러 ────────────────────────────────────────────────────────
+function renderMd(text) {
+  if (!text) return '';
+  let html = escHtml(text);
+
+  // 표 처리 (| col | col |)
+  html = html.replace(/(\|.+\|\n)+/g, m => {
+    const rows = m.trim().split('\n');
+    let t = '<table>';
+    rows.forEach((r, i) => {
+      if (/^\|[\s\-|]+\|$/.test(r.trim())) return;  // separator row
+      const cells = r.split('|').filter((_, ci, a) => ci>0 && ci<a.length-1);
+      const tag = i===0 ? 'th' : 'td';
+      t += `<tr>${cells.map(c=>`<${tag}>${c.trim()}</${tag}>`).join('')}</tr>`;
+    });
+    return t + '</table>';
+  });
+
+  // 헤딩
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm,  '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm,   '<h1>$1</h1>');
+  html = html.replace(/^#### (.+)$/gm,'<h4>$1</h4>');
+
+  // 굵게/이탤릭
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+
+  // 리스트
+  html = html.replace(/^[-•] (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/^(\d+)\. (.+)$/gm, '<li>$1. $2</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
+
+  // 인용
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // 단락
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = html.replace(/\n/g, '<br>');
+  html = '<p>' + html + '</p>';
+
+  return html;
+}
+
+// ── 데이터 로드 ─────────────────────────────────────────────────────────────
+async function loadData() {
+  let url;
+  if (compId) {
+    url = `${API_BASE}/api/ai/comparison_detail?id=${encodeURIComponent(compId)}`;
+  } else if (corpCode) {
+    url = `${API_BASE}/api/ai/comparison_detail?corp_code=${encodeURIComponent(corpCode)}&type_a=${typeA}&type_b=${typeB}&model=${model}`;
+  } else {
+    showError('URL에 id 또는 corp_code 파라미터가 필요합니다');
+    return;
+  }
+
+  try {
+    const resp = await fetch(url);
+    const data = await resp.json();
+    if (!resp.ok) { showError(data.error || '분석 결과를 불러올 수 없습니다'); return; }
+    renderMain(data);
+    loadSidebar(data.corp_code, data.corp_name);
+  } catch(e) {
+    showError('서버 연결 오류: ' + e.message);
+  }
+}
+
+function showError(msg) {
+  document.getElementById('main-content').innerHTML =
+    `<div class="error-box"><div style="font-size:28px;margin-bottom:8px">😔</div><div>${escHtml(msg)}</div>
+     <a href="/comparisons.html" class="toolbar-btn" style="display:inline-block;margin-top:14px">← 목록으로</a></div>`;
+  document.getElementById('side-content').innerHTML = '';
+}
+
+function renderMain(d) {
+  const ta = TYPE_KO[d.report_type_a] || d.report_type_a;
+  const tb = TYPE_KO[d.report_type_b] || d.report_type_b;
+  const charA = Math.round((d.char_count_a||0)/1000);
+  const charB = Math.round((d.char_count_b||0)/1000);
+  const analyzedAt = fmtDate(d.analyzed_at);
+
+  document.title = `${d.corp_name} 비교분석 — Company Catcher`;
+
+  document.getElementById('main-content').innerHTML = `
+    <!-- 헤더 -->
+    <div class="detail-header-card">
+      <a class="corp-name" href="/company_detail.html?corp_code=${encodeURIComponent(d.corp_code||'')}&corp_name=${encodeURIComponent(d.corp_name||d.corp_code||'')}"
+         style="text-decoration:none;color:inherit;display:block">${escHtml(d.corp_name||d.corp_code)}</a>
+      <div class="meta-row">
+        <span class="meta-chip">📋 ${escHtml(ta)} <span class="route-arrow">→</span> ${escHtml(tb)}</span>
+        <span class="meta-chip">🤖 ${escHtml(d.model||'flash').toUpperCase()}</span>
+        <span class="meta-chip">🕒 ${escHtml(analyzedAt)}</span>
+        ${charA||charB ? `<span class="meta-chip">📄 ${charA}K + ${charB}K자</span>` : ''}
+      </div>
+    </div>
+
+    <!-- 툴바 -->
+    <div class="toolbar">
+      <a href="/comparisons.html" class="toolbar-btn">← 비교분석 목록</a>
+      <a href="/leads.html?corp_code=${encodeURIComponent(d.corp_code)}" class="toolbar-btn">🚨 취재단서</a>
+      <a href="/articles.html?corp_code=${encodeURIComponent(d.corp_code)}" class="toolbar-btn">✍ 기사초안</a>
+      <span class="spacer"></span>
+      <button class="toolbar-btn" onclick="copyAnalysis()">📋 복사</button>
+      <button class="toolbar-btn" onclick="window.print()">🖨 인쇄</button>
+      <button class="toolbar-btn" onclick="exportArticle('docx')">📄 Word</button>
+      <button class="toolbar-btn" style="color:#e74c3c;border-color:rgba(231,76,60,.3);"
+        onclick="excludeThis()">🚫 제외</button>
+    </div>
+
+    <!-- 분석 본문 -->
+    <div class="analysis-card" id="analysis-body">
+      ${renderMd(d.result||'')}
+    </div>
+  `;
+}
+
+async function loadSidebar(corpCode, corpName) {
+  const side = document.getElementById('side-content');
+  side.innerHTML = '<div class="loading" style="padding:30px">사이드바 로딩...</div>';
+
+  const [leadsResp, articlesResp, finResp, scResp] = await Promise.allSettled([
+    fetch(`${API_BASE}/api/leads?corp_code=${encodeURIComponent(corpCode)}&limit=6`),
+    fetch(`${API_BASE}/api/articles?corp_code=${encodeURIComponent(corpCode)}&limit=6`),
+    fetch(`${API_BASE}/api/financials?corp_code=${encodeURIComponent(corpCode)}&limit=10`),
+    fetch(`${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(corpCode)}&limit=8`),
+  ]);
+
+  const leads    = leadsResp.status==='fulfilled'    ? (await leadsResp.value.json()).leads||[]    : [];
+  const articles = articlesResp.status==='fulfilled' ? (await articlesResp.value.json()).articles||[] : [];
+  const fins     = finResp.status==='fulfilled'      ? (await finResp.value.json()).financials||[]  : [];
+  const scEdges  = scResp.status==='fulfilled'       ? (await scResp.value.json()).supply_chain||[] : [];
+
+  const SEV_COLOR = { 5:'#e74c3c', 4:'#e67e22', 3:'#f1c40f', 2:'#3498db', 1:'#888' };
+
+  const leadHtml = leads.length ? leads.map(l => `
+    <a class="mini-card" href="/lead_detail.html?id=${l.id}">
+      <div class="mini-card-top">
+        <span class="sev-dot" style="background:${SEV_COLOR[l.severity]||'#888'}"></span>
+        <span class="badge sev${Math.min(5,l.severity)||3}" style="font-size:9px">${l.severity||'-'}급</span>
+        <span style="font-size:10px;color:var(--txt2)">${escHtml(l.lead_type||'')}</span>
+      </div>
+      <div class="mini-card-title">${escHtml(l.title||'')}</div>
+      <div class="mini-card-meta">${fmtDateShort(l.created_at)}</div>
+    </a>
+  `).join('') + (leads.length>=6 ? `<a class="see-all" href="/leads.html?corp_code=${encodeURIComponent(corpCode)}">전체 보기 →</a>` : '')
+  : '<div style="font-size:12px;color:var(--txt2);padding:8px 0">관련 취재단서 없음</div>';
+
+  const artHtml = articles.length ? articles.map(a => `
+    <a class="mini-card" href="/article_detail.html?id=${a.id}">
+      <div class="mini-card-top">
+        ${articleStatusBadge(a.status)}
+      </div>
+      <div class="mini-card-title">${escHtml(a.headline||'')}</div>
+      <div class="mini-card-meta">${fmtDateShort(a.created_at)}</div>
+    </a>
+  `).join('') + (articles.length>=6 ? `<a class="see-all" href="/articles.html?corp_code=${encodeURIComponent(corpCode)}">전체 보기 →</a>` : '')
+  : '<div style="font-size:12px;color:var(--txt2);padding:8px 0">관련 기사초안 없음</div>';
+
+  side.innerHTML = `
+    <div class="side-card">
+      <div class="stat-row">
+        <div class="stat-box"><div class="stat-val">${leads.length}</div><div class="stat-lbl">취재단서</div></div>
+        <div class="stat-box"><div class="stat-val">${articles.length}</div><div class="stat-lbl">기사초안</div></div>
+      </div>
+    </div>
+
+    <div class="side-card">
+      <div class="side-title">🚨 취재단서 <span class="cnt">${leads.length}</span></div>
+      ${leadHtml}
+    </div>
+
+    <div class="side-card">
+      <div class="side-title">✍ 기사초안 <span class="cnt">${articles.length}</span></div>
+      ${artHtml}
+    </div>
+
+    <!-- 재무 지표 + 차트 -->
+    <div class="side-card">
+      <div class="side-title">💰 재무 현황
+        ${fins.length ? `<a href="/company_detail.html?corp_code=${encodeURIComponent(corpCode)}" style="font-size:10px;color:var(--acc);margin-left:auto;font-weight:400">기업 상세 →</a>` : ''}
+      </div>
+      ${fins.length ? renderFinancialSection(fins, corpCode) : '<div class="fin-no-data">재무 데이터 없음</div>'}
+    </div>
+
+    <!-- 공급망 관계 -->
+    ${scEdges.length ? `
+    <div class="side-card">
+      <div class="side-title">🌐 공급망 관계 <span class="cnt">${scEdges.length}</span>
+        <a href="/supply_chain.html?corp_code=${encodeURIComponent(corpCode)}&corp_name=${encodeURIComponent(corpName)}" style="font-size:10px;color:var(--acc);margin-left:auto;font-weight:400">그래프 →</a>
+      </div>
+      <div>${renderSupplyChain(scEdges)}</div>
+    </div>` : ''}
+
+    <div class="side-card">
+      <div class="side-title">🔗 뉴스 검색</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        ${newsSearchLinks(corpName || '', '사업전략')}
+        ${newsSearchLinks(corpName || '', '실적')}
+      </div>
+    </div>
+  `;
+
+  // 차트 그리기 (DOM 업데이트 후)
+  if (fins.length) renderFinChart(fins);
+}
+
+function fmtWon(v) {
+  if (v == null) return '-';
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  if (abs >= 1e12) return sign + (abs/1e12).toFixed(1) + '조';
+  if (abs >= 1e8)  return sign + (abs/1e8).toFixed(0) + '억';
+  if (abs >= 1e4)  return sign + (abs/1e4).toFixed(0) + '만';
+  return sign + v.toFixed(0);
+}
+
+function fmtPct(v) {
+  if (v == null) return '-';
+  return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+}
+
+function renderFinancials(f) {
+  const items = [
+    { label: '매출액',    val: fmtWon(f.revenue),          cls: '' },
+    { label: '영업이익',  val: fmtWon(f.operating_income), cls: f.operating_income > 0 ? 'pos' : 'neg' },
+    { label: '순이익',    val: fmtWon(f.net_income),       cls: f.net_income > 0 ? 'pos' : 'neg' },
+    { label: '총자산',    val: fmtWon(f.total_assets),     cls: '' },
+    { label: '부채비율',  val: f.debt_ratio != null ? f.debt_ratio.toFixed(1) + '%' : '-', cls: f.debt_ratio > 200 ? 'neg' : '' },
+    { label: '영업이익률',val: fmtPct(f.operating_margin), cls: f.operating_margin > 0 ? 'pos' : 'neg' },
+    { label: 'ROE',      val: fmtPct(f.roe),              cls: f.roe > 0 ? 'pos' : 'neg' },
+    { label: '현금',      val: fmtWon(f.cash),             cls: '' },
+  ];
+  return `<div class="fin-grid">${items.map(it => `
+    <div class="fin-item">
+      <div class="fin-label">${escHtml(it.label)}</div>
+      <div class="fin-val ${it.cls}">${escHtml(it.val)}</div>
+    </div>`).join('')}</div>`;
+}
+
+let _finChart = null;
+
+function renderFinancialSection(fins, corpCode) {
+  // 연도별 정렬 (오름차순)
+  const sorted = [...fins].sort((a,b) => a.fiscal_year - b.fiscal_year);
+  const latest = sorted[sorted.length - 1];
+  return `
+    ${renderFinancials(latest)}
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:6px;font-weight:600">📈 매출 · 영업이익 추이</div>
+      <div class="chart-wrap"><canvas id="fin-chart"></canvas></div>
+    </div>`;
+}
+
+function renderFinChart(fins) {
+  const ctx = document.getElementById('fin-chart');
+  if (!ctx) return;
+  const sorted = [...fins].sort((a,b) => a.fiscal_year - b.fiscal_year);
+  const labels  = sorted.map(f => `${f.fiscal_year}`);
+  const rev  = sorted.map(f => f.revenue      != null ? +(f.revenue/1e8).toFixed(1)      : null);
+  const oi   = sorted.map(f => f.operating_income != null ? +(f.operating_income/1e8).toFixed(1) : null);
+
+  if (_finChart) { _finChart.destroy(); _finChart = null; }
+  _finChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: '매출액(억)',
+          data: rev,
+          backgroundColor: 'rgba(91,106,240,0.6)',
+          borderColor: 'rgba(91,106,240,0.9)',
+          borderWidth: 1,
+          yAxisID: 'y',
+        },
+        {
+          label: '영업이익(억)',
+          data: oi,
+          type: 'line',
+          borderColor: '#2ecc71',
+          backgroundColor: 'rgba(46,204,113,0.15)',
+          borderWidth: 2,
+          pointRadius: 3,
+          pointBackgroundColor: '#2ecc71',
+          fill: false,
+          yAxisID: 'y',
+          tension: 0.3,
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: { color: '#9aa0b8', font: { size: 10 }, boxWidth: 12, padding: 8 }
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y != null ? ctx.parsed.y.toLocaleString() + '억' : '-'}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#9aa0b8', font: { size: 9 } }, grid: { color: 'rgba(255,255,255,.05)' } },
+        y: { ticks: { color: '#9aa0b8', font: { size: 9 },
+              callback: v => v >= 1e4 ? (v/1e4).toFixed(0)+'조' : v.toLocaleString()+'억' },
+              grid: { color: 'rgba(255,255,255,.05)' } }
+      }
+    }
+  });
+}
+
+const SC_COLORS = {
+  customer: '#e74c3c', supplier: '#3498db', partner: '#2ecc71',
+  competitor: '#f1c40f', subsidiary: '#9b59b6', parent: '#9b59b6',
+};
+const SC_KO = {
+  customer:'고객사', supplier:'공급사', partner:'파트너',
+  competitor:'경쟁사', subsidiary:'자회사', parent:'모회사',
+};
+
+function renderSupplyChain(edges) {
+  const top = edges.slice(0, 6);
+  return top.map(e => {
+    const col = SC_COLORS[e.relation_type] || '#666';
+    const ko  = SC_KO[e.relation_type] || e.relation_type || '관련';
+    return `<div class="sc-item">
+      <span class="sc-badge" style="background:${col}20;color:${col};border:1px solid ${col}40">${escHtml(ko)}</span>
+      <div style="flex:1;min-width:0">
+        <div class="sc-name">${escHtml(e.partner_name||'')}</div>
+        ${e.context ? `<div class="sc-ctx">${escHtml(e.context)}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function copyAnalysis() {
+  const el = document.getElementById('analysis-body');
+  if (!el) return;
+  const text = el.innerText || el.textContent || '';
+  navigator.clipboard.writeText(text).then(() => alert('분석 내용을 클립보드에 복사했습니다.'));
+}
+
+async function exportArticle(fmt) {
+  if (!compId) { alert('저장된 비교분석만 내보낼 수 있습니다.'); return; }
+  try {
+    const resp = await fetch(`${API_BASE}/api/comparisons/${compId}/export?format=${fmt}`, {
+      headers: { 'X-Api-Key': 'local' }
+    });
+    if (!resp.ok) { alert('내보내기 실패: ' + (await resp.json()).error); return; }
+    const blob = await resp.blob();
+    const ext  = fmt === 'pdf' ? 'pdf' : 'docx';
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `비교분석_${compId}.${ext}`; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('내보내기 오류: ' + e.message); }
+}
+
+async function excludeThis() {
+  if (!compId) return;
+  if (!confirm('이 비교분석을 목록에서 제외할까요?\n(기사화 가치 없음으로 판단 — 되돌릴 수 없습니다)')) return;
+  try {
+    const resp = await fetch(`${API_BASE}/api/comparisons/${compId}/exclude`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      body: JSON.stringify({ status: 'excluded' }),
+    });
+    if (!resp.ok) throw new Error((await resp.json()).error || '오류');
+    alert('제외 처리되었습니다. 목록으로 돌아갑니다.');
+    location.href = '/comparisons.html';
+  } catch(e) {
+    alert('오류: ' + e.message);
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>

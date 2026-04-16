@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>기업 상세 — Company Catcher</title>
+  <script src="common.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    .co-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px; }
+
+    /* 헤더 */
+    .co-header {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 20px 24px; margin-bottom: 16px; display: flex; gap: 16px; align-items: flex-start;
+    }
+    .co-corp-icon {
+      width: 52px; height: 52px; border-radius: 12px; background: var(--acc);
+      display: flex; align-items: center; justify-content: center; font-size: 24px;
+      flex-shrink: 0; color: #fff; font-weight: 700;
+    }
+    .co-corp-info { flex: 1; }
+    .co-corp-name { font-size: 22px; font-weight: 700; color: var(--txt1); margin-bottom: 6px; }
+    .co-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: var(--txt2); align-items: center; }
+    .co-chip {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+      padding: 3px 10px; font-size: 11px; color: var(--txt1);
+    }
+    .co-actions { display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+    .co-btn {
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 5px; transition: all .15s;
+    }
+    .co-btn:hover { border-color: var(--acc); color: var(--acc); }
+    .co-btn.primary { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .co-btn.primary:hover { background: var(--acc2); }
+
+    /* 섹션 탭 */
+    .tab-bar {
+      display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--border);
+      padding-bottom: 0; overflow-x: auto;
+    }
+    .tab-item {
+      padding: 9px 16px; font-size: 13px; color: var(--txt2); cursor: pointer;
+      border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap;
+      transition: all .15s; font-weight: 500;
+    }
+    .tab-item:hover { color: var(--txt1); }
+    .tab-item.active { color: var(--acc); border-bottom-color: var(--acc); font-weight: 700; }
+
+    /* 탭 콘텐츠 */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* 2컬럼 레이아웃 */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+    .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    @media (max-width: 900px) { .three-col { grid-template-columns: 1fr 1fr; } }
+
+    /* 카드 */
+    .section-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      padding: 18px; margin-bottom: 16px;
+    }
+    .section-title {
+      font-size: 13px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .5px; margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+    }
+    .section-title .cnt {
+      background: var(--bg3); border-radius: 10px; padding: 1px 8px;
+      font-size: 10px; font-weight: 600; color: var(--txt1);
+    }
+    .section-title a { font-size: 10px; color: var(--acc); margin-left: auto; font-weight: 400; text-decoration: none; }
+
+    /* 재무 지표 카드 */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
+    @media (max-width: 700px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+    .kpi-box {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; text-align: center;
+    }
+    .kpi-label { font-size: 10px; color: var(--txt2); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .3px; }
+    .kpi-val { font-size: 18px; font-weight: 700; color: var(--txt1); }
+    .kpi-val.pos { color: #2ecc71; }
+    .kpi-val.neg { color: #e74c3c; }
+    .kpi-sub { font-size: 10px; color: var(--txt2); margin-top: 4px; }
+
+    /* 차트 */
+    .chart-container { position: relative; height: 220px; }
+
+    /* 공급망 D3 */
+    #sc-svg { width: 100%; height: 320px; background: var(--bg3); border-radius: 8px; }
+
+    /* 리스트 아이템 */
+    .list-item {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 14px; margin-bottom: 8px; text-decoration: none; display: block;
+      color: inherit; transition: border-color .15s;
+    }
+    .list-item:hover { border-color: var(--acc); }
+    .list-item-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+    .list-item-title { font-size: 13px; color: var(--txt1); font-weight: 500; line-height: 1.5;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+    .list-item-meta { font-size: 10px; color: var(--txt2); margin-top: 4px; }
+    .sev-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    /* 공급망 관계 목록 */
+    .sc-row { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+    .sc-row:last-child { border-bottom: none; }
+    .sc-badge { border-radius: 4px; padding: 2px 7px; font-size: 9px; font-weight: 700; flex-shrink: 0; }
+    .sc-partner { font-weight: 600; font-size: 12px; color: var(--txt1); flex: 1; }
+    .sc-ctx { font-size: 10px; color: var(--txt2); line-height: 1.4; flex: 2;
+      overflow: hidden; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; }
+
+    /* 로딩/에러 */
+    .loading { text-align: center; color: var(--txt2); padding: 60px; font-size: 14px; }
+    .empty   { text-align: center; color: var(--txt2); padding: 30px; font-size: 12px; }
+    .error-box { background: rgba(231,76,60,.1); border:1px solid rgba(231,76,60,.3); border-radius:10px; padding:20px; text-align:center; color:#e74c3c; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="nav-container"></div>
+  <div class="co-wrap">
+    <div id="header-area"><div class="loading">⏳ 기업 정보 로딩 중...</div></div>
+
+    <!-- 탭 바 -->
+    <div class="tab-bar" id="tab-bar" style="display:none">
+      <div class="tab-item active" onclick="switchTab('financials')">💰 재무 현황</div>
+      <div class="tab-item" onclick="switchTab('supply_chain')">🌐 공급망</div>
+      <div class="tab-item" onclick="switchTab('comparisons')">📊 비교분석</div>
+      <div class="tab-item" onclick="switchTab('leads')">🚨 취재단서</div>
+      <div class="tab-item" onclick="switchTab('articles')">✍ 기사초안</div>
+    </div>
+
+    <!-- 재무 현황 탭 -->
+    <div class="tab-panel active" id="tab-financials">
+      <div class="loading">⏳ 재무 데이터 로딩 중...</div>
+    </div>
+
+    <!-- 공급망 탭 -->
+    <div class="tab-panel" id="tab-supply_chain">
+      <div class="loading">⏳ 공급망 데이터 로딩 중...</div>
+    </div>
+
+    <!-- 비교분석 탭 -->
+    <div class="tab-panel" id="tab-comparisons">
+      <div class="loading">⏳ 비교분석 로딩 중...</div>
+    </div>
+
+    <!-- 취재단서 탭 -->
+    <div class="tab-panel" id="tab-leads">
+      <div class="loading">⏳ 취재단서 로딩 중...</div>
+    </div>
+
+    <!-- 기사초안 탭 -->
+    <div class="tab-panel" id="tab-articles">
+      <div class="loading">⏳ 기사초안 로딩 중...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+initPage('comparisons');
+document.getElementById('nav-container').innerHTML = '';
+
+const API_BASE  = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? `http://${location.host}` : '';
+const params    = new URLSearchParams(location.search);
+const CORP_CODE = params.get('corp_code') || '';
+const CORP_NAME = params.get('corp_name') || '';
+
+const SC_COLORS = {
+  customer:'#e74c3c', supplier:'#3498db', partner:'#2ecc71',
+  competitor:'#f1c40f', subsidiary:'#9b59b6', parent:'#9b59b6',
+};
+const SC_KO = {
+  customer:'고객사', supplier:'공급사', partner:'파트너',
+  competitor:'경쟁사', subsidiary:'자회사', parent:'모회사',
+};
+const SEV_COLOR = { 5:'#e74c3c', 4:'#e67e22', 3:'#f1c40f', 2:'#3498db', 1:'#888' };
+
+// ── 탭 전환 ──────────────────────────────────────────────────────────────────
+let _loadedTabs = new Set();
+function switchTab(name) {
+  document.querySelectorAll('.tab-item').forEach((el, i) => {
+    const names = ['financials','supply_chain','comparisons','leads','articles'];
+    el.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.tab-panel').forEach(el => el.classList.remove('active'));
+  document.getElementById(`tab-${name}`).classList.add('active');
+  if (!_loadedTabs.has(name)) {
+    _loadedTabs.add(name);
+    loadTab(name);
+  }
+}
+
+// ── 초기 로드 ────────────────────────────────────────────────────────────────
+async function init() {
+  if (!CORP_CODE) {
+    document.getElementById('header-area').innerHTML =
+      '<div class="error-box">URL에 corp_code 파라미터가 필요합니다<br><a href="/comparisons.html" style="color:var(--acc)">← 비교분석 목록</a></div>';
+    return;
+  }
+
+  // 헤더 정보 + 첫 번째 탭(financials) 동시 로드
+  const [finResp, cmpResp] = await Promise.allSettled([
+    fetch(`${API_BASE}/api/financials?corp_code=${encodeURIComponent(CORP_CODE)}&limit=10`),
+    fetch(`${API_BASE}/api/ai/comparisons?corp_code=${encodeURIComponent(CORP_CODE)}&limit=1`),
+  ]);
+
+  const fins = finResp.status==='fulfilled' ? (await finResp.value.json()).financials||[] : [];
+  const cmps = cmpResp.status==='fulfilled' ? (await cmpResp.value.json()).comparisons||[] : [];
+
+  // 기업명 결정
+  const corpName = CORP_NAME || (fins[0]?.corp_name) || (cmps[0]?.corp_name) || CORP_CODE;
+  const stockCode = fins[0]?.stock_code || '';
+
+  document.title = `${corpName} — Company Catcher`;
+  renderHeader(corpName, stockCode, fins.length, cmps.length);
+  document.getElementById('tab-bar').style.display = 'flex';
+
+  // 재무 탭 즉시 렌더 (이미 데이터 있음)
+  _loadedTabs.add('financials');
+  renderFinancials(fins, corpName);
+}
+
+// ── 헤더 렌더 ────────────────────────────────────────────────────────────────
+function renderHeader(corpName, stockCode, finCount, cmpCount) {
+  const initial = (corpName||'?').substring(0, 1);
+  document.getElementById('header-area').innerHTML = `
+    <div class="co-header">
+      <div class="co-corp-icon">${escHtml(initial)}</div>
+      <div class="co-corp-info">
+        <div class="co-corp-name">${escHtml(corpName)}</div>
+        <div class="co-meta">
+          <span class="co-chip">🏢 ${escHtml(CORP_CODE)}</span>
+          ${stockCode ? `<span class="co-chip">📈 ${escHtml(stockCode)}</span>` : ''}
+          ${finCount ? `<span class="co-chip">💰 재무 ${finCount}건</span>` : ''}
+          ${cmpCount ? `<span class="co-chip">📊 분석 ${cmpCount}건</span>` : ''}
+        </div>
+      </div>
+      <div class="co-actions">
+        <a href="/supply_chain.html?corp_code=${encodeURIComponent(CORP_CODE)}&corp_name=${encodeURIComponent(corpName)}"
+           class="co-btn">🌐 공급망 그래프</a>
+        <a href="/comparisons.html?corp_code=${encodeURIComponent(CORP_CODE)}"
+           class="co-btn primary">📊 비교분석</a>
+      </div>
+    </div>`;
+}
+
+// ── 탭별 로드 ────────────────────────────────────────────────────────────────
+async function loadTab(name) {
+  const el = document.getElementById(`tab-${name}`);
+  try {
+    if (name === 'supply_chain') {
+      const r = await fetch(`${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(CORP_CODE)}&limit=100`);
+      const d = await r.json();
+      renderSupplyChain(d.supply_chain||[], el);
+    } else if (name === 'comparisons') {
+      const r = await fetch(`${API_BASE}/api/ai/comparisons?corp_code=${encodeURIComponent(CORP_CODE)}&limit=20`);
+      const d = await r.json();
+      renderComparisons(d.comparisons||[], el);
+    } else if (name === 'leads') {
+      const r = await fetch(`${API_BASE}/api/leads?corp_code=${encodeURIComponent(CORP_CODE)}&limit=30`);
+      const d = await r.json();
+      renderLeads(d.leads||[], el);
+    } else if (name === 'articles') {
+      const r = await fetch(`${API_BASE}/api/articles?corp_code=${encodeURIComponent(CORP_CODE)}&limit=20`);
+      const d = await r.json();
+      renderArticles(d.articles||[], el);
+    }
+  } catch(e) {
+    el.innerHTML = `<div class="error-box">로드 오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 재무 탭 ──────────────────────────────────────────────────────────────────
+let _charts = {};
+function renderFinancials(fins, corpName) {
+  const el = document.getElementById('tab-financials');
+  if (!fins.length) {
+    el.innerHTML = '<div class="empty">재무 데이터가 없습니다.<br><small>fetch_financials.py 실행 후 확인하세요.</small></div>';
+    return;
+  }
+  const sorted = [...fins].sort((a,b) => a.fiscal_year - b.fiscal_year);
+  const latest = sorted[sorted.length - 1];
+
+  el.innerHTML = `
+    <!-- KPI 요약 -->
+    <div class="section-card">
+      <div class="section-title">💰 최근 재무 현황 (${latest.fiscal_year}년 ${latest.report_type==='annual'?'연간':'분기'})</div>
+      <div class="kpi-grid">
+        ${kpiBox('매출액', fmtWon(latest.revenue), '')}
+        ${kpiBox('영업이익', fmtWon(latest.operating_income), latest.operating_income >= 0 ? 'pos':'neg',
+            `${fmtPct(latest.operating_margin)} 이익률`)}
+        ${kpiBox('순이익', fmtWon(latest.net_income), latest.net_income >= 0 ? 'pos':'neg',
+            `ROE ${fmtPct(latest.roe)}`)}
+        ${kpiBox('총자산', fmtWon(latest.total_assets), '',
+            `부채비율 ${latest.debt_ratio!=null?latest.debt_ratio.toFixed(0)+'%':'-'}`)}
+        ${kpiBox('총자본', fmtWon(latest.total_equity), '')}
+        ${kpiBox('현금', fmtWon(latest.cash), '')}
+        ${kpiBox('유동자산', fmtWon(latest.current_assets), '',
+            `유동비율 ${latest.current_ratio!=null?latest.current_ratio.toFixed(0)+'%':'-'}`)}
+        ${kpiBox('부채', fmtWon(latest.total_liabilities), latest.debt_ratio>200?'neg':'', '')}
+      </div>
+    </div>
+
+    <!-- 차트 -->
+    ${sorted.length > 1 ? `
+    <div class="two-col">
+      <div class="section-card">
+        <div class="section-title">📈 매출 · 영업이익 추이</div>
+        <div class="chart-container"><canvas id="chart-rev"></canvas></div>
+      </div>
+      <div class="section-card">
+        <div class="section-title">📊 수익성 추이 (이익률 %)</div>
+        <div class="chart-container"><canvas id="chart-margin"></canvas></div>
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="section-card">
+        <div class="section-title">🏦 재무구조 추이</div>
+        <div class="chart-container"><canvas id="chart-bs"></canvas></div>
+      </div>
+      <div class="section-card">
+        <div class="section-title">⚖️ 부채비율 · ROE 추이</div>
+        <div class="chart-container"><canvas id="chart-ratio"></canvas></div>
+      </div>
+    </div>` : ''}
+
+    <!-- 연도별 데이터 테이블 -->
+    <div class="section-card">
+      <div class="section-title">📋 연도별 재무 데이터</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:var(--bg3)">
+              <th style="padding:8px 10px;text-align:left;border:1px solid var(--border);color:var(--txt2)">연도</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">매출액</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">영업이익</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">순이익</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">영업이익률</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">ROE</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">부채비율</th>
+              <th style="padding:8px 10px;text-align:right;border:1px solid var(--border);color:var(--txt2)">총자산</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${[...sorted].reverse().map(f => `
+            <tr>
+              <td style="padding:7px 10px;border:1px solid var(--border);color:var(--txt2)">${f.fiscal_year} ${f.report_type==='annual'?'연간':'분기'}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right">${fmtWon(f.revenue)}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right;color:${f.operating_income>=0?'#2ecc71':'#e74c3c'}">${fmtWon(f.operating_income)}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right;color:${f.net_income>=0?'#2ecc71':'#e74c3c'}">${fmtWon(f.net_income)}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right;color:${f.operating_margin>=0?'#2ecc71':'#e74c3c'}">${fmtPct(f.operating_margin)}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right;color:${f.roe>=0?'#2ecc71':'#e74c3c'}">${fmtPct(f.roe)}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right;color:${f.debt_ratio>200?'#e74c3c':''}">${f.debt_ratio!=null?f.debt_ratio.toFixed(1)+'%':'-'}</td>
+              <td style="padding:7px 10px;border:1px solid var(--border);text-align:right">${fmtWon(f.total_assets)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // 차트 그리기
+  if (sorted.length > 1) {
+    requestAnimationFrame(() => {
+      drawRevChart(sorted);
+      drawMarginChart(sorted);
+      drawBsChart(sorted);
+      drawRatioChart(sorted);
+    });
+  }
+}
+
+function kpiBox(label, val, cls, sub) {
+  return `<div class="kpi-box">
+    <div class="kpi-label">${escHtml(label)}</div>
+    <div class="kpi-val ${cls}">${escHtml(val)}</div>
+    ${sub ? `<div class="kpi-sub">${escHtml(sub)}</div>` : ''}
+  </div>`;
+}
+
+const CHART_DEFAULTS = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { labels: { color:'#9aa0b8', font:{size:10}, boxWidth:12, padding:8 } } },
+  scales: {
+    x: { ticks:{color:'#9aa0b8',font:{size:9}}, grid:{color:'rgba(255,255,255,.05)'} },
+    y: { ticks:{color:'#9aa0b8',font:{size:9}}, grid:{color:'rgba(255,255,255,.05)'} }
+  }
+};
+
+function makeChart(id, type, data, optionsOverride) {
+  const ctx = document.getElementById(id);
+  if (!ctx) return;
+  if (_charts[id]) { _charts[id].destroy(); }
+  _charts[id] = new Chart(ctx, {
+    type,
+    data,
+    options: { ...CHART_DEFAULTS, ...optionsOverride }
+  });
+}
+
+function drawRevChart(sorted) {
+  const labels = sorted.map(f => `${f.fiscal_year}`);
+  makeChart('chart-rev', 'bar', {
+    labels,
+    datasets: [
+      { label:'매출액(억)', data: sorted.map(f=>f.revenue!=null?+(f.revenue/1e8).toFixed(1):null),
+        backgroundColor:'rgba(91,106,240,0.6)', borderColor:'rgba(91,106,240,0.9)', borderWidth:1, yAxisID:'y' },
+      { label:'영업이익(억)', data: sorted.map(f=>f.operating_income!=null?+(f.operating_income/1e8).toFixed(1):null),
+        type:'line', borderColor:'#2ecc71', backgroundColor:'rgba(46,204,113,.15)',
+        borderWidth:2, pointRadius:3, fill:false, yAxisID:'y', tension:.3 }
+    ]
+  }, {
+    scales: {
+      x: CHART_DEFAULTS.scales.x,
+      y: { ...CHART_DEFAULTS.scales.y,
+           ticks:{...CHART_DEFAULTS.scales.y.ticks, callback: v=>v>=1e4?(v/1e4).toFixed(0)+'조':v.toLocaleString()+'억'} }
+    }
+  });
+}
+
+function drawMarginChart(sorted) {
+  const labels = sorted.map(f => `${f.fiscal_year}`);
+  makeChart('chart-margin', 'line', {
+    labels,
+    datasets: [
+      { label:'영업이익률(%)', data: sorted.map(f=>f.operating_margin!=null?+f.operating_margin.toFixed(2):null),
+        borderColor:'#5b6af0', backgroundColor:'rgba(91,106,240,.1)', borderWidth:2, pointRadius:3, fill:true, tension:.3 },
+      { label:'순이익률(%)', data: sorted.map(f=>f.net_margin!=null?+f.net_margin.toFixed(2):null),
+        borderColor:'#2ecc71', backgroundColor:'rgba(46,204,113,.1)', borderWidth:2, pointRadius:3, fill:false, tension:.3 },
+      { label:'ROE(%)', data: sorted.map(f=>f.roe!=null?+f.roe.toFixed(2):null),
+        borderColor:'#f1c40f', backgroundColor:'transparent', borderWidth:2, pointRadius:3, fill:false,
+        borderDash:[4,3], tension:.3 }
+    ]
+  }, {
+    scales: {
+      x: CHART_DEFAULTS.scales.x,
+      y: { ...CHART_DEFAULTS.scales.y,
+           ticks:{...CHART_DEFAULTS.scales.y.ticks, callback: v=>`${v}%`} }
+    }
+  });
+}
+
+function drawBsChart(sorted) {
+  const labels = sorted.map(f => `${f.fiscal_year}`);
+  makeChart('chart-bs', 'bar', {
+    labels,
+    datasets: [
+      { label:'총자산(억)', data: sorted.map(f=>f.total_assets!=null?+(f.total_assets/1e8).toFixed(1):null),
+        backgroundColor:'rgba(52,152,219,.6)', borderWidth:1 },
+      { label:'총자본(억)', data: sorted.map(f=>f.total_equity!=null?+(f.total_equity/1e8).toFixed(1):null),
+        backgroundColor:'rgba(46,204,113,.6)', borderWidth:1 },
+      { label:'현금(억)', data: sorted.map(f=>f.cash!=null?+(f.cash/1e8).toFixed(1):null),
+        backgroundColor:'rgba(241,196,15,.5)', borderWidth:1 },
+    ]
+  }, {
+    scales: {
+      x: CHART_DEFAULTS.scales.x,
+      y: { ...CHART_DEFAULTS.scales.y,
+           ticks:{...CHART_DEFAULTS.scales.y.ticks, callback: v=>v>=1e4?(v/1e4).toFixed(0)+'조':v.toLocaleString()+'억'} }
+    }
+  });
+}
+
+function drawRatioChart(sorted) {
+  const labels = sorted.map(f => `${f.fiscal_year}`);
+  makeChart('chart-ratio', 'line', {
+    labels,
+    datasets: [
+      { label:'부채비율(%)', data: sorted.map(f=>f.debt_ratio!=null?+f.debt_ratio.toFixed(1):null),
+        borderColor:'#e74c3c', backgroundColor:'rgba(231,76,60,.1)', borderWidth:2, pointRadius:3, fill:true, tension:.3, yAxisID:'y' },
+      { label:'유동비율(%)', data: sorted.map(f=>f.current_ratio!=null?+f.current_ratio.toFixed(1):null),
+        borderColor:'#3498db', backgroundColor:'transparent', borderWidth:2, pointRadius:3, fill:false, tension:.3, yAxisID:'y' },
+    ]
+  }, {
+    scales: {
+      x: CHART_DEFAULTS.scales.x,
+      y: { ...CHART_DEFAULTS.scales.y,
+           ticks:{...CHART_DEFAULTS.scales.y.ticks, callback: v=>`${v}%`} }
+    }
+  });
+}
+
+// ── 공급망 탭 ────────────────────────────────────────────────────────────────
+let _scSim = null;
+function renderSupplyChain(edges, el) {
+  if (!edges.length) {
+    el.innerHTML = '<div class="empty">공급망 데이터가 없습니다.</div>';
+    return;
+  }
+
+  // 관계 유형별 카운트
+  const typeCnt = {};
+  edges.forEach(e => { typeCnt[e.relation_type] = (typeCnt[e.relation_type]||0)+1; });
+  const typeHtml = Object.entries(typeCnt).map(([t,c]) => `
+    <span style="background:${SC_COLORS[t]||'#666'}20;color:${SC_COLORS[t]||'#888'};border:1px solid ${SC_COLORS[t]||'#666'}40;
+      border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600">
+      ${SC_KO[t]||t} ${c}개
+    </span>`).join('');
+
+  el.innerHTML = `
+    <div class="section-card">
+      <div class="section-title">🌐 공급망 개요 <span class="cnt">${edges.length}개 관계</span>
+        <a href="/supply_chain.html?corp_code=${encodeURIComponent(CORP_CODE)}&corp_name=${encodeURIComponent(edges[0]?.corp_name||CORP_CODE)}">그래프 보기 →</a>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${typeHtml}</div>
+      <svg id="sc-svg"></svg>
+    </div>
+    <div class="section-card">
+      <div class="section-title">📋 관계 목록</div>
+      ${edges.map(e => `
+        <div class="sc-row">
+          <span class="sc-badge" style="background:${SC_COLORS[e.relation_type]||'#666'}20;color:${SC_COLORS[e.relation_type]||'#888'};border:1px solid ${SC_COLORS[e.relation_type]||'#666'}40">
+            ${SC_KO[e.relation_type]||e.relation_type||'관련'}
+          </span>
+          <div class="sc-partner">${escHtml(e.partner_name||'')}</div>
+          <div class="sc-ctx">${escHtml(e.context||'')}</div>
+        </div>`).join('')}
+    </div>`;
+
+  // D3 미니 그래프
+  drawScGraph(edges);
+}
+
+function drawScGraph(edges) {
+  const svgEl = document.getElementById('sc-svg');
+  if (!svgEl) return;
+
+  const W = svgEl.clientWidth || 600;
+  const H = 320;
+
+  const svg = d3.select('#sc-svg');
+  svg.selectAll('*').remove();
+
+  const centerCode = CORP_CODE;
+  const centerName = edges[0]?.corp_name || CORP_CODE;
+
+  const nodeMap = new Map();
+  nodeMap.set(centerCode, { id:centerCode, name:centerName, type:'center', degree:0 });
+
+  const links = [];
+  edges.forEach(e => {
+    const key = `p::${e.partner_name}`;
+    if (!nodeMap.has(key)) nodeMap.set(key, { id:key, name:e.partner_name, type:'partner', rel_type:e.relation_type, degree:0 });
+    links.push({ source:centerCode, target:key, relation:e.relation_type });
+    nodeMap.get(key).degree++;
+    nodeMap.get(centerCode).degree++;
+  });
+
+  const nodes = [...nodeMap.values()];
+
+  const zoom = d3.zoom().scaleExtent([.2,4]).on('zoom', e=>g.attr('transform',e.transform));
+  svg.call(zoom);
+  const g = svg.append('g');
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(90).strength(.6))
+    .force('charge', d3.forceManyBody().strength(-200))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('collision', d3.forceCollide().radius(d=>d.type==='center'?22:12));
+
+  if (_scSim) _scSim.stop();
+  _scSim = sim;
+
+  const link = g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke', d=>SC_COLORS[d.relation]||'#666')
+    .attr('stroke-width', 1.2).attr('stroke-opacity', .6);
+
+  const node = g.append('g').selectAll('g').data(nodes).join('g').attr('cursor','pointer')
+    .call(d3.drag()
+      .on('start',(e,d)=>{ if(!e.active) sim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('drag', (e,d)=>{ d.fx=e.x; d.fy=e.y; })
+      .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+
+  node.append('circle')
+    .attr('r', d=>d.type==='center'?16:Math.min(12,4+d.degree*1.5))
+    .attr('fill', d=>d.type==='center'?'var(--acc)':(SC_COLORS[d.rel_type]||'#555'))
+    .attr('stroke', d=>d.type==='center'?'#fff':'transparent')
+    .attr('stroke-width', 2);
+
+  node.append('text')
+    .text(d=>d.name.length>8?d.name.substring(0,8)+'…':d.name)
+    .attr('text-anchor','middle')
+    .attr('dy', d=>(d.type==='center'?16:12)+12)
+    .attr('font-size', 9).attr('fill','var(--txt2)').attr('pointer-events','none');
+
+  sim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+        .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+}
+
+// ── 비교분석 탭 ──────────────────────────────────────────────────────────────
+function renderComparisons(cmps, el) {
+  if (!cmps.length) { el.innerHTML='<div class="empty">비교분석 결과가 없습니다.</div>'; return; }
+  el.innerHTML = `
+    <div class="section-card">
+      <div class="section-title">📊 비교분석 목록 <span class="cnt">${cmps.length}건</span></div>
+      ${cmps.map(c => `
+        <a class="list-item" href="/comparison_detail.html?id=${c.id}">
+          <div class="list-item-top">
+            <span style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:9px;color:var(--txt2)">
+              ${escHtml(c.report_type_a||'')} → ${escHtml(c.report_type_b||'')}
+            </span>
+            <span style="font-size:9px;color:var(--txt2)">🤖 ${escHtml(c.model||'flash').toUpperCase()}</span>
+          </div>
+          <div class="list-item-title">${escHtml(c.result ? c.result.substring(0,120) : '분석 결과 없음')}...</div>
+          <div class="list-item-meta">${fmtDate(c.analyzed_at)}</div>
+        </a>`).join('')}
+    </div>`;
+}
+
+// ── 취재단서 탭 ──────────────────────────────────────────────────────────────
+function renderLeads(leads, el) {
+  if (!leads.length) { el.innerHTML='<div class="empty">취재단서가 없습니다.</div>'; return; }
+  el.innerHTML = `
+    <div class="section-card">
+      <div class="section-title">🚨 취재단서 <span class="cnt">${leads.length}건</span></div>
+      ${leads.map(l => `
+        <a class="list-item" href="/lead_detail.html?id=${l.id}">
+          <div class="list-item-top">
+            <span class="sev-dot" style="background:${SEV_COLOR[l.severity]||'#888'}"></span>
+            <span class="badge sev${Math.min(5,l.severity)||3}" style="font-size:9px">${l.severity||'-'}급</span>
+            <span style="font-size:10px;color:var(--txt2)">${escHtml(l.lead_type||'')}</span>
+          </div>
+          <div class="list-item-title">${escHtml(l.title||'')}</div>
+          <div class="list-item-meta">${fmtDate(l.created_at)}</div>
+        </a>`).join('')}
+    </div>`;
+}
+
+// ── 기사초안 탭 ──────────────────────────────────────────────────────────────
+function renderArticles(arts, el) {
+  if (!arts.length) { el.innerHTML='<div class="empty">기사초안이 없습니다.</div>'; return; }
+  el.innerHTML = `
+    <div class="section-card">
+      <div class="section-title">✍ 기사초안 <span class="cnt">${arts.length}건</span></div>
+      ${arts.map(a => `
+        <a class="list-item" href="/article_detail.html?id=${a.id}">
+          <div class="list-item-top">${articleStatusBadge(a.status)}</div>
+          <div class="list-item-title">${escHtml(a.headline||a.title||'제목 없음')}</div>
+          <div class="list-item-meta">${fmtDate(a.created_at)}</div>
+        </a>`).join('')}
+    </div>`;
+}
+
+// ── 유틸 ──────────────────────────────────────────────────────────────────────
+function fmtWon(v) {
+  if (v == null) return '-';
+  const abs = Math.abs(v), sign = v < 0 ? '-' : '';
+  if (abs >= 1e12) return sign + (abs/1e12).toFixed(1) + '조';
+  if (abs >= 1e8)  return sign + (abs/1e8).toFixed(0) + '억';
+  if (abs >= 1e4)  return sign + (abs/1e4).toFixed(0) + '만';
+  return sign + v.toFixed(0);
+}
+function fmtPct(v) { if (v==null) return '-'; return (v>=0?'+':'') + v.toFixed(1) + '%'; }
+
+init();
+</script>
+</body>
+</html>

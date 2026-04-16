@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>알림 규칙 관리 — CompanyCatcher</title>
+<script src="/common.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg1); color: var(--txt1); font-family: var(--font); min-height: 100vh; }
+
+.page-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+.page-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 24px;
+}
+.page-title { font-size: 20px; font-weight: 700; }
+.page-subtitle { font-size: 13px; color: var(--txt3); margin-top: 4px; }
+
+/* Stats bar */
+.stat-bar {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px;
+  margin-bottom: 28px;
+}
+.stat-card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 14px 16px;
+}
+.stat-card .label { font-size: 11px; color: var(--txt3); margin-bottom: 4px; }
+.stat-card .value { font-size: 22px; font-weight: 700; }
+.stat-card .value.sev5 { color: #ef4444; }
+.stat-card .value.sev4 { color: #f59e0b; }
+.stat-card .value.sev3 { color: #3b82f6; }
+.stat-card .value.green { color: #22c55e; }
+
+/* Filter row */
+.filter-row {
+  display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; align-items: center;
+}
+.filter-btn {
+  padding: 5px 12px; border-radius: 20px; border: 1px solid var(--border);
+  background: var(--bg2); color: var(--txt2); font-size: 12px; cursor: pointer;
+  transition: all .15s;
+}
+.filter-btn:hover { border-color: var(--acc); color: var(--acc); }
+.filter-btn.active { background: var(--acc); border-color: var(--acc); color: #fff; }
+.filter-spacer { flex: 1; }
+.search-box {
+  padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg2); color: var(--txt1); font-size: 12px; width: 200px;
+}
+.search-box:focus { outline: none; border-color: var(--acc); }
+
+/* Rule cards */
+.rules-grid { display: flex; flex-direction: column; gap: 12px; }
+
+.rule-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+  padding: 18px 20px; transition: border-color .15s;
+  border-left: 4px solid transparent;
+}
+.rule-card.sev-5 { border-left-color: #ef4444; }
+.rule-card.sev-4 { border-left-color: #f59e0b; }
+.rule-card.sev-3 { border-left-color: #3b82f6; }
+.rule-card.inactive { opacity: 0.5; }
+
+.rule-header {
+  display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px;
+}
+.rule-toggle {
+  width: 38px; height: 22px; border-radius: 11px; border: none; cursor: pointer;
+  position: relative; transition: background .2s; flex-shrink: 0; margin-top: 2px;
+  background: var(--bg3);
+}
+.rule-toggle.on { background: #22c55e; }
+.rule-toggle::after {
+  content: ''; position: absolute; top: 3px; left: 3px;
+  width: 16px; height: 16px; border-radius: 50%; background: #fff;
+  transition: left .2s;
+}
+.rule-toggle.on::after { left: 19px; }
+
+.rule-info { flex: 1; min-width: 0; }
+.rule-name-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rule-code { font-size: 13px; font-weight: 700; font-family: monospace; }
+.sev-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 10px;
+}
+.sev-badge.s5 { background: #fef2f2; color: #dc2626; }
+.sev-badge.s4 { background: #fffbeb; color: #d97706; }
+.sev-badge.s3 { background: #eff6ff; color: #2563eb; }
+.type-badge {
+  font-size: 10px; padding: 2px 7px; border-radius: 10px;
+  background: var(--bg3); color: var(--txt3);
+}
+.rule-desc { font-size: 12px; color: var(--txt3); margin-top: 4px; }
+
+.rule-meta {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px;
+}
+.rule-meta-block { }
+.meta-label {
+  font-size: 10px; color: var(--txt3); text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 4px;
+}
+.kw-list { display: flex; flex-wrap: wrap; gap: 4px; }
+.kw-chip {
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: var(--bg3); color: var(--txt2); border: 1px solid var(--border);
+}
+.kw-chip.exclude { background: #fef2f2; color: #dc2626; border-color: #fecaca; }
+
+.rule-footer {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+}
+.hit-count {
+  font-size: 12px; color: var(--txt3);
+}
+.hit-count strong { color: var(--txt1); }
+.rule-actions { display: flex; gap: 6px; }
+.btn-sm {
+  padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--txt2); font-size: 11px; cursor: pointer;
+  transition: all .15s;
+}
+.btn-sm:hover { border-color: var(--acc); color: var(--acc); }
+.btn-sm.danger:hover { border-color: #ef4444; color: #ef4444; }
+
+/* Edit modal */
+.ar-modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(0,0,0,.6); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.ar-modal-overlay.open { display: flex; }
+.ar-modal {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 14px;
+  padding: 24px; width: 620px; max-width: 95vw; max-height: 85vh;
+  overflow-y: auto;
+}
+.ar-modal-title { font-size: 16px; font-weight: 700; margin-bottom: 18px; }
+.form-group { margin-bottom: 14px; }
+.form-label { font-size: 11px; color: var(--txt3); margin-bottom: 4px; display: block; }
+.form-input, .form-textarea {
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg1); color: var(--txt1);
+  font-size: 13px; font-family: var(--font);
+}
+.form-textarea { min-height: 80px; resize: vertical; }
+.form-input:focus, .form-textarea:focus { outline: none; border-color: var(--acc); }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.ar-modal-footer { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
+.btn-primary {
+  padding: 8px 18px; border-radius: 8px; border: none;
+  background: var(--acc); color: #fff; font-size: 13px; cursor: pointer;
+}
+.btn-primary:hover { opacity: .9; }
+.btn-cancel {
+  padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--txt2); font-size: 13px; cursor: pointer;
+}
+.btn-cancel:hover { border-color: var(--acc); color: var(--acc); }
+
+/* Toast */
+.toast {
+  position: fixed; bottom: 24px; right: 24px;
+  background: #1e293b; color: #f1f5f9; padding: 10px 18px;
+  border-radius: 8px; font-size: 13px; z-index: 2000;
+  opacity: 0; transition: opacity .3s; pointer-events: none;
+}
+.toast.show { opacity: 1; }
+
+.loading { text-align: center; padding: 60px 0; color: var(--txt3); font-size: 14px; }
+</style>
+</head>
+<body>
+<script>initPage('alert_rules');</script>
+
+<div class="page-wrap">
+  <div class="page-header">
+    <div>
+      <div class="page-title">⚙️ 알림 규칙 관리</div>
+      <div class="page-subtitle">취재단서 탐지 규칙을 확인하고 ON/OFF 또는 키워드를 수정합니다</div>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stat-bar" id="stat-bar">
+    <div class="stat-card"><div class="label">전체 규칙</div><div class="value" id="s-total">—</div></div>
+    <div class="stat-card"><div class="label">활성 규칙</div><div class="value green" id="s-active">—</div></div>
+    <div class="stat-card"><div class="label">심각도 5 (긴급)</div><div class="value sev5" id="s-5">—</div></div>
+    <div class="stat-card"><div class="label">심각도 4 (주의)</div><div class="value sev4" id="s-4">—</div></div>
+    <div class="stat-card"><div class="label">심각도 3 (참고)</div><div class="value sev3" id="s-3">—</div></div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filter-row">
+    <button class="filter-btn active" onclick="setFilter('all', this)">전체</button>
+    <button class="filter-btn" onclick="setFilter('sev5', this)">🔴 긴급(5)</button>
+    <button class="filter-btn" onclick="setFilter('sev4', this)">🟡 주의(4)</button>
+    <button class="filter-btn" onclick="setFilter('sev3', this)">🔵 참고(3)</button>
+    <button class="filter-btn" onclick="setFilter('active', this)">✅ 활성만</button>
+    <button class="filter-btn" onclick="setFilter('inactive', this)">⏸ 비활성</button>
+    <div class="filter-spacer"></div>
+    <input class="search-box" type="text" placeholder="🔍 규칙 검색…" oninput="onSearch(this.value)">
+  </div>
+
+  <!-- Rules list -->
+  <div class="rules-grid" id="rules-grid">
+    <div class="loading">규칙 로딩 중…</div>
+  </div>
+</div>
+
+<!-- Edit modal -->
+<div class="ar-modal-overlay" id="edit-modal" onclick="closeModal(event)">
+  <div class="ar-modal">
+    <div class="ar-modal-title" id="modal-title">규칙 편집</div>
+    <input type="hidden" id="edit-id">
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">규칙 코드</label>
+        <input class="form-input" id="edit-code" readonly style="opacity:.6">
+      </div>
+      <div class="form-group">
+        <label class="form-label">리드 유형</label>
+        <input class="form-input" id="edit-type" readonly style="opacity:.6">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">제목 템플릿 (title_tmpl)</label>
+      <input class="form-input" id="edit-tmpl" placeholder="{corp_name} 이(가) …한 정황">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">설명</label>
+      <input class="form-input" id="edit-desc">
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">탐지 키워드 (JSON 배열, 쉼표 구분 또는 ["a","b"] 형식)</label>
+      <textarea class="form-textarea" id="edit-kw" rows="4"></textarea>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">제외 키워드</label>
+      <textarea class="form-textarea" id="edit-excl" rows="3"></textarea>
+    </div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">심각도 (1-5)</label>
+        <input class="form-input" id="edit-sev" type="number" min="1" max="5">
+      </div>
+      <div class="form-group">
+        <label class="form-label">최소 증거 길이</label>
+        <input class="form-input" id="edit-minlen" type="number" min="0">
+      </div>
+    </div>
+
+    <div class="ar-modal-footer">
+      <button class="btn-cancel" onclick="document.getElementById('edit-modal').classList.remove('open')">취소</button>
+      <button class="btn-primary" onclick="saveRule()">💾 저장</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let _rules = [];
+let _leadCounts = {};
+let _filter = 'all';
+let _search = '';
+
+// ── 데이터 로드 ─────────────────────────────────────────────────────────────
+async function init() {
+  const [rr, lr] = await Promise.all([
+    fetch('/api/alert_rules').then(r => r.json()),
+    fetch('/api/leads?limit=2000').then(r => r.json()).catch(() => ({ leads: [] }))
+  ]);
+
+  _rules = rr.rules || [];
+
+  // Count hits per lead_type
+  (lr.leads || []).forEach(l => {
+    _leadCounts[l.lead_type] = (_leadCounts[l.lead_type] || 0) + 1;
+  });
+
+  renderStats();
+  renderRules();
+}
+
+function renderStats() {
+  const active = _rules.filter(r => r.is_active).length;
+  document.getElementById('s-total').textContent = _rules.length;
+  document.getElementById('s-active').textContent = active;
+  document.getElementById('s-5').textContent = _rules.filter(r => r.severity === 5).length;
+  document.getElementById('s-4').textContent = _rules.filter(r => r.severity === 4).length;
+  document.getElementById('s-3').textContent = _rules.filter(r => r.severity === 3).length;
+}
+
+// ── 필터 / 검색 ─────────────────────────────────────────────────────────────
+function setFilter(f, btn) {
+  _filter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderRules();
+}
+function onSearch(v) {
+  _search = v.toLowerCase().trim();
+  renderRules();
+}
+
+function filteredRules() {
+  return _rules.filter(r => {
+    if (_filter === 'sev5' && r.severity !== 5) return false;
+    if (_filter === 'sev4' && r.severity !== 4) return false;
+    if (_filter === 'sev3' && r.severity !== 3) return false;
+    if (_filter === 'active' && !r.is_active) return false;
+    if (_filter === 'inactive' && r.is_active) return false;
+    if (_search) {
+      const hay = [r.rule_code, r.lead_type, r.description, r.title_tmpl, r.keywords].join(' ').toLowerCase();
+      if (!hay.includes(_search)) return false;
+    }
+    return true;
+  });
+}
+
+// ── 렌더 ────────────────────────────────────────────────────────────────────
+function renderRules() {
+  const rules = filteredRules();
+  const el = document.getElementById('rules-grid');
+  if (!rules.length) {
+    el.innerHTML = '<div class="loading">조건에 맞는 규칙이 없습니다</div>';
+    return;
+  }
+  el.innerHTML = rules.map(r => renderCard(r)).join('');
+}
+
+function parseKw(val) {
+  if (!val) return [];
+  try { return JSON.parse(val); } catch { return []; }
+}
+
+const SEV_LABEL = { 5: '긴급', 4: '주의', 3: '참고', 2: '낮음', 1: '최소' };
+const TYPE_LABEL = {
+  strategy_change: '전략변화', market_shift: '시장이동',
+  risk_alert: '리스크', supply_chain: '공급망', numeric_change: '수치변화'
+};
+
+function renderCard(r) {
+  const kws = parseKw(r.keywords);
+  const exkws = parseKw(r.exclude_kw);
+  const hits = _leadCounts[r.lead_type] || 0;
+  const sc = `sev-${r.severity}`;
+  const inact = r.is_active ? '' : ' inactive';
+  const toggleOn = r.is_active ? 'on' : '';
+
+  const kwHtml = kws.slice(0, 8).map(k => `<span class="kw-chip">${escHtml(k)}</span>`).join('') +
+    (kws.length > 8 ? `<span class="kw-chip">+${kws.length - 8}</span>` : '');
+  const exHtml = exkws.slice(0, 5).map(k => `<span class="kw-chip exclude">${escHtml(k)}</span>`).join('') +
+    (exkws.length > 5 ? `<span class="kw-chip exclude">+${exkws.length - 5}</span>` : '');
+
+  return `
+  <div class="rule-card ${sc}${inact}" id="rule-${r.id}">
+    <div class="rule-header">
+      <button class="rule-toggle ${toggleOn}" title="${r.is_active ? '비활성화' : '활성화'}"
+        onclick="toggleRule(${r.id}, ${r.is_active ? 0 : 1})"></button>
+      <div class="rule-info">
+        <div class="rule-name-row">
+          <span class="rule-code">${escHtml(r.rule_code)}</span>
+          <span class="sev-badge s${r.severity}">Sev ${r.severity} · ${SEV_LABEL[r.severity] || ''}</span>
+          <span class="type-badge">${TYPE_LABEL[r.lead_type] || r.lead_type}</span>
+          ${!r.is_active ? '<span class="type-badge" style="color:#ef4444">비활성</span>' : ''}
+        </div>
+        <div class="rule-desc">${escHtml(r.description || r.title_tmpl || '')}</div>
+      </div>
+    </div>
+
+    <div class="rule-meta">
+      <div class="rule-meta-block">
+        <div class="meta-label">탐지 키워드 (${kws.length}개)</div>
+        <div class="kw-list">${kwHtml || '<span style="color:var(--txt3);font-size:11px">없음</span>'}</div>
+      </div>
+      <div class="rule-meta-block">
+        <div class="meta-label">제외 키워드 (${exkws.length}개)</div>
+        <div class="kw-list">${exHtml || '<span style="color:var(--txt3);font-size:11px">없음</span>'}</div>
+      </div>
+    </div>
+
+    <div class="rule-footer">
+      <div class="hit-count">
+        누적 단서: <strong>${hits}</strong>건 (유형: ${TYPE_LABEL[r.lead_type] || r.lead_type})
+        ${r.min_evidence_len ? `&nbsp;· 최소 증거 ${r.min_evidence_len}자` : ''}
+      </div>
+      <div class="rule-actions">
+        <button class="btn-sm" onclick="openEdit(${r.id})">✏️ 편집</button>
+        <button class="btn-sm" onclick="viewLeads('${escHtml(r.lead_type)}')">🚨 단서보기</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 토글 ON/OFF ─────────────────────────────────────────────────────────────
+async function toggleRule(id, newVal) {
+  const res = await fetch(`/api/alert_rules/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_active: newVal })
+  });
+  if (!res.ok) { showToast('❌ 변경 실패'); return; }
+  const r = _rules.find(x => x.id === id);
+  if (r) r.is_active = newVal;
+  renderStats();
+  renderRules();
+  showToast(newVal ? '✅ 규칙 활성화됨' : '⏸ 규칙 비활성화됨');
+}
+
+// ── 편집 모달 ────────────────────────────────────────────────────────────────
+function openEdit(id) {
+  const r = _rules.find(x => x.id === id);
+  if (!r) return;
+  document.getElementById('modal-title').textContent = `✏️ ${r.rule_code} 편집`;
+  document.getElementById('edit-id').value = id;
+  document.getElementById('edit-code').value = r.rule_code;
+  document.getElementById('edit-type').value = r.lead_type;
+  document.getElementById('edit-tmpl').value = r.title_tmpl || '';
+  document.getElementById('edit-desc').value = r.description || '';
+  document.getElementById('edit-sev').value = r.severity;
+  document.getElementById('edit-minlen').value = r.min_evidence_len || 0;
+
+  // Show keywords as nice text
+  const kws = parseKw(r.keywords);
+  const exkws = parseKw(r.exclude_kw);
+  document.getElementById('edit-kw').value = kws.join(', ');
+  document.getElementById('edit-excl').value = exkws.join(', ');
+
+  document.getElementById('edit-modal').classList.add('open');
+}
+
+function closeModal(e) {
+  if (e.target === document.getElementById('edit-modal'))
+    document.getElementById('edit-modal').classList.remove('open');
+}
+
+async function saveRule() {
+  const id = parseInt(document.getElementById('edit-id').value);
+  const kwRaw = document.getElementById('edit-kw').value.trim();
+  const exRaw = document.getElementById('edit-excl').value.trim();
+
+  // Parse keywords: accept either JSON array or comma-separated
+  function parseInput(raw) {
+    if (!raw) return [];
+    try { const p = JSON.parse(raw); if (Array.isArray(p)) return p; } catch {}
+    return raw.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  const payload = {
+    title_tmpl: document.getElementById('edit-tmpl').value.trim(),
+    description: document.getElementById('edit-desc').value.trim(),
+    severity: parseInt(document.getElementById('edit-sev').value),
+    min_evidence_len: parseInt(document.getElementById('edit-minlen').value) || 0,
+    keywords: JSON.stringify(parseInput(kwRaw)),
+    exclude_kw: JSON.stringify(parseInput(exRaw)),
+  };
+
+  const res = await fetch(`/api/alert_rules/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) { showToast('❌ 저장 실패'); return; }
+
+  // Update local
+  const r = _rules.find(x => x.id === id);
+  if (r) Object.assign(r, payload);
+
+  document.getElementById('edit-modal').classList.remove('open');
+  renderStats();
+  renderRules();
+  showToast('💾 저장되었습니다');
+}
+
+// ── 단서 보기 ────────────────────────────────────────────────────────────────
+function viewLeads(leadType) {
+  window.location.href = `/leads.html?type=${encodeURIComponent(leadType)}`;
+}
+
+// ── 토스트 ───────────────────────────────────────────────────────────────────
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+init();
+</script>
+</body>
+</html>

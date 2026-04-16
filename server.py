@@ -35,8 +35,23 @@ import urllib.error
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, quote
 import socketserver
+
+# ── 선택적 내보내기 라이브러리 (없어도 서버 구동) ─────────────────────────────
+try:
+    from docx import Document
+    from docx.shared import Pt, RGBColor, Inches
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    _HAS_DOCX = True
+except ImportError:
+    _HAS_DOCX = False
+
+try:
+    from fpdf import FPDF
+    _HAS_FPDF = True
+except ImportError:
+    _HAS_FPDF = False
 
 # Windows cp949 콘솔 인코딩 오류 방지
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
@@ -469,6 +484,19 @@ class DartHandler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False, indent=2, default=str).encode("utf-8")
         self._send(code, body)
 
+    def _raw(self, buf: bytes, ct: str, filename: str):
+        """바이너리 파일 다운로드 응답"""
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", str(len(buf)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        safe = filename.encode("ascii", "ignore").decode()
+        enc  = quote(filename)
+        self.send_header("Content-Disposition",
+                         f"attachment; filename=\"{safe}\"; filename*=UTF-8''{enc}")
+        self.end_headers()
+        self.wfile.write(buf)
+
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -486,8 +514,18 @@ class DartHandler(BaseHTTPRequestHandler):
         path   = parsed.path
         qs     = parse_qs(parsed.query)
 
-        # ── SPA 페이지 라우트 (/leads /articles /comparisons) ─────────────
-        _spa = {"/leads": "leads.html", "/comparisons": "comparisons.html", "/articles": "articles.html"}
+        # ── SPA 페이지 라우트 (확장자 없는 경로 + 상세 페이지) ──────────────
+        _spa = {
+            "/leads":              "leads.html",
+            "/comparisons":        "comparisons.html",
+            "/articles":           "articles.html",
+            "/lead_detail":        "lead_detail.html",
+            "/article_detail":     "article_detail.html",
+            "/comparison_detail":  "comparison_detail.html",
+            "/supply_chain":       "supply_chain.html",
+            "/company_detail":     "company_detail.html",
+            "/alert_rules":        "alert_rules.html",
+        }
         if path in _spa:
             f = WEB_ROOT / _spa[path]
             if f.is_file():
@@ -759,11 +797,14 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": "로컬에서만 접근 가능"}, 403)
                 return
             gemini_key  = os.environ.get("GEMINI_API_KEY",    "")
+            gemini_key2 = os.environ.get("GEMINI_API_KEY_2",  "")
             claude_key  = os.environ.get("ANTHROPIC_API_KEY", "")
             self._json({
-                "has_gemini":  bool(gemini_key),
-                "has_claude":  bool(claude_key),
-                "gemini_hint":  (gemini_key[:8] + "…")  if gemini_key  else "",
+                "has_gemini":   bool(gemini_key),
+                "has_gemini2":  bool(gemini_key2),
+                "has_claude":   bool(claude_key),
+                "gemini_hint":  (gemini_key[:8]  + "…") if gemini_key  else "",
+                "gemini2_hint": (gemini_key2[:8] + "…") if gemini_key2 else "",
                 "claude_hint":  (claude_key[:10] + "…") if claude_key  else "",
             })
             return
@@ -813,8 +854,31 @@ class DartHandler(BaseHTTPRequestHandler):
                 """, [f'"{fts_q}"'] + params_extra).fetchone()
                 total = total_row[0] if total_row else 0
 
+                # 연관 비교분석·취재단서 수 추가 (기업코드 기준)
+                corp_codes = list({r["corp_code"] for r in rows if r["corp_code"]})
+                cmp_counts, lead_counts = {}, {}
+                if corp_codes:
+                    ph = ",".join("?" * len(corp_codes))
+                    for row in db.execute(
+                        f"SELECT corp_code, COUNT(*) FROM ai_comparisons WHERE corp_code IN ({ph}) AND status='ok' GROUP BY corp_code",
+                        corp_codes
+                    ).fetchall():
+                        cmp_counts[row[0]] = row[1]
+                    for row in db.execute(
+                        f"SELECT corp_code, COUNT(*) FROM story_leads WHERE corp_code IN ({ph}) AND status!='archived' GROUP BY corp_code",
+                        corp_codes
+                    ).fetchall():
+                        lead_counts[row[0]] = row[1]
+
+                results = []
+                for r in rows:
+                    d2 = dict(r)
+                    d2["cmp_count"]  = cmp_counts.get(r["corp_code"], 0)
+                    d2["lead_count"] = lead_counts.get(r["corp_code"], 0)
+                    results.append(d2)
+
                 self._json({
-                    "results": [dict(r) for r in rows],
+                    "results": results,
                     "total": total,
                     "query": q,
                     "offset": offset,
@@ -994,6 +1058,71 @@ class DartHandler(BaseHTTPRequestHandler):
                 else:
                     self._json({"article": dict(row)})
             except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/articles/{id}/export ─────────────────────────────────────
+        m_art_export = re.match(r"^/api/articles/(\d+)/export$", path)
+        if m_art_export:
+            art_id = int(m_art_export.group(1))
+            fmt    = qs.get("format", ["docx"])[0].lower()
+            try:
+                db  = get_db()
+                row = db.execute("SELECT * FROM article_drafts WHERE id=?", [art_id]).fetchone()
+                if not row:
+                    self._json({"error": f"article_id={art_id} 없음"}, 404)
+                    return
+                a = dict(row)
+                if fmt == "docx":
+                    buf = _export_docx(a)
+                    fname = _safe_fname(a.get("headline") or f"article_{art_id}") + ".docx"
+                    self._raw(buf, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fname)
+                elif fmt == "pdf":
+                    buf = _export_pdf(a)
+                    fname = _safe_fname(a.get("headline") or f"article_{art_id}") + ".pdf"
+                    self._raw(buf, "application/pdf", fname)
+                else:
+                    self._json({"error": "format must be docx or pdf"}, 400)
+            except Exception as e:
+                log.error("export error: %s", e, exc_info=True)
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/comparisons/{id}/export ─────────────────────────────────
+        m_cmp_export = re.match(r"^/api/comparisons/(\d+)/export$", path)
+        if m_cmp_export:
+            cmp_id = int(m_cmp_export.group(1))
+            fmt    = qs.get("format", ["docx"])[0].lower()
+            try:
+                db  = get_db()
+                row = db.execute("SELECT * FROM ai_comparisons WHERE id=?", [cmp_id]).fetchone()
+                if not row:
+                    self._json({"error": f"comparison_id={cmp_id} 없음"}, 404)
+                    return
+                c = dict(row)
+                # article dict 형식으로 변환
+                a = {
+                    "headline":    f"{c.get('corp_name','')} 비교분석",
+                    "subheadline": f"{c.get('report_type_a','')} → {c.get('report_type_b','')}",
+                    "corp_name":   c.get("corp_name", ""),
+                    "model":       c.get("model", ""),
+                    "created_at":  c.get("analyzed_at", ""),
+                    "content":     c.get("result", ""),
+                    "keywords":    "[]",
+                    "editor_note": None,
+                }
+                if fmt == "docx":
+                    buf = _export_docx(a)
+                    fname = _safe_fname(f"비교분석_{c.get('corp_name',cmp_id)}") + ".docx"
+                    self._raw(buf, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", fname)
+                elif fmt == "pdf":
+                    buf = _export_pdf(a)
+                    fname = _safe_fname(f"비교분석_{c.get('corp_name',cmp_id)}") + ".pdf"
+                    self._raw(buf, "application/pdf", fname)
+                else:
+                    self._json({"error": "format must be docx or pdf"}, 400)
+            except Exception as e:
+                log.error("comparison export error: %s", e, exc_info=True)
                 self._json({"error": str(e)}, 500)
             return
 
@@ -1179,6 +1308,45 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── /api/financials ───────────────────────────────────────────────
+        if path == "/api/financials":
+            try:
+                db = get_db()
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                fiscal_year = (qs.get("year",    [None])[0] or "").strip()
+                limit  = int(qs.get("limit",  [20])[0])
+                offset = int(qs.get("offset", [0])[0])
+
+                where, params = [], []
+                if corp_code:
+                    where.append("corp_code = ?"); params.append(corp_code)
+                if fiscal_year:
+                    where.append("fiscal_year = ?"); params.append(int(fiscal_year))
+
+                where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+                try:
+                    total = db.execute(
+                        f"SELECT COUNT(*) FROM financials {where_sql}", params
+                    ).fetchone()[0]
+                    rows = db.execute(
+                        f"SELECT id, corp_code, corp_name, stock_code, fiscal_year, report_type, "
+                        f"consolidated, revenue, operating_income, net_income, total_assets, "
+                        f"total_liabilities, total_equity, cash, debt_ratio, current_ratio, "
+                        f"roe, operating_margin, net_margin, fetched_at "
+                        f"FROM financials {where_sql} "
+                        f"ORDER BY fiscal_year DESC, corp_code LIMIT ? OFFSET ?",
+                        params + [limit, offset]
+                    ).fetchall()
+                    self._json({
+                        "financials": [dict(r) for r in rows],
+                        "total": total
+                    })
+                except sqlite3.OperationalError:
+                    self._json({"financials": [], "total": 0})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── /api/dart/supply_chain ────────────────────────────────────────
         if path == "/api/dart/supply_chain":
             try:
@@ -1356,6 +1524,22 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── POST /api/comparisons/{id}/exclude ───────────────────────────────
+        m_comp_excl = re.match(r"^/api/comparisons/(\d+)/exclude$", path)
+        if m_comp_excl:
+            comp_id = int(m_comp_excl.group(1))
+            try:
+                db = get_db()
+                db.execute(
+                    "UPDATE ai_comparisons SET status='excluded' WHERE id=?",
+                    [comp_id]
+                )
+                db.commit()
+                self._json({"ok": True, "comparison_id": comp_id, "status": "excluded"})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── POST /api/leads/{id}/draft ─────────────────────────────────────
         m_draft = re.match(r"^/api/leads/(\d+)/draft$", path)
         if m_draft:
@@ -1431,12 +1615,29 @@ class DartHandler(BaseHTTPRequestHandler):
                 content_length = int(self.headers.get("Content-Length", 0))
                 body = self.rfile.read(content_length)
                 data = json.loads(body.decode("utf-8"))
-                new_status = data.get("status", "").strip()
+                new_status    = data.get("status",     "").strip()
+                new_content   = data.get("content",    None)   # 본문 자동저장용
+                new_headline  = data.get("headline",   None)
+                new_subhead   = data.get("subheadline",None)
+                db = get_db()
+                if new_content is not None or new_headline is not None or new_subhead is not None:
+                    # 본문/제목 업데이트 (자동저장)
+                    sets, vals = [], []
+                    if new_content  is not None: sets.append("content=?");    vals.append(new_content)
+                    if new_headline is not None: sets.append("headline=?");   vals.append(new_headline)
+                    if new_subhead  is not None: sets.append("subheadline=?");vals.append(new_subhead)
+                    sets.append("updated_at=datetime('now','localtime')")
+                    db.execute(
+                        f"UPDATE article_drafts SET {', '.join(sets)} WHERE id=?",
+                        vals + [art_id]
+                    )
+                    db.commit()
+                    self._json({"ok": True, "article_id": art_id, "saved": True})
+                    return
                 valid = {"draft", "editing", "ready", "published", "rejected"}
                 if new_status not in valid:
                     self._json({"error": f"유효한 status: {valid}"}, 400)
                     return
-                db = get_db()
                 db.execute(
                     "UPDATE article_drafts SET status=?, updated_at=datetime('now','localtime') WHERE id=?",
                     [new_status, art_id]
@@ -1461,8 +1662,12 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": "요청 파싱 오류"}, 400)
                 return
 
-            gemini_key   = data.get("gemini_key",   "").strip()
-            anthropic_key = data.get("anthropic_key","").strip()
+            gemini_key    = data.get("gemini_key",    None)
+            gemini_key2   = data.get("gemini_key2",   None)
+            anthropic_key = data.get("anthropic_key", None)
+            if gemini_key    is not None: gemini_key    = gemini_key.strip()
+            if gemini_key2   is not None: gemini_key2   = gemini_key2.strip()
+            if anthropic_key is not None: anthropic_key = anthropic_key.strip()
             updated = []
 
             def _update_env_key(file_key: str, new_val: str, env_key: str):
@@ -1494,6 +1699,11 @@ class DartHandler(BaseHTTPRequestHandler):
                 updated.append("gemini")
                 log.info(f"GEMINI_API_KEY {'설정됨' if gemini_key else '삭제됨'}")
 
+            if gemini_key2 is not None:
+                _update_env_key("GEMINI_API_KEY_2", gemini_key2, "GEMINI_API_KEY_2")
+                updated.append("gemini2")
+                log.info(f"GEMINI_API_KEY_2 {'설정됨' if gemini_key2 else '삭제됨'}")
+
             if anthropic_key is not None:
                 _update_env_key("ANTHROPIC_API_KEY", anthropic_key, "ANTHROPIC_API_KEY")
                 updated.append("anthropic")
@@ -1502,9 +1712,53 @@ class DartHandler(BaseHTTPRequestHandler):
             self._json({
                 "ok": True,
                 "updated": updated,
-                "has_gemini": bool(os.environ.get("GEMINI_API_KEY")),
-                "has_claude": bool(os.environ.get("ANTHROPIC_API_KEY")),
+                "has_gemini":  bool(os.environ.get("GEMINI_API_KEY")),
+                "has_gemini2": bool(os.environ.get("GEMINI_API_KEY_2")),
+                "has_claude":  bool(os.environ.get("ANTHROPIC_API_KEY")),
             })
+            return
+
+        self._json({"error": "Not found"}, 404)
+
+    # ── PATCH 요청 처리 ────────────────────────────────────────────────────
+    def do_PATCH(self):
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # ── PATCH /api/alert_rules/:id ───────────────────────────────────
+        m = re.match(r"^/api/alert_rules/(\d+)$", path)
+        if m:
+            rule_id = int(m.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length)
+                data = json.loads(body.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                self._json({"error": "요청 파싱 오류"}, 400)
+                return
+            try:
+                db = get_db()
+                allowed = {"is_active", "title_tmpl", "description", "severity",
+                           "keywords", "exclude_kw", "min_evidence_len"}
+                sets, vals = [], []
+                for k, v in data.items():
+                    if k in allowed:
+                        sets.append(f"{k}=?")
+                        vals.append(v)
+                if not sets:
+                    self._json({"error": "변경할 필드 없음"}, 400)
+                    return
+                vals.append(rule_id)
+                db.execute(
+                    f"UPDATE alert_rules SET {', '.join(sets)} WHERE id=?", vals
+                )
+                db.commit()
+                row = db.execute(
+                    "SELECT * FROM alert_rules WHERE id=?", (rule_id,)
+                ).fetchone()
+                self._json({"ok": True, "rule": dict(row) if row else None})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
             return
 
         self._json({"error": "Not found"}, 404)
@@ -1513,6 +1767,178 @@ class DartHandler(BaseHTTPRequestHandler):
 # ── 서버 실행 ──────────────────────────────────────────────────────────────
 class ThreadingServer(socketserver.ThreadingMixIn, HTTPServer):
     daemon_threads = True
+
+
+# ── 기사 내보내기 헬퍼 ──────────────────────────────────────────────────────────
+
+def _safe_fname(s: str) -> str:
+    """파일명 안전 처리 (특수문자 제거, 최대 60자)"""
+    s = re.sub(r'[\\/:*?"<>|]', '_', s)
+    s = s.strip().replace(' ', '_')
+    return s[:60] or "article"
+
+
+def _build_meta_parts(a: dict) -> list:
+    """기사 dict에서 메타 정보 문자열 목록 반환 (docx/pdf 공통)"""
+    parts = []
+    if a.get("corp_name"):  parts.append(f"기업: {a['corp_name']}")
+    if a.get("model"):      parts.append(f"AI: {a['model']}")
+    if a.get("created_at"): parts.append(f"작성: {str(a['created_at'])[:16]}")
+    return parts
+
+
+# PDF용 한글 폰트 경로를 프로세스 시작 시 한 번만 탐색
+_PDF_FONT_PATH: str | None = None
+for _fp in [
+    r"C:\Windows\Fonts\malgun.ttf",
+    r"C:\Windows\Fonts\NanumGothic.ttf",
+    r"C:\Windows\Fonts\gulim.ttc",
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    "/System/Library/Fonts/AppleGothic.ttf",
+]:
+    if os.path.exists(_fp):
+        _PDF_FONT_PATH = _fp
+        break
+
+
+def _export_docx(a: dict) -> bytes:
+    """article dict → .docx bytes"""
+    if not _HAS_DOCX:
+        raise RuntimeError("python-docx 미설치. pip install python-docx")
+
+    doc = Document()
+    style = doc.styles['Normal']
+    style.font.name = '맑은 고딕'
+    style.font.size = Pt(11)
+
+    # 제목
+    headline = a.get("headline") or "제목 없음"
+    h = doc.add_heading(headline, level=1)
+    h.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for run in h.runs:
+        run.font.color.rgb = RGBColor(0xC0, 0x39, 0x2B)
+        run.font.size = Pt(20)
+
+    # 부제목
+    if a.get("subheadline"):
+        sub = doc.add_paragraph(a["subheadline"])
+        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in sub.runs:
+            run.font.color.rgb = RGBColor(0x55, 0x55, 0x55)
+            run.font.size = Pt(13)
+            run.italic = True
+
+    meta_parts = _build_meta_parts(a)
+    if meta_parts:
+        m = doc.add_paragraph("  ·  ".join(meta_parts))
+        m.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for run in m.runs:
+            run.font.size = Pt(9)
+            run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    doc.add_paragraph()  # 빈 줄
+
+    # 본문 (단락 분리)
+    content = a.get("content") or ""
+    for para_text in content.split("\n"):
+        if para_text.strip():
+            p = doc.add_paragraph(para_text)
+            p.paragraph_format.space_after = Pt(6)
+        else:
+            doc.add_paragraph()
+
+    # 편집 메모
+    if a.get("editor_note"):
+        doc.add_paragraph()
+        note_para = doc.add_paragraph()
+        note_para.add_run("📋 편집 메모: ").bold = True
+        note_para.add_run(a["editor_note"])
+        note_para.paragraph_format.left_indent = Inches(0.5)
+
+    # 키워드
+    try:
+        kw = json.loads(a.get("keywords") or "[]")
+    except Exception:
+        kw = []
+    if kw:
+        doc.add_paragraph()
+        kp = doc.add_paragraph()
+        kp.add_run("키워드: ").bold = True
+        kp.add_run(", ".join(kw))
+        for run in kp.runs[1:]:
+            run.font.color.rgb = RGBColor(0x5B, 0x6A, 0xF0)
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _export_pdf(a: dict) -> bytes:
+    """article dict → .pdf bytes (fpdf2 사용, 한글 폰트 자동 탐색)"""
+    if not _HAS_FPDF:
+        raise RuntimeError("fpdf2 미설치. pip install fpdf2")
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+
+    if _PDF_FONT_PATH:
+        pdf.add_font("KorFont", fname=_PDF_FONT_PATH)
+        pdf.add_font("KorFont", style="B", fname=_PDF_FONT_PATH)
+        base_font = "KorFont"
+    else:
+        base_font = "Arial"  # 한글 깨짐 가능 — 시스템에 한글 폰트 없음
+
+    # 제목
+    pdf.set_font(base_font, style="B", size=18)
+    pdf.set_text_color(192, 57, 43)
+    headline = a.get("headline") or "제목 없음"
+    pdf.multi_cell(0, 10, headline, align="C")
+    pdf.ln(3)
+
+    # 부제목
+    if a.get("subheadline"):
+        pdf.set_font(base_font, size=12)
+        pdf.set_text_color(85, 85, 85)
+        pdf.multi_cell(0, 7, a["subheadline"], align="C")
+        pdf.ln(3)
+
+    meta_parts = _build_meta_parts(a)
+    if meta_parts:
+        pdf.set_font(base_font, size=9)
+        pdf.set_text_color(136, 136, 136)
+        pdf.multi_cell(0, 6, "  ·  ".join(meta_parts), align="C")
+
+    # 구분선
+    pdf.ln(4)
+    pdf.set_draw_color(200, 200, 200)
+    pdf.set_line_width(0.5)
+    pdf.line(pdf.get_x() + 10, pdf.get_y(), pdf.get_x() + 180, pdf.get_y())
+    pdf.ln(6)
+
+    # 본문
+    pdf.set_font(base_font, size=11)
+    pdf.set_text_color(30, 30, 30)
+    content = a.get("content") or ""
+    for para_text in content.split("\n"):
+        if para_text.strip():
+            pdf.multi_cell(0, 7, para_text)
+            pdf.ln(2)
+        else:
+            pdf.ln(4)
+
+    # 키워드
+    try:
+        kw = json.loads(a.get("keywords") or "[]")
+    except Exception:
+        kw = []
+    if kw:
+        pdf.ln(6)
+        pdf.set_font(base_font, style="B", size=9)
+        pdf.set_text_color(91, 106, 240)
+        pdf.multi_cell(0, 6, "키워드: " + ", ".join(kw))
+
+    return bytes(pdf.output())
 
 
 def main():
