@@ -254,14 +254,16 @@
 </div>
 
 <script>
-const API = window.location.origin;
+// API는 common.js에서 이미 선언됨 — 재선언 금지
 
-// 안전한 escHtml (common.js 의존 제거)
-function escHtml(s) {
+// 로컬 escHtml (common.js 우선)
+if (typeof escHtml !== 'function') {
+window.escHtml = function(s) {
   if (s === null || s === undefined) return '';
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+};
 }
 
 const NOV_LABEL = {
