@@ -1,0 +1,324 @@
+# ══════════════════════════════════════════════════════════════════
+# 외부 미디어 신뢰도 화이트리스트
+# ══════════════════════════════════════════════════════════════════
+# 사용처: scripts/cite_verify.py 가 외부 매체 인용 후보를 평가할 때
+#
+# Tier 정의:
+#   T1  — 최상위 신뢰. 본문 STEP 5(시사점)에 직접 인용 가능
+#   T2  — 전문지·통신사. 시사점 보강용 인용 가능
+#   T3  — 단순 보조. 사실 대조 필요 (수치는 1차 자료 우선)
+#   BLOCKED — 인용 금지 (PR/광고/익명/저작권 위반 의심)
+#
+# 형식:
+#   - domain: example.com
+#     name: 매체명
+#     tier: T1 / T2 / T3 / BLOCKED
+#     category: economic / general / industry / specialized
+#     note: 비고
+# ══════════════════════════════════════════════════════════════════
+
+media:
+
+  # ── T1: 종합일간지 (경제면 권위) ────────────────────────────────────
+  - domain: chosun.com
+    name: 조선일보
+    tier: T1
+    category: general
+    weight: 0.95
+  - domain: joongang.co.kr
+    name: 중앙일보
+    tier: T1
+    category: general
+    weight: 0.95
+  - domain: donga.com
+    name: 동아일보
+    tier: T1
+    category: general
+    weight: 0.95
+  - domain: hani.co.kr
+    name: 한겨레
+    tier: T1
+    category: general
+    weight: 0.9
+  - domain: khan.co.kr
+    name: 경향신문
+    tier: T1
+    category: general
+    weight: 0.9
+
+  # ── T1: 경제 전문지 ───────────────────────────────────────────────
+  - domain: mk.co.kr
+    name: 매일경제
+    tier: T1
+    category: economic
+    weight: 1.0
+    note: 증권·재벌
+  - domain: hankyung.com
+    name: 한국경제
+    tier: T1
+    category: economic
+    weight: 1.0
+    note: 산업·시장
+  - domain: sedaily.com
+    name: 서울경제
+    tier: T1
+    category: economic
+    weight: 0.9
+  - domain: fnnews.com
+    name: 파이낸셜뉴스
+    tier: T1
+    category: economic
+    weight: 0.9
+  - domain: edaily.co.kr
+    name: 이데일리
+    tier: T1
+    category: economic
+    weight: 0.9
+    note: 증권 전문
+
+  # ── T1: 통신사 ─────────────────────────────────────────────────────
+  - domain: yna.co.kr
+    name: 연합뉴스
+    tier: T1
+    category: general
+    weight: 1.0
+    note: 통신사 — 한국 표준
+  - domain: news1.kr
+    name: 뉴스1
+    tier: T1
+    category: general
+    weight: 0.95
+  - domain: newsis.com
+    name: 뉴시스
+    tier: T1
+    category: general
+    weight: 0.95
+  - domain: yonhapnewstv.co.kr
+    name: 연합뉴스TV
+    tier: T1
+    category: general
+    weight: 0.9
+
+  # ── T2: 전문 산업지 ──────────────────────────────────────────────
+  - domain: mt.co.kr
+    name: 머니투데이
+    tier: T2
+    category: economic
+    weight: 0.85
+  - domain: thebell.co.kr
+    name: 더벨
+    tier: T2
+    category: industry
+    weight: 0.9
+    note: M&A·금융 전문
+  - domain: businesspost.co.kr
+    name: 비즈니스포스트
+    tier: T2
+    category: economic
+    weight: 0.75
+  - domain: digitaltimes.co.kr
+    name: 디지털타임스
+    tier: T2
+    category: it
+    weight: 0.85
+    note: IT·통신 전문
+  - domain: etnews.com
+    name: 전자신문
+    tier: T2
+    category: it
+    weight: 0.9
+    note: IT·전자 전문
+  - domain: chosunbiz.com
+    name: 조선비즈
+    tier: T2
+    category: economic
+    weight: 0.85
+  - domain: pulse.mk.co.kr
+    name: PULSE (매경 영문)
+    tier: T2
+    category: economic
+    weight: 0.8
+  - domain: bizwatch.co.kr
+    name: 비즈워치
+    tier: T2
+    category: economic
+    weight: 0.75
+  - domain: dt.co.kr
+    name: 디지털타임스
+    tier: T2
+    category: it
+    weight: 0.85
+  - domain: zdnet.co.kr
+    name: ZDNet Korea
+    tier: T2
+    category: it
+    weight: 0.8
+  - domain: it.chosun.com
+    name: IT조선
+    tier: T2
+    category: it
+    weight: 0.8
+  - domain: kdaily.com
+    name: 화학저널
+    tier: T2
+    category: industry
+    weight: 0.75
+    note: 화학·소재
+  - domain: enewstoday.co.kr
+    name: 이뉴스투데이
+    tier: T2
+    category: economic
+    weight: 0.7
+  - domain: paxnetnews.com
+    name: 팍스넷뉴스
+    tier: T2
+    category: industry
+    weight: 0.8
+    note: 증권·금융
+
+  # ── T2: 방송 ────────────────────────────────────────────────────
+  - domain: kbs.co.kr
+    name: KBS
+    tier: T2
+    category: general
+  - domain: imbc.com
+    name: MBC
+    tier: T2
+    category: general
+  - domain: sbs.co.kr
+    name: SBS
+    tier: T2
+    category: general
+  - domain: jtbc.co.kr
+    name: JTBC
+    tier: T2
+    category: general
+  - domain: ytn.co.kr
+    name: YTN
+    tier: T2
+    category: general
+  - domain: mbn.co.kr
+    name: MBN
+    tier: T2
+    category: general
+
+  # ── T1: 글로벌 통신사·미디어 (영문) ────────────────────────────
+  - domain: reuters.com
+    name: Reuters
+    tier: T1
+    category: economic
+    weight: 1.0
+    note: 통신사 - 가장 신뢰
+  - domain: bloomberg.com
+    name: Bloomberg
+    tier: T1
+    category: economic
+    weight: 1.0
+    note: 금융·시장 데이터
+  - domain: ft.com
+    name: Financial Times
+    tier: T1
+    category: economic
+    weight: 1.0
+  - domain: wsj.com
+    name: Wall Street Journal
+    tier: T1
+    category: economic
+    weight: 1.0
+    note: 미국 산업·기업
+  - domain: nikkei.com
+    name: Nikkei
+    tier: T1
+    category: economic
+    weight: 0.95
+    note: 일본·아시아 산업
+  - domain: apnews.com
+    name: Associated Press
+    tier: T1
+    category: general
+    weight: 1.0
+    note: 통신사
+  - domain: cnbc.com
+    name: CNBC
+    tier: T1
+    category: economic
+    weight: 0.9
+  - domain: economist.com
+    name: The Economist
+    tier: T1
+    category: economic
+    weight: 0.95
+  - domain: marketwatch.com
+    name: MarketWatch
+    tier: T2
+    category: economic
+    weight: 0.8
+  - domain: forbes.com
+    name: Forbes
+    tier: T2
+    category: economic
+    weight: 0.75
+  - domain: barrons.com
+    name: Barron's
+    tier: T1
+    category: economic
+    weight: 0.9
+
+  # ── T3: 보조 (수치는 1차 자료 우선) ──────────────────────────────
+  - domain: dailian.co.kr
+    name: 데일리안
+    tier: T3
+    category: economic
+  - domain: ajunews.com
+    name: 아주경제
+    tier: T3
+    category: economic
+  - domain: news.naver.com
+    name: 네이버뉴스 (포털)
+    tier: T3
+    category: aggregator
+    note: 매체 식별 후 원 매체 tier 적용
+  - domain: news.daum.net
+    name: 다음뉴스 (포털)
+    tier: T3
+    category: aggregator
+
+  # ── BLOCKED: 인용 금지 ────────────────────────────────────────────
+  - domain: wikipedia.org
+    tier: BLOCKED
+    note: 위키 — 1차 자료 아님
+  - domain: namu.wiki
+    tier: BLOCKED
+    note: 나무위키 — 사용자 편집 위키
+  - domain: blog.naver.com
+    tier: BLOCKED
+    note: 개인 블로그
+  - domain: tistory.com
+    tier: BLOCKED
+    note: 개인 블로그
+  - domain: cafe.naver.com
+    tier: BLOCKED
+    note: 카페
+  - domain: cafe.daum.net
+    tier: BLOCKED
+    note: 카페
+  - domain: youtube.com
+    tier: BLOCKED
+    note: 영상 — 인용 시 별도 검증 필요
+
+# ══════════════════════════════════════════════════════════════════
+# 인용 형식 가이드
+# ══════════════════════════════════════════════════════════════════
+# T1 인용 예: "(매일경제 2025-04-15 보도, 본지 자체 검증)"
+# T2 인용 예: "(전자신문 2025-04-10 — IT 전문지 보도)"
+# T3 인용 예: "참고: 데일리안 보도(2025-04-12)"
+# BLOCKED  : 절대 인용 금지
+
+# ══════════════════════════════════════════════════════════════════
+# 자동 룰
+# ══════════════════════════════════════════════════════════════════
+# 1. T1 매체 보도와 DART/financials 사실이 일치 → 인용 PASS
+# 2. T2 매체 보도와 DART 사실이 일치 → 인용 PASS (단 [관련 보도] 박스로)
+# 3. 보도와 1차 자료 불일치 → 인용 BLOCKED
+# 4. 매체 식별 불가 → 인용 BLOCKED
+# 5. 어떤 경우든 STEP 1~4 핵심 사실에는 외부 인용 금지 (STEP 5만)

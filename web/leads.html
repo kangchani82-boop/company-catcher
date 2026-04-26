@@ -12,7 +12,7 @@
     .sev-badge-3 { background: rgba(241,196,15,.25); color: #f1c40f; border: 1px solid rgba(241,196,15,.5); font-weight:700; }
     .sev-badge-2 { background: rgba(52,152,219,.25); color: #3498db; border: 1px solid rgba(52,152,219,.5); font-weight:700; }
     .sev-badge-1 { background: rgba(160,160,160,.2); color: #aaa;    border: 1px solid rgba(160,160,160,.4); font-weight:700; }
-    .lead-grid { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    .lead-grid { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
     .evidence-line { font-size: 11px; color: var(--txt2); border-left: 2px solid var(--border); padding-left: 8px; margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .modal-section { margin-bottom: 14px; }
     .modal-section-title { font-size: 11px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
@@ -28,6 +28,70 @@
     .detail-meta strong { color: var(--txt1); }
     .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; font-size: 12px; color: var(--txt2); }
     .filter-row label { display: flex; align-items: center; gap: 4px; }
+
+    /* ── 뉴스화 특화 카드 레이아웃 ── */
+    .lead-card-v2 {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden; transition: all .15s; cursor: pointer;
+    }
+    .lead-card-v2:hover { border-color: var(--acc); box-shadow: 0 4px 16px rgba(91,106,240,.15); }
+    .lead-card-v2.sev5 { border-left: 4px solid #e74c3c; }
+    .lead-card-v2.sev4 { border-left: 4px solid #e67e22; }
+    .lead-card-v2.sev3 { border-left: 4px solid #f1c40f; }
+    .lead-card-v2.sev2 { border-left: 4px solid #3498db; }
+    .lead-card-v2.sev1 { border-left: 4px solid #666; }
+
+    .lc-top { display: flex; gap: 10px; padding: 14px 16px 10px; }
+    .lc-main { flex: 1; min-width: 0; }
+    .lc-action { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; width: 140px; }
+
+    .lc-badges { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 7px; align-items: center; }
+    .lc-title { font-size: 15px; font-weight: 700; color: var(--txt1); line-height: 1.4; margin-bottom: 5px; }
+    .lc-corp { font-size: 12px; color: var(--acc); font-weight: 600; }
+    .lc-summary {
+      font-size: 12px; color: var(--txt2); line-height: 1.6; margin-top: 5px;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+
+    /* 뉴스 보도 여부 배지 */
+    .news-cover-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      border-radius: 6px; padding: 3px 8px; font-size: 11px; font-weight: 700;
+      border: 1px solid; white-space: nowrap;
+    }
+    .news-cover-exclusive { background: rgba(231,76,60,.15); color: #e74c3c; border-color: rgba(231,76,60,.4); }
+    .news-cover-partial   { background: rgba(241,196,15,.15); color: #d4ac0d; border-color: rgba(241,196,15,.4); }
+    .news-cover-covered   { background: rgba(160,160,160,.15); color: #aaa;    border-color: rgba(160,160,160,.3); }
+    .news-cover-unknown   { background: rgba(91,106,240,.1);   color: #7a8af0; border-color: rgba(91,106,240,.3); }
+
+    /* 기사화 CTA 버튼 */
+    .btn-draft-cta {
+      width: 100%; background: linear-gradient(135deg, #5b6af0, #7b8af8);
+      color: #fff; border: none; border-radius: 8px;
+      padding: 9px 12px; font-size: 12px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 5px;
+      transition: all .15s; box-shadow: 0 2px 8px rgba(91,106,240,.3);
+    }
+    .btn-draft-cta:hover { background: linear-gradient(135deg, #4a5ae0, #6a7ae8); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(91,106,240,.4); }
+    .btn-detail-cta {
+      width: 100%; background: var(--bg3); color: var(--txt1);
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 7px 12px; font-size: 11px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 4px;
+      transition: all .15s; text-decoration: none;
+    }
+    .btn-detail-cta:hover { border-color: var(--acc); color: var(--acc); }
+
+    .lc-bottom {
+      padding: 8px 16px 10px; border-top: 1px solid var(--border);
+      display: flex; align-items: center; gap: 8px; background: var(--bg3);
+    }
+    .lc-evidence { flex: 1; font-size: 11px; color: var(--txt2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .lc-meta { font-size: 10px; color: var(--txt2); white-space: nowrap; flex-shrink: 0; }
+    .btn-exclude-sm {
+      background: none; border: none; color: var(--txt2); cursor: pointer; font-size: 11px; padding: 2px 4px; flex-shrink: 0;
+    }
+    .btn-exclude-sm:hover { color: #e74c3c; }
   </style>
 </head>
 <body>
@@ -247,27 +311,65 @@
     return `<span class="badge sev-badge-${sev}">${icon} ${sev}</span>`;
   }
 
+  function newsCoverageBadge(status) {
+    const map = {
+      exclusive: ['🔴 독점', 'news-cover-exclusive'],
+      partial:   ['🟡 일부보도', 'news-cover-partial'],
+      covered:   ['🟢 기보도', 'news-cover-covered'],
+    };
+    const [label, cls] = map[status] || ['🔵 보도확인 필요', 'news-cover-unknown'];
+    return `<span class="news-cover-badge ${cls}">${label}</span>`;
+  }
+
   function renderLeadCard(lead) {
     const typeLabel = LEAD_TYPE_KO_LOCAL[lead.lead_type] || lead.lead_type || '';
-    const summary   = (lead.summary || '').substring(0, 120);
-    const evidence  = (lead.evidence || '').substring(0, 80);
+    const summary   = (lead.summary || '').substring(0, 160);
+    const evidence  = (lead.evidence || '').substring(0, 100);
+    const hasDraft  = lead.draft_count > 0;
+    const draftLabel = hasDraft ? `📄 초안 ${lead.draft_count}건` : '✍ 기사 초안 생성';
+
     return `
-      <div class="card" id="lead-card-${lead.id}" onclick="location.href='/lead_detail.html?id=${lead.id}'" style="cursor:pointer;">
-        <div class="card-header">
-          ${sevBadge(lead.severity)}
-          <span class="type-badge">${escHtml(typeLabel)}</span>
-          <a class="corp-badge" href="/company_detail.html?corp_code=${encodeURIComponent(lead.corp_code||'')}&corp_name=${encodeURIComponent(lead.corp_name||'')}"
-             onclick="event.stopPropagation()" style="text-decoration:none">${escHtml(lead.corp_name || '')}</a>
-          ${leadStatusBadge(lead.status || 'new')}
-          <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
-            <span style="font-size:11px;color:var(--txt2);">${fmtDate(lead.created_at)}</span>
-            <button class="btn-exclude" onclick="event.stopPropagation(); excludeLead(${lead.id}, this)"
-              title="기사 가치 없음 — 목록에서 제외">🚫 제외</button>
-          </span>
+      <div class="lead-card-v2 sev${lead.severity}" id="lead-card-${lead.id}">
+        <div class="lc-top">
+          <!-- 좌: 핵심 정보 -->
+          <div class="lc-main" onclick="location.href='/lead_detail.html?id=${lead.id}'">
+            <div class="lc-badges">
+              ${sevBadge(lead.severity)}
+              <span class="type-badge">${escHtml(typeLabel)}</span>
+              ${leadStatusBadge(lead.status || 'new')}
+              ${newsCoverageBadge(lead.news_status)}
+            </div>
+            <div class="lc-title">${escHtml(lead.title || '(제목 없음)')}</div>
+            <div class="lc-corp">
+              <a href="/company_detail.html?corp_code=${encodeURIComponent(lead.corp_code||'')}&corp_name=${encodeURIComponent(lead.corp_name||'')}"
+                 onclick="event.stopPropagation()" style="text-decoration:none;color:var(--acc)">🏢 ${escHtml(lead.corp_name || '')}</a>
+            </div>
+            ${summary ? `<div class="lc-summary">${escHtml(summary)}</div>` : ''}
+          </div>
+
+          <!-- 우: 뉴스화 액션 -->
+          <div class="lc-action">
+            <button class="btn-draft-cta"
+              onclick="event.stopPropagation(); generateDraftFromLead(${lead.id}, '${escHtml((lead.corp_name||'').replace(/'/g,"\\'"))}', this)">
+              ${hasDraft ? '📄 초안 보기' : '✍ 기사 초안 생성'}
+            </button>
+            <a class="btn-detail-cta" href="/lead_detail.html?id=${lead.id}" onclick="event.stopPropagation()">
+              ↗ 상세 분석
+            </a>
+            ${lead.comparison_id ? `
+            <a class="btn-detail-cta" href="/comparison_detail.html?id=${lead.comparison_id}" onclick="event.stopPropagation()" style="font-size:10px;color:var(--txt2)">
+              📊 비교분석
+            </a>` : ''}
+          </div>
         </div>
-        <div class="card-title">${escHtml(lead.title || '')}</div>
-        ${summary ? `<div class="card-preview" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escHtml(summary)}</div>` : ''}
-        ${evidence ? `<div class="evidence-line">${escHtml(evidence)}</div>` : ''}
+
+        <!-- 하단 바: 근거 + 메타 -->
+        <div class="lc-bottom">
+          ${evidence ? `<div class="lc-evidence">📌 ${escHtml(evidence)}</div>` : '<div class="lc-evidence"></div>'}
+          <div class="lc-meta">${fmtDate(lead.created_at)}</div>
+          <button class="btn-exclude-sm" onclick="event.stopPropagation(); excludeLead(${lead.id}, this)"
+            title="목록에서 제외">🚫</button>
+        </div>
       </div>`;
   }
 
@@ -355,24 +457,45 @@
 
       ${draftsHtml}
 
-      <div class="modal-actions">
-        <button class="btn-primary" id="draft-btn"
-          onclick="generateDraftFromLead(${lead.id}, '${escHtml(lead.corp_name||'')}', this)">
-          ✍ 기사 초안 생성
-        </button>
-        <button class="btn-secondary"
-          onclick="location.href='/lead_detail.html?id=${lead.id}'">
-          ↗ 상세 페이지
-        </button>
-        ${lead.comparison_id ? `
-          <button class="btn-secondary"
-            onclick="location.href='/comparison_detail.html?id=${lead.comparison_id}'">
-            📊 비교분석 보기
-          </button>` : ''}
-        <div style="display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;">
-          ${newsSearchLinks(lead.corp_name || '', lead.title || '')}
+      <!-- 뉴스화 CTA -->
+      <div style="background:rgba(91,106,240,.07);border:1px solid rgba(91,106,240,.25);
+                  border-radius:10px;padding:14px 16px;margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:var(--txt2);margin-bottom:10px;
+                    text-transform:uppercase;letter-spacing:.4px">🗞️ 뉴스화</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn-primary" style="flex:1;min-width:130px" id="draft-btn"
+            onclick="generateDraftFromLead(${lead.id}, '${escHtml(lead.corp_name||'')}', this)">
+            ✍ 기사 초안 생성
+          </button>
+          <button class="btn-secondary" style="flex:1;min-width:120px"
+            onclick="location.href='/lead_detail.html?id=${lead.id}'">
+            ↗ 상세 페이지
+          </button>
+        </div>
+        <!-- 뉴스 보도 여부 확인 -->
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding-top:10px;border-top:1px solid rgba(91,106,240,.2)">
+          <span id="modal-news-badge-${lead.id}" style="font-size:12px">
+            ${newsCoverBadgeHtml(lead.news_status)}
+          </span>
+          <button onclick="checkNewsFromModal(${lead.id}, this)"
+            style="background:var(--bg3);border:1px solid var(--border);border-radius:6px;
+                   padding:4px 10px;font-size:11px;color:var(--txt2);cursor:pointer;transition:all .15s"
+            onmouseover="this.style.borderColor='var(--acc)'" onmouseout="this.style.borderColor='var(--border)'">
+            🔍 보도 여부 확인
+          </button>
+          <div style="margin-left:auto;display:flex;gap:5px">
+            ${newsSearchLinks(lead.corp_name || '', lead.title || '')}
+          </div>
         </div>
       </div>
+
+      ${lead.comparison_id ? `
+        <div style="margin-bottom:10px">
+          <button class="btn-secondary" style="width:100%"
+            onclick="location.href='/comparison_detail.html?id=${lead.comparison_id}'">
+            📊 비교분석 보기
+          </button>
+        </div>` : ''}
 
       <div style="margin-top:14px;border-top:1px solid var(--border);padding-top:12px;">
         <div class="modal-section-title">상태 변경</div>
@@ -397,6 +520,61 @@
           </a>
         </div>` : ''}
       `;
+  }
+
+  // ── 뉴스 보도 여부 배지 HTML ─────────────────────────────────────────────
+  function newsCoverBadgeHtml(status) {
+    const map = {
+      exclusive: ['🔴 독점 (미보도)', 'news-cover-exclusive'],
+      partial:   ['🟡 일부보도',      'news-cover-partial'],
+      covered:   ['🟢 기보도',        'news-cover-covered'],
+    };
+    const [label, cls] = map[status] || ['🔵 보도확인 전', 'news-cover-unknown'];
+    return `<span class="news-cover-badge ${cls}">${label}</span>`;
+  }
+
+  // ── 모달에서 뉴스 보도 여부 확인 ─────────────────────────────────────────
+  async function checkNewsFromModal(leadId, btn) {
+    const orig = btn.textContent;
+    btn.textContent = '⏳ 확인 중...';
+    btn.disabled = true;
+    try {
+      const resp = await fetch(`${API}/api/leads/${leadId}/check-news`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+      });
+      const d = await resp.json();
+      if (!resp.ok) throw new Error(d.error || '오류');
+      // 배지 업데이트 (모달 내)
+      const badgeEl = document.getElementById(`modal-news-badge-${leadId}`);
+      if (badgeEl) badgeEl.innerHTML = newsCoverBadgeHtml(d.news_status);
+      // 카드 배지 업데이트
+      const cardBadge = document.querySelector(`#lead-card-${leadId} .news-cover-badge`);
+      if (cardBadge) {
+        const map = {
+          exclusive: ['🔴 독점', 'news-cover-exclusive'],
+          partial:   ['🟡 일부보도', 'news-cover-partial'],
+          covered:   ['🟢 기보도', 'news-cover-covered'],
+        };
+        const [label, cls] = map[d.news_status] || ['🔵 미확인', 'news-cover-unknown'];
+        cardBadge.textContent = label;
+        cardBadge.className = `news-cover-badge ${cls}`;
+      }
+      // 관련 URL 표시
+      const urls = d.news_urls || [];
+      if (urls.length > 0) {
+        btn.insertAdjacentHTML('afterend',
+          `<div style="margin-top:6px;font-size:10px;color:var(--txt2)">
+            ${urls.slice(0,3).map(u => `<a href="${escHtml(u)}" target="_blank" style="color:var(--acc);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(u)}</a>`).join('')}
+          </div>`
+        );
+      }
+    } catch(e) {
+      alert('뉴스 확인 오류: ' + e.message);
+    } finally {
+      btn.textContent = orig;
+      btn.disabled = false;
+    }
   }
 
   async function updateLeadStatus(leadId, status) {

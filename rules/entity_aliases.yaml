@@ -1,0 +1,240 @@
+# ══════════════════════════════════════════════════════════════════
+# Company Catcher — 기업 엔티티 표준화 별칭 사전
+# ══════════════════════════════════════════════════════════════════
+# 형식:
+#   canonical: 표준명 (partner_mapping에서 사용할 이름)
+#   aliases:   인식할 표기 변형 목록
+#   corp_code: DART corp_code (있으면 자동 매핑)
+#   is_listed: 상장 여부 (true/false/null)
+#   note:      비고
+# ══════════════════════════════════════════════════════════════════
+
+aliases:
+
+  # ── 삼성그룹 ────────────────────────────────────────────────────
+  - canonical: "삼성전자"
+    corp_code: "00126380"
+    is_listed: true
+    aliases:
+      - "삼성전자(주)"
+      - "삼성전자㈜"
+      - "Samsung Electronics"
+      - "Samsung"
+      - "삼성전자 주식회사"
+
+  - canonical: "삼성SDI"
+    corp_code: "00126555"
+    is_listed: true
+    aliases:
+      - "삼성SDI(주)"
+      - "삼성에스디아이"
+      - "Samsung SDI"
+
+  - canonical: "삼성디스플레이"
+    is_listed: false
+    aliases:
+      - "삼성디스플레이(주)"
+      - "Samsung Display"
+      - "SDC"
+
+  # ── 현대그룹 ────────────────────────────────────────────────────
+  - canonical: "현대자동차"
+    corp_code: "00164742"
+    is_listed: true
+    aliases:
+      - "현대자동차(주)"
+      - "현대차"
+      - "Hyundai Motor"
+      - "HMC"
+      - "현대자동차㈜"
+
+  - canonical: "기아"
+    corp_code: "00381794"
+    is_listed: true
+    aliases:
+      - "기아(주)"
+      - "기아자동차"
+      - "기아차"
+      - "Kia"
+      - "Kia Motors"
+
+  - canonical: "현대모비스"
+    corp_code: "00547030"
+    is_listed: true
+    aliases:
+      - "현대모비스(주)"
+      - "Hyundai Mobis"
+
+  # ── SK그룹 ──────────────────────────────────────────────────────
+  - canonical: "SK하이닉스"
+    corp_code: "00078891"
+    is_listed: true
+    aliases:
+      - "SK하이닉스(주)"
+      - "SK Hynix"
+      - "하이닉스"
+      - "Hynix"
+
+  - canonical: "SK이노베이션"
+    is_listed: true
+    aliases:
+      - "SK이노베이션(주)"
+      - "SK Innovation"
+
+  - canonical: "SKC"
+    is_listed: true
+    aliases:
+      - "SKC(주)"
+      - "에스케이씨"
+
+  # ── LG그룹 ──────────────────────────────────────────────────────
+  - canonical: "LG전자"
+    corp_code: "00401731"
+    is_listed: true
+    aliases:
+      - "LG전자(주)"
+      - "LG Electronics"
+      - "엘지전자"
+
+  - canonical: "LG화학"
+    corp_code: "00116064"
+    is_listed: true
+    aliases:
+      - "LG화학(주)"
+      - "LG Chem"
+      - "엘지화학"
+
+  - canonical: "LG에너지솔루션"
+    is_listed: true
+    aliases:
+      - "LG에너지솔루션(주)"
+      - "LGES"
+      - "LG Energy Solution"
+
+  # ── 포스코 ──────────────────────────────────────────────────────
+  - canonical: "POSCO홀딩스"
+    is_listed: true
+    aliases:
+      - "포스코홀딩스"
+      - "POSCO"
+      - "포스코"
+      - "포항제철"
+
+  - canonical: "포스코인터내셔널"
+    is_listed: true
+    aliases:
+      - "포스코인터내셔널(주)"
+      - "POSCO International"
+      - "대우인터내셔널"
+
+  # ── 한화그룹 ────────────────────────────────────────────────────
+  - canonical: "한화솔루션"
+    is_listed: true
+    aliases:
+      - "한화솔루션(주)"
+      - "Hanwha Solutions"
+      - "한화케미칼"
+
+  - canonical: "한화에어로스페이스"
+    is_listed: true
+    aliases:
+      - "한화에어로스페이스(주)"
+      - "한화테크윈"
+      - "Hanwha Aerospace"
+
+  # ── 롯데그룹 ────────────────────────────────────────────────────
+  - canonical: "롯데케미칼"
+    is_listed: true
+    aliases:
+      - "롯데케미칼(주)"
+      - "Lotte Chemical"
+      - "호남석유화학"
+
+  # ── 주요 외국 기업 ───────────────────────────────────────────────
+  - canonical: "TSMC"
+    is_listed: false
+    note: "대만 파운드리"
+    aliases:
+      - "Taiwan Semiconductor"
+      - "타이완세미컨덕터"
+      - "티에스엠씨"
+
+  - canonical: "애플"
+    is_listed: false
+    note: "미국 빅테크"
+    aliases:
+      - "Apple"
+      - "Apple Inc"
+      - "애플(Apple)"
+
+  - canonical: "구글"
+    is_listed: false
+    aliases:
+      - "Google"
+      - "Alphabet"
+      - "Google LLC"
+
+  - canonical: "아마존"
+    is_listed: false
+    aliases:
+      - "Amazon"
+      - "Amazon.com"
+      - "AWS"
+      - "Amazon Web Services"
+
+  - canonical: "마이크로소프트"
+    is_listed: false
+    aliases:
+      - "Microsoft"
+      - "MS"
+      - "Microsoft Corp"
+
+  - canonical: "인텔"
+    is_listed: false
+    aliases:
+      - "Intel"
+      - "Intel Corp"
+      - "인텔코리아"
+
+  - canonical: "엔비디아"
+    is_listed: false
+    aliases:
+      - "NVIDIA"
+      - "Nvidia"
+      - "엔비디아코리아"
+
+  # ── 한국 주요 통신·플랫폼 ─────────────────────────────────────────
+  - canonical: "KT"
+    is_listed: true
+    aliases:
+      - "KT(주)"
+      - "한국통신"
+      - "케이티"
+
+  - canonical: "SK텔레콤"
+    is_listed: true
+    aliases:
+      - "SK텔레콤(주)"
+      - "SKT"
+      - "에스케이텔레콤"
+
+  - canonical: "LG유플러스"
+    is_listed: true
+    aliases:
+      - "LG유플러스(주)"
+      - "LGU+"
+      - "엘지유플러스"
+
+  - canonical: "카카오"
+    is_listed: true
+    aliases:
+      - "카카오(주)"
+      - "Kakao"
+      - "카카오Corp"
+
+  - canonical: "네이버"
+    is_listed: true
+    aliases:
+      - "NAVER(주)"
+      - "NAVER"
+      - "네이버(주)"

@@ -1,0 +1,326 @@
+# ══════════════════════════════════════════════════════════════════
+# 리서치 소스 카탈로그
+# ══════════════════════════════════════════════════════════════════
+# 분류:
+#   - SECURITIES   : 한국 증권사 리서치
+#   - GLOBAL_RESEARCH: 글로벌 리서치사 (Gartner, McKinsey 등)
+#   - PUBLIC_RESEARCH: 정부·공공 연구기관
+#   - CREDIT_RATING : 신용평가사
+#   - INDUSTRY_ASSOC: 산업협회·업종 단체
+#
+# weight: 검색 결과 정렬 가중치 (1.0 최상)
+# ══════════════════════════════════════════════════════════════════
+
+# ── 한국 증권사 리서치 ──────────────────────────────────────────────
+securities:
+  - name: 미래에셋증권
+    code: miraeasset
+    weight: 1.0
+    research_url: "https://securities.miraeasset.com/bbs/board/message/list.do"
+    consensus_id: 1
+    note: 글로벌 강점
+  - name: 한국투자증권
+    code: kis
+    weight: 1.0
+    research_url: "https://www.truefriend.com/main/research/research/_static/TF04ad010000.jsp"
+    consensus_id: 2
+    note: 산업 분석
+  - name: 삼성증권
+    code: samsung
+    weight: 1.0
+    research_url: "https://www.samsungpop.com/?MENU_CODE=M1080104"
+    consensus_id: 3
+    note: 종합
+  - name: NH투자증권
+    code: nh
+    weight: 1.0
+    research_url: "https://m.nhqv.com/content/research/main.nh"
+    consensus_id: 4
+    note: 종합
+  - name: 키움증권
+    code: kiwoom
+    weight: 0.9
+    research_url: "https://www3.kiwoom.com/h/invest/research"
+    consensus_id: 5
+    note: 중소형주 강점
+  - name: 하나증권
+    code: hana
+    weight: 0.95
+    consensus_id: 6
+    note: 산업 분석
+  - name: 신한투자증권
+    code: shinhan
+    weight: 0.95
+    consensus_id: 7
+  - name: KB증권
+    code: kb
+    weight: 0.95
+    consensus_id: 8
+  - name: 메리츠증권
+    code: meritz
+    weight: 0.9
+    consensus_id: 9
+    note: 차별화 분석
+  - name: 유진투자증권
+    code: eugene
+    weight: 0.85
+    consensus_id: 10
+  - name: 대신증권
+    code: daishin
+    weight: 0.85
+    consensus_id: 11
+  - name: 한화투자증권
+    code: hanwha
+    weight: 0.85
+    consensus_id: 12
+  - name: 다올투자증권
+    code: daol
+    weight: 0.8
+    consensus_id: 13
+  - name: 흥국증권
+    code: heungkuk
+    weight: 0.75
+    consensus_id: 14
+  - name: 교보증권
+    code: kyobo
+    weight: 0.75
+    consensus_id: 15
+  - name: SK증권
+    code: sk
+    weight: 0.75
+    consensus_id: 16
+  - name: BNK투자증권
+    code: bnk
+    weight: 0.75
+    consensus_id: 17
+  - name: IBK투자증권
+    code: ibk
+    weight: 0.75
+    consensus_id: 18
+  - name: DS투자증권
+    code: ds
+    weight: 0.75
+    consensus_id: 19
+    note: 중소형주
+  - name: 상상인증권
+    code: sangsangin
+    weight: 0.7
+    consensus_id: 20
+
+# ── 글로벌 리서치사 ──────────────────────────────────────────────────
+global_research:
+  - name: Gartner
+    domain: gartner.com
+    weight: 1.0
+    category: it
+    note: IT·반도체·SW·디바이스
+  - name: IDC
+    domain: idc.com
+    weight: 0.95
+    category: it
+  - name: McKinsey & Company
+    domain: mckinsey.com
+    weight: 1.0
+    category: consulting
+  - name: BCG
+    domain: bcg.com
+    weight: 0.95
+    category: consulting
+  - name: Bain & Company
+    domain: bain.com
+    weight: 0.9
+    category: consulting
+  - name: Forrester
+    domain: forrester.com
+    weight: 0.85
+    category: it
+  - name: PwC
+    domain: pwc.com
+    weight: 0.85
+    category: consulting
+  - name: Deloitte
+    domain: deloitte.com
+    weight: 0.85
+    category: consulting
+  - name: EY
+    domain: ey.com
+    weight: 0.85
+    category: consulting
+  - name: KPMG
+    domain: kpmg.com
+    weight: 0.85
+    category: consulting
+  - name: Counterpoint Research
+    domain: counterpointresearch.com
+    weight: 0.85
+    category: it
+    note: 모바일·반도체
+  - name: TrendForce
+    domain: trendforce.com
+    weight: 0.85
+    category: it
+    note: 반도체·디스플레이
+  - name: Omdia
+    domain: omdia.com
+    weight: 0.85
+    category: it
+  - name: SNE Research
+    weight: 0.9
+    category: battery
+    note: 2차전지·전기차
+  - name: BloombergNEF
+    domain: about.bnef.com
+    weight: 0.95
+    category: energy
+    note: 에너지·전기차
+
+# ── 신용평가사 ─────────────────────────────────────────────────────
+credit_rating:
+  - name: 한국기업평가
+    domain: korearatings.com
+    weight: 1.0
+    category: kr
+  - name: 한국신용평가
+    domain: kisrating.com
+    weight: 1.0
+    category: kr
+  - name: NICE신용평가
+    domain: nicerating.com
+    weight: 1.0
+    category: kr
+  - name: S&P Global Ratings
+    domain: spglobal.com
+    weight: 1.0
+    category: global
+  - name: Moody's
+    domain: moodys.com
+    weight: 1.0
+    category: global
+  - name: Fitch Ratings
+    domain: fitchratings.com
+    weight: 1.0
+    category: global
+
+# ── 정부·공공 연구기관 ───────────────────────────────────────────────
+public_research:
+  - name: 한국산업연구원 (KIET)
+    domain: kiet.re.kr
+    weight: 1.0
+    category: industry
+    note: 산업 통계·전망
+  - name: 한국개발연구원 (KDI)
+    domain: kdi.re.kr
+    weight: 1.0
+    category: economy
+  - name: 산업은행 미래전략연구소
+    domain: rd.kdb.co.kr
+    weight: 0.95
+    category: industry
+  - name: 한국금융연구원 (KIF)
+    domain: kif.re.kr
+    weight: 0.95
+    category: finance
+  - name: 대외경제정책연구원 (KIEP)
+    domain: kiep.go.kr
+    weight: 0.9
+    category: global
+  - name: KOTRA
+    domain: kotra.or.kr
+    weight: 0.9
+    category: trade
+  - name: 한국은행
+    domain: bok.or.kr
+    weight: 1.0
+    category: economy
+  - name: 통계청
+    domain: kostat.go.kr
+    weight: 1.0
+    category: stats
+  - name: 산업통상자원부
+    domain: motie.go.kr
+    weight: 0.95
+    category: policy
+  - name: 금융감독원
+    domain: fss.or.kr
+    weight: 1.0
+    category: finance
+    note: DART 운영 주체
+  - name: 금융위원회
+    domain: fsc.go.kr
+    weight: 0.95
+    category: finance
+
+# ── 글로벌 공공기관 ──────────────────────────────────────────────────
+global_public:
+  - name: OECD
+    domain: oecd.org
+    weight: 1.0
+    category: global
+  - name: IMF
+    domain: imf.org
+    weight: 1.0
+    category: global
+  - name: World Bank
+    domain: worldbank.org
+    weight: 1.0
+    category: global
+  - name: IEA (International Energy Agency)
+    domain: iea.org
+    weight: 1.0
+    category: energy
+  - name: UN
+    domain: un.org
+    weight: 0.9
+    category: global
+  - name: WTO
+    domain: wto.org
+    weight: 0.9
+    category: trade
+
+# ── 산업 협회·단체 ──────────────────────────────────────────────────
+industry_assoc:
+  - name: 한국반도체산업협회 (KSIA)
+    domain: ksia.or.kr
+    category: semiconductor
+    weight: 0.9
+  - name: 한국자동차산업협회 (KAMA)
+    domain: kama.or.kr
+    category: automotive
+    weight: 0.9
+  - name: 한국조선해양플랜트협회 (KOSHIPA)
+    domain: koshipa.or.kr
+    category: shipbuilding
+    weight: 0.85
+  - name: 한국석유화학협회 (KPIA)
+    domain: kpia.or.kr
+    category: chemical
+    weight: 0.85
+  - name: 한국디스플레이산업협회 (KDIA)
+    domain: kdia.org
+    category: display
+    weight: 0.85
+  - name: 한국제약바이오협회 (KPBMA)
+    domain: kpbma.or.kr
+    category: pharma
+    weight: 0.85
+  - name: 대한건설협회
+    domain: cak.or.kr
+    category: construction
+    weight: 0.85
+  - name: 한국전자정보통신산업진흥회 (KEA)
+    domain: gokea.org
+    category: electronics
+    weight: 0.85
+
+# ══════════════════════════════════════════════════════════════════
+# 사용 가이드
+# ══════════════════════════════════════════════════════════════════
+# 1. 단서(lead)에 매칭될 때 위 카탈로그를 우선순위 검색
+# 2. weight × 시간 근접도(±60일) × 키워드 매칭 점수 = 최종 매칭 점수
+# 3. 매칭 점수 ≥ 0.6 자료만 prompts에 주입
+# 4. 인용은 항상 STEP 5 시사점 단락에만 (헤드라인·STEP 1~4 금지)
+# 5. 인용 형식 예:
+#    - 매일경제 2025-04-15 보도 (본지 자체 검증)
+#    - 한국투자증권 2025-04-10 리서치 리포트 (제목)
+#    - Gartner 2024 보고서 (Korean ESG Construction)
+#    - 한국기업평가 신용평가 (2025-Q1)

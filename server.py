@@ -4,15 +4,29 @@ server.py — Company Catcher DART 뷰어 서버
 DART 공시 데이터베이스 조회 및 웹 뷰어 제공
 
 API 엔드포인트:
-  GET  /api/dart/stats          — 수집 현황 통계
-  GET  /api/dart/companies      — 기업 목록 (검색/필터/페이지)
-  GET  /api/dart/reports        — 특정 기업 보고서 목록
-  GET  /api/dart/report         — 단일 보고서 전문 (raw_text + biz_content)
-  GET  /api/dart/supply_chain   — 공급망 관계 조회
-  GET  /api/dart/latest_type    — 가장 최근 수집된 보고서 유형
-  GET  /api/ai/usage            — AI 모델 일일 사용량 조회
-  GET  /api/session             — 세션 토큰 (로컬호스트 전용)
-  POST /api/ai/analyze          — AI 비교 분석 (X-Api-Key 필요)
+  GET  /api/dart/stats                — 수집 현황 통계
+  GET  /api/dart/companies            — 기업 목록 (검색/필터/페이지)
+  GET  /api/dart/reports              — 특정 기업 보고서 목록
+  GET  /api/dart/report               — 단일 보고서 전문 (raw_text + biz_content)
+  GET  /api/dart/supply_chain         — 공급망 단순 조회 (하위호환)
+  GET  /api/dart/latest_type          — 가장 최근 수집된 보고서 유형
+  GET  /api/ai/usage                  — AI 모델 일일 사용량 조회
+  GET  /api/session                   — 세션 토큰 (로컬호스트 전용)
+  POST /api/ai/analyze                — AI 비교 분석 (X-Api-Key 필요)
+
+  공급망 그래프 API:
+  GET  /api/supply-chain/stats        — 공급망 DB 전체 통계
+  GET  /api/supply-chain/graph        — 기업 중심 그래프 (?corp_code&depth&direction&relation)
+  GET  /api/supply-chain/hub          — 파트너명 역방향 조회 (?partner_name&relation)
+  GET  /api/supply-chain/impact       — 충격 전파 분석 (?corp_code)
+  GET  /api/supply-chain/path         — 두 기업 간 연결 경로 (?from&to&max_depth)
+  GET  /api/supply-chain/hubs         — 허브 순위 (?sector&limit)
+  GET  /api/supply-chain/changes      — 보고서 기간별 공급망 변화 (?corp_code)
+  GET  /api/supply-chain/common       — 교집합 종목 발굴 (?partners=A&partners=B&relation)
+  GET  /api/supply-chain/concentration — 집중도 리스크 스코어 (?corp_code)
+  GET  /api/supply-chain/risk-ranking  — 집중도 리스크 순위 (?limit&risk_level)
+  GET  /api/supply-chain/theme-article — 테마 기사 데이터 (?corp_code&type)
+  GET  /api/supply-chain/risk-scenario — 리스크 시나리오 시뮬레이션 (?corp_code&scenario)
 
 사용법:
   python server.py              → http://localhost:8888
@@ -83,7 +97,10 @@ if _env_path.exists():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             k, v = line.split("=", 1)
-            os.environ.setdefault(k.strip(), v.strip())
+            key, val = k.strip(), v.strip()
+            # .env 값이 있으면 OS 환경변수가 비어있거나 없을 때 덮어쓴다
+            if val and not os.environ.get(key):
+                os.environ[key] = val
 
 
 def _ensure_api_secret_key():
@@ -985,11 +1002,22 @@ class DartHandler(BaseHTTPRequestHandler):
                         f"SELECT COUNT(*) FROM story_leads WHERE {where_sql}", params
                     ).fetchone()[0]
                     rows = db.execute(
-                        f"SELECT * FROM story_leads WHERE {where_sql} "
-                        f"ORDER BY {order_sql} LIMIT ? OFFSET ?",
+                        f"""SELECT sl.*,
+                              COALESCE(sl.draft_count,
+                                (SELECT COUNT(*) FROM article_drafts ad WHERE ad.lead_id=sl.id)
+                              ) AS draft_count_live
+                            FROM story_leads sl
+                            WHERE {where_sql}
+                            ORDER BY {order_sql} LIMIT ? OFFSET ?""",
                         params + [limit, offset]
                     ).fetchall()
-                    self._json({"leads": [dict(r) for r in rows], "total": total})
+                    leads_list = []
+                    for r in rows:
+                        d = dict(r)
+                        # draft_count_live 우선 사용
+                        d["draft_count"] = d.pop("draft_count_live", 0) or d.get("draft_count", 0)
+                        leads_list.append(d)
+                    self._json({"leads": leads_list, "total": total})
                 except Exception:
                     self._json({"leads": [], "total": 0})
             except Exception as e:
@@ -1021,27 +1049,54 @@ class DartHandler(BaseHTTPRequestHandler):
 
                 where_sql = ("WHERE " + " AND ".join(where)) if where else ""
 
-                # 정렬
-                if sort == "relevant" and q:
-                    order_sql = "created_at DESC"
+                # 정렬 (NULL 처리: NULL은 마지막에 배치 — SQLite 호환)
+                if sort == "verify_high":
+                    order_sql = "(av.score_total IS NULL), av.score_total DESC, ad.created_at DESC"
+                elif sort == "verify_low":
+                    order_sql = "(av.score_total IS NULL), av.score_total ASC, ad.created_at DESC"
+                elif sort == "char_count":
+                    order_sql = "ad.char_count DESC"
+                elif sort == "relevant" and q:
+                    order_sql = "ad.created_at DESC"
                 else:  # recent (default)
-                    order_sql = "created_at DESC"
+                    order_sql = "ad.created_at DESC"
 
                 try:
                     total = db.execute(
                         f"SELECT COUNT(*) FROM article_drafts {where_sql}", params
                     ).fetchone()[0]
+                    # 검증 점수 LEFT JOIN (테이블 없으면 NULL)
+                    has_verification_table = db.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='article_verification'"
+                    ).fetchone()[0]
+                    select_extra = ""
+                    join_extra = ""
+                    if has_verification_table:
+                        select_extra = (
+                            ", av.score_total as verify_score, av.flag as verify_flag, "
+                            "av.score_numeric, av.score_direction, av.score_evidence, av.score_grounding"
+                        )
+                        join_extra = " LEFT JOIN article_verification av ON ad.id = av.article_id"
+
+                    # WHERE 절 컬럼명에 ad. 프리픽스 (충돌 방지)
+                    qual_where = where_sql
+                    if qual_where:
+                        for col in ("corp_code", "status", "corp_name", "headline", "subheadline"):
+                            qual_where = re.sub(rf"\b{col}\b(\s*[=<>!]| LIKE)", f"ad.{col}\\1", qual_where)
                     rows = db.execute(
-                        f"SELECT id, lead_id, corp_code, corp_name, headline, subheadline, "
-                        f"style, model, word_count, char_count, status, created_at, "
-                        f"SUBSTR(content, 1, 300) as content_preview "
-                        f"FROM article_drafts {where_sql} "
-                        f"ORDER BY {order_sql} LIMIT ? OFFSET ?",
+                        f"SELECT ad.id, ad.lead_id, ad.corp_code, ad.corp_name, ad.headline, ad.subheadline, "
+                        f"ad.style, ad.model, ad.word_count, ad.char_count, ad.status, ad.created_at, "
+                        f"SUBSTR(ad.content, 1, 300) as content_preview"
+                        f"{select_extra} "
+                        f"FROM article_drafts ad{join_extra} "
+                        f"{qual_where} "
+                        f"ORDER BY {order_sql} "
+                        f"LIMIT ? OFFSET ?",
                         params + [limit, offset]
                     ).fetchall()
                     self._json({"articles": [dict(r) for r in rows], "total": total})
-                except Exception:
-                    self._json({"articles": [], "total": 0})
+                except Exception as e:
+                    self._json({"articles": [], "total": 0, "_error": str(e)})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
@@ -1059,6 +1114,149 @@ class DartHandler(BaseHTTPRequestHandler):
                     self._json({"article": dict(row)})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/articles/{id}/verification ───────────────────────────────
+        m_art_verify = re.match(r"^/api/articles/(\d+)/verification$", path)
+        if m_art_verify:
+            art_id = int(m_art_verify.group(1))
+            try:
+                db = get_db()
+                # 테이블 없을 수도 있음
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='article_verification'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({}); return
+                row = db.execute(
+                    "SELECT * FROM article_verification WHERE article_id=?", [art_id]
+                ).fetchone()
+                self._json(dict(row) if row else {})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain-leads (목록) ────────────────────────────────
+        if path == "/api/supply-chain-leads":
+            try:
+                limit  = int(qs.get("limit",  ["30"])[0])
+                offset = int(qs.get("offset", ["0"])[0])
+                scenario = qs.get("scenario", [None])[0]
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='supply_chain_leads'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({"items": [], "total": 0}); return
+                where = ""
+                params = []
+                if scenario:
+                    where = "WHERE scenario = ?"
+                    params.append(scenario)
+                total = db.execute(
+                    f"SELECT COUNT(*) FROM supply_chain_leads {where}", params
+                ).fetchone()[0]
+                rows = db.execute(f"""
+                    SELECT * FROM supply_chain_leads {where}
+                    ORDER BY severity DESC, id ASC LIMIT ? OFFSET ?
+                """, params + [limit, offset]).fetchall()
+                self._json({"items": [dict(r) for r in rows], "total": total})
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)})
+            return
+
+        # ── /api/articles/{id}/fact_card (v3) ─────────────────────────────
+        m_art_fc = re.match(r"^/api/articles/(\d+)/fact_card$", path)
+        if m_art_fc:
+            art_id = int(m_art_fc.group(1))
+            try:
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='article_fact_cards'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({}); return
+                row = db.execute(
+                    "SELECT * FROM article_fact_cards WHERE article_id=?", [art_id]
+                ).fetchone()
+                self._json(dict(row) if row else {})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/articles/{id}/reporter_brief (v3) ────────────────────────
+        m_art_rb = re.match(r"^/api/articles/(\d+)/reporter_brief$", path)
+        if m_art_rb:
+            art_id = int(m_art_rb.group(1))
+            try:
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='reporter_briefs'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({}); return
+                row = db.execute(
+                    "SELECT * FROM reporter_briefs WHERE article_id=?", [art_id]
+                ).fetchone()
+                self._json(dict(row) if row else {})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/articles/{id}/external_refs ──────────────────────────────
+        m_art_ext = re.match(r"^/api/articles/(\d+)/external_refs$", path)
+        if m_art_ext:
+            art_id = int(m_art_ext.group(1))
+            try:
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='article_external_refs'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({"refs": []}); return
+                rows = db.execute("""
+                    SELECT es.outlet_name, es.outlet_tier as tier,
+                           es.title, es.summary, es.url, es.published_at,
+                           aer.citation_text, aer.citation_position
+                    FROM article_external_refs aer
+                    JOIN external_sources es ON aer.source_id = es.id
+                    WHERE aer.article_id = ?
+                    ORDER BY aer.citation_position
+                """, [art_id]).fetchall()
+                self._json({"refs": [dict(r) for r in rows]})
+            except Exception as e:
+                self._json({"refs": [], "error": str(e)})
+            return
+
+        # ── /api/leads/{id}/external_pool ─────────────────────────────────
+        m_lead_pool = re.match(r"^/api/leads/(\d+)/external_pool$", path)
+        if m_lead_pool:
+            lead_id = int(m_lead_pool.group(1))
+            try:
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='lead_external_match'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({"items": []}); return
+                rows = db.execute("""
+                    SELECT es.outlet_name, es.outlet_tier as tier,
+                           es.title, es.summary, es.url, es.published_at,
+                           lem.match_score, lem.fact_check_status,
+                           lem.fact_check_score
+                    FROM lead_external_match lem
+                    JOIN external_sources es ON lem.source_id = es.id
+                    WHERE lem.lead_id = ?
+                    ORDER BY
+                      CASE lem.fact_check_status
+                        WHEN 'PASS' THEN 0 WHEN 'PARTIAL' THEN 1
+                        WHEN 'NOT_CHECKED' THEN 2 ELSE 3 END,
+                      lem.match_score DESC
+                    LIMIT 20
+                """, [lead_id]).fetchall()
+                self._json({"items": [dict(r) for r in rows]})
+            except Exception as e:
+                self._json({"items": [], "error": str(e)})
             return
 
         # ── /api/articles/{id}/export ─────────────────────────────────────
@@ -1347,7 +1545,258 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
-        # ── /api/dart/supply_chain ────────────────────────────────────────
+        # ══════════════════════════════════════════════════════════════════
+        #  공급망 그래프 API  /api/supply-chain/*
+        # ══════════════════════════════════════════════════════════════════
+
+        # ── /api/supply-chain/stats ───────────────────────────────────────
+        if path == "/api/supply-chain/stats":
+            try:
+                from dart.supply_chain_graph import get_supply_chain_stats
+                self._json(get_supply_chain_stats())
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/graph  (기업 중심 그래프) ────────────────────
+        if path == "/api/supply-chain/graph":
+            try:
+                from dart.supply_chain_graph import get_company_graph
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                depth     = int(qs.get("depth",     ["1"])[0])
+                direction = (qs.get("direction",    ["both"])[0]).strip()
+                relation  = (qs.get("relation",     ["all"])[0]).strip()
+                self._json(get_company_graph(corp_code, depth=depth,
+                                             direction=direction, relation=relation))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/hub  (파트너명 역방향 조회) ──────────────────
+        if path == "/api/supply-chain/hub":
+            try:
+                from dart.supply_chain_graph import get_hub_detail
+                partner_name = (qs.get("partner_name", [None])[0] or "").strip()
+                if not partner_name:
+                    self._json({"error": "partner_name 파라미터 필요"}, 400)
+                    return
+                relation = (qs.get("relation", ["all"])[0]).strip()
+                self._json(get_hub_detail(partner_name, relation=relation))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/impact  (충격 전파 분석) ────────────────────
+        if path == "/api/supply-chain/impact":
+            try:
+                from dart.supply_chain_graph import get_impact_analysis
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                self._json(get_impact_analysis(corp_code))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/path  (두 기업 간 연결 경로 탐색) ──────────
+        if path == "/api/supply-chain/path":
+            try:
+                from dart.supply_chain_graph import find_path
+                from_code = (qs.get("from", [None])[0] or "").strip()
+                to_code   = (qs.get("to",   [None])[0] or "").strip()
+                if not from_code or not to_code:
+                    self._json({"error": "from 및 to 파라미터 필요"}, 400)
+                    return
+                max_depth = int(qs.get("max_depth", ["3"])[0])
+                self._json(find_path(from_code, to_code, max_depth=max_depth))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/hubs  (허브 기업 순위) ─────────────────────
+        if path == "/api/supply-chain/hubs":
+            try:
+                from dart.supply_chain_graph import get_hub_rankings
+                sector = (qs.get("sector", ["all"])[0]).strip()
+                limit  = int(qs.get("limit", ["30"])[0])
+                self._json(get_hub_rankings(sector=sector, limit=limit))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/changes  (보고서 기간별 공급망 변화) ─────────
+        if path == "/api/supply-chain/changes":
+            try:
+                from dart.supply_chain_graph import get_supply_chain_changes
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                from_report = (qs.get("from", [None])[0] or "").strip() or None
+                to_report   = (qs.get("to",   [None])[0] or "").strip() or None
+                self._json(get_supply_chain_changes(corp_code, from_report, to_report))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/risk-ranking  (집중도 리스크 순위) ─────────────
+        if path == "/api/supply-chain/risk-ranking":
+            try:
+                from dart.supply_chain_graph import get_concentration_risk_ranking
+                limit        = int((qs.get("limit",        ["50"])[0]) or 50)
+                risk_level   = (qs.get("risk_level",   [None])[0] or "").strip() or None
+                sort_by      = (qs.get("sort_by",      ["risk"])[0]).strip() or "risk"
+                min_partners = int((qs.get("min_partners", ["5"])[0]) or 5)
+                self._json(get_concentration_risk_ranking(
+                    limit=limit, risk_level=risk_level,
+                    sort_by=sort_by, min_partners=min_partners))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/profile  (공급망 프로파일) ─────────────────────
+        if path == "/api/supply-chain/profile":
+            try:
+                from dart.supply_chain_graph import get_supply_chain_profile
+                cc = (qs.get("corp_code", [None])[0] or "").strip()
+                if not cc:
+                    self._json({"error": "corp_code 필요"}, 400)
+                    return
+                self._json(get_supply_chain_profile(cc))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/industry-map  (산업별 공급망 지도) ─────────────
+        if path == "/api/supply-chain/industry-map":
+            try:
+                from dart.supply_chain_graph import get_industry_map
+                rtype = (qs.get("relation_type", [None])[0] or "").strip() or None
+                self._json(get_industry_map(relation_type=rtype))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/daily-briefing  (일일 취재 브리핑) ──────────
+        if path == "/api/supply-chain/daily-briefing":
+            try:
+                from dart.supply_chain_graph import get_daily_briefing
+                limit = int((qs.get("limit", ["15"])[0]) or 15)
+                self._json(get_daily_briefing(limit=limit))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/news/related-stocks  (뉴스 → 관련주 탐색) ─────────────────
+        if path == "/api/news/related-stocks":
+            try:
+                from dart.news_analyzer import find_related_stocks
+                # POST: body에 news_text, GET: query param
+                if self.command == "POST":
+                    length = int(self.headers.get("Content-Length", 0))
+                    body = self.rfile.read(length).decode("utf-8", errors="replace")
+                    payload = json.loads(body) if body else {}
+                    news_text = payload.get("news_text", "")
+                    top_n = int(payload.get("top_n", 30))
+                else:
+                    news_text = qs.get("q", [""])[0]
+                    top_n = int((qs.get("top_n", ["30"])[0]) or 30)
+
+                if not news_text.strip():
+                    self._json({"error": "news_text 필수"}, 400)
+                    return
+                result = find_related_stocks(news_text, top_n=top_n)
+                self._json(result)
+            except Exception as e:
+                import traceback
+                self._json({"error": str(e), "trace": traceback.format_exc()}, 500)
+            return
+
+        # ── /api/supply-chain/article-draft  (기사 초안 자동 생성) ────────
+        if path == "/api/supply-chain/article-draft":
+            try:
+                from dart.article_draft import generate_article_draft
+                corp_code  = qs.get("corp_code", [""])[0]
+                draft_type = qs.get("draft_type", ["partner_map"])[0]
+                if not corp_code:
+                    self._json({"error": "corp_code 필수"}, 400)
+                    return
+                self._json(generate_article_draft(corp_code, draft_type))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/change-alerts  (변화 알림 대시보드) ──────────
+        if path == "/api/supply-chain/change-alerts":
+            try:
+                from dart.supply_chain_graph import get_change_alerts
+                limit = int((qs.get("limit", ["30"])[0]) or 30)
+                self._json(get_change_alerts(limit=limit))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/common  (교집합 종목 발굴) ─────────────────
+        if path == "/api/supply-chain/common":
+            try:
+                from dart.supply_chain_graph import get_common_suppliers
+                # partners=삼성전자&partners=현대자동차&partners=LG에너지솔루션
+                partner_names = qs.get("partners", [])
+                if not partner_names:
+                    self._json({"error": "partners 파라미터 필요 (복수 가능)"}, 400)
+                    return
+                relation = (qs.get("relation", ["customer"])[0]).strip()
+                self._json(get_common_suppliers(partner_names, relation=relation))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/concentration  (집중도 리스크) ────────────
+        if path == "/api/supply-chain/concentration":
+            try:
+                from dart.supply_chain_graph import get_concentration_risk
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                self._json(get_concentration_risk(corp_code))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/theme-article  (테마 기사 데이터) ─────────
+        if path == "/api/supply-chain/theme-article":
+            try:
+                from dart.supply_chain_graph import get_theme_article_data
+                corp_code    = (qs.get("corp_code",    [None])[0] or "").strip()
+                article_type = (qs.get("type", ["supply_top10"])[0]).strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                self._json(get_theme_article_data(corp_code, article_type=article_type))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/supply-chain/risk-scenario  (리스크 시나리오 시뮬레이션) ─
+        if path == "/api/supply-chain/risk-scenario":
+            try:
+                from dart.supply_chain_graph import get_risk_scenario
+                corp_code = (qs.get("corp_code", [None])[0] or "").strip()
+                scenario  = (qs.get("scenario",  ["disruption"])[0]).strip()
+                if not corp_code:
+                    self._json({"error": "corp_code 파라미터 필요"}, 400)
+                    return
+                self._json(get_risk_scenario(corp_code, scenario=scenario))
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/dart/supply_chain  (기존 단순 조회 - 하위호환 유지) ──────
         if path == "/api/dart/supply_chain":
             try:
                 db = get_db()
@@ -1583,6 +2032,38 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── POST /api/leads/{id}/check-news ───────────────────────────────
+        m_check_news = re.match(r"^/api/leads/(\d+)/check-news$", path)
+        if m_check_news:
+            lead_id = int(m_check_news.group(1))
+            try:
+                import subprocess, sys as _sys
+                script = str(Path(__file__).parent / "scripts" / "check_news_coverage.py")
+                result = subprocess.run(
+                    [_sys.executable, script, "--id", str(lead_id)],
+                    capture_output=True, text=True, timeout=60, encoding="utf-8"
+                )
+                db = get_db()
+                row = db.execute(
+                    "SELECT news_status, news_checked_at, news_urls FROM story_leads WHERE id=?",
+                    [lead_id]
+                ).fetchone()
+                if row:
+                    self._json({
+                        "ok": True,
+                        "lead_id":        lead_id,
+                        "news_status":    row["news_status"],
+                        "news_checked_at":row["news_checked_at"],
+                        "news_urls":      json.loads(row["news_urls"] or "[]"),
+                    })
+                else:
+                    self._json({"error": "취재단서를 찾을 수 없습니다"}, 404)
+            except subprocess.TimeoutExpired:
+                self._json({"error": "뉴스 체크 타임아웃 (60초)"}, 504)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── POST /api/leads/{id}/status ────────────────────────────────────
         m_status = re.match(r"^/api/leads/(\d+)/status$", path)
         if m_status:
@@ -1716,6 +2197,25 @@ class DartHandler(BaseHTTPRequestHandler):
                 "has_gemini2": bool(os.environ.get("GEMINI_API_KEY_2")),
                 "has_claude":  bool(os.environ.get("ANTHROPIC_API_KEY")),
             })
+            return
+
+        # ── POST /api/news/related-stocks  (뉴스 → 관련주 탐색) ─────────────
+        if path == "/api/news/related-stocks":
+            try:
+                from dart.news_analyzer import find_related_stocks
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode("utf-8", errors="replace")
+                payload = json.loads(body) if body else {}
+                news_text = payload.get("news_text", "").strip()
+                top_n = int(payload.get("top_n", 30))
+                if not news_text:
+                    self._json({"error": "news_text 필수"}, 400)
+                    return
+                result = find_related_stocks(news_text, top_n=top_n)
+                self._json(result)
+            except Exception as e:
+                import traceback
+                self._json({"error": str(e), "trace": traceback.format_exc()}, 500)
             return
 
         self._json({"error": "Not found"}, 404)

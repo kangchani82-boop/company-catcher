@@ -344,6 +344,36 @@ function renderSide(a) {
   const side = document.getElementById('side-content');
 
   side.innerHTML = `
+    <!-- 검증 점수 카드 (자동) -->
+    <div class="side-card" id="verify-card">
+      <div class="side-title">✅ 자동 검증</div>
+      <div id="verify-detail" style="font-size:12px;color:var(--txt2)">로딩 중...</div>
+    </div>
+
+    <!-- 🎯 Fact Card (v3) -->
+    <div class="side-card" id="fact-card-box" style="display:none;border-left:3px solid #8b5cf6">
+      <div class="side-title">🎯 기자 Fact Card (5W1H)</div>
+      <div id="fact-card-detail" style="font-size:11px"></div>
+    </div>
+
+    <!-- 📝 Reporter Brief (v3) -->
+    <div class="side-card" id="reporter-brief-box" style="display:none;border-left:3px solid #ec4899">
+      <div class="side-title">📝 취재 노트 (Reporter Brief)</div>
+      <div id="reporter-brief-detail" style="font-size:11px"></div>
+    </div>
+
+    <!-- 외부 인용 자료 (PASS/PARTIAL) -->
+    <div class="side-card" id="ext-refs-card" style="display:none">
+      <div class="side-title">📰 외부 인용 자료</div>
+      <div id="ext-refs-list"></div>
+    </div>
+
+    <!-- 매칭된 외부 자료 풀 (인용 안 된 것 포함) -->
+    <div class="side-card" id="ext-pool-card" style="display:none">
+      <div class="side-title">📡 단서 매칭 자료 풀</div>
+      <div id="ext-pool-list" style="font-size:11px"></div>
+    </div>
+
     <!-- 뉴스 검색 -->
     <div class="side-card">
       <div class="side-title">🔍 뉴스 검색</div>
@@ -397,6 +427,173 @@ function renderSide(a) {
       </div>
     </div>
   `;
+
+  // 비동기로 검증 + 외부 인용 + v3(fact_card/reporter_brief) 데이터 로드
+  loadVerificationCard(a.id);
+  loadExternalRefsCard(a.id);
+  loadFactCard(a.id);
+  loadReporterBrief(a.id);
+  if (a.lead_id) loadExtPoolCard(a.lead_id);
+}
+
+async function loadFactCard(aid) {
+  try {
+    const r = await fetch(`${API_BASE}/api/articles/${aid}/fact_card`);
+    if (!r.ok) return;
+    const fc = await r.json();
+    if (!fc || !fc.who) return;  // v3 아닌 기사
+    document.getElementById('fact-card-box').style.display = '';
+    let why = [];
+    try { why = JSON.parse(fc.why_hypothesis || '[]'); } catch {}
+    const conf = fc.confidence_level || '';
+    const confColor = { HIGH:'#22c55e', MEDIUM:'#eab308', LOW:'#ef4444' }[conf] || '#94a3b8';
+    document.getElementById('fact-card-detail').innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <span style="font-size:10px;color:var(--txt2);text-transform:uppercase">5W1H + SO WHAT</span>
+        <span style="font-size:9px;padding:1px 6px;border-radius:4px;font-weight:600;
+                     background:${confColor}22;color:${confColor};border:1px solid ${confColor}66">
+          ${conf}
+        </span>
+      </div>
+      <div style="display:grid;grid-template-columns:50px 1fr;gap:4px 8px;line-height:1.5">
+        <div style="font-weight:700;color:#8b5cf6">WHO</div>   <div>${escHtml(fc.who||'')}</div>
+        <div style="font-weight:700;color:#8b5cf6">WHAT</div>  <div>${escHtml(fc.what||'')}</div>
+        <div style="font-weight:700;color:#8b5cf6">WHEN</div>  <div>${escHtml(fc.when_at||'')}</div>
+        <div style="font-weight:700;color:#8b5cf6">WHERE</div> <div>${escHtml(fc.where_at||'')}</div>
+        <div style="font-weight:700;color:#8b5cf6">HOW</div>   <div>${escHtml(fc.how_method||'')}</div>
+      </div>
+      ${why.length ? `
+        <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">
+          <div style="font-weight:700;color:#8b5cf6;margin-bottom:4px">WHY (가설)</div>
+          ${why.map((w,i)=>`<div style="margin-bottom:3px">${i+1}. ${escHtml(w)}</div>`).join('')}
+        </div>` : ''}
+      ${fc.so_what ? `
+        <div style="margin-top:8px;padding:8px;background:rgba(139,92,246,.08);border-radius:6px">
+          <div style="font-weight:700;color:#8b5cf6;margin-bottom:3px">SO WHAT (시장 의미)</div>
+          <div>${escHtml(fc.so_what)}</div>
+        </div>` : ''}
+    `;
+  } catch (e) { console.warn('fact card err', e); }
+}
+
+async function loadReporterBrief(aid) {
+  try {
+    const r = await fetch(`${API_BASE}/api/articles/${aid}/reporter_brief`);
+    if (!r.ok) return;
+    const rb = await r.json();
+    if (!rb || !rb.ir_questions) return;
+    document.getElementById('reporter-brief-box').style.display = '';
+    const parse = (k) => { try { return JSON.parse(rb[k] || '[]'); } catch { return []; } };
+    const ir   = parse('ir_questions');
+    const uf   = parse('unverified_facts');
+    const cmp  = parse('competitor_compare');
+    const next = parse('next_quarter_indicators');
+    const fol  = parse('follow_up_stories');
+
+    const sect = (icon, title, items, color) => items.length ? `
+      <div style="margin-bottom:10px">
+        <div style="font-weight:700;color:${color};margin-bottom:4px;font-size:11px">${icon} ${title} (${items.length})</div>
+        <ol style="margin:0;padding-left:18px;line-height:1.5">
+          ${items.map(x => `<li style="margin-bottom:3px">${escHtml(x)}</li>`).join('')}
+        </ol>
+      </div>` : '';
+
+    document.getElementById('reporter-brief-detail').innerHTML =
+      sect('☎️', 'IR 통화 질문',          ir,   '#ec4899') +
+      sect('🔍', '추가 확인 필요 (DART 외)', uf, '#f59e0b') +
+      sect('⚖️', '경쟁사 비교 포인트',     cmp,  '#06b6d4') +
+      sect('📊', '다음 분기 체크 지표',    next, '#22c55e') +
+      sect('🔮', '잠재 후속 기사 주제',    fol,  '#8b5cf6');
+  } catch (e) { console.warn('reporter brief err', e); }
+}
+
+async function loadVerificationCard(aid) {
+  try {
+    const r = await fetch(`${API_BASE}/api/articles/${aid}/verification`);
+    if (!r.ok) return;
+    const v = await r.json();
+    const detail = document.getElementById('verify-detail');
+    if (!v || !v.flag) {
+      detail.innerHTML = '<span style="color:#94a3b8">⏳ 미검증</span>';
+      return;
+    }
+    const colors = { SAFE:'#22c55e', LOW:'#fb923c', MEDIUM:'#eab308', HIGH:'#ef4444' };
+    const icons  = { SAFE:'🟢', LOW:'🟠', MEDIUM:'🟡', HIGH:'🔴' };
+    const c = colors[v.flag] || '#94a3b8';
+    detail.innerHTML = `
+      <div style="font-size:14px;font-weight:700;color:${c};margin-bottom:8px">
+        ${icons[v.flag]} ${v.flag} ${v.score_total}점
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px">
+        <div>수치 정확성: <b>${v.score_numeric}</b></div>
+        <div>방향 일치: <b>${v.score_direction}</b></div>
+        <div>Evidence: <b>${v.score_evidence}</b></div>
+        <div>그라운딩: <b>${v.score_grounding}</b></div>
+      </div>
+    `;
+  } catch (e) {
+    console.warn('verification load err', e);
+  }
+}
+
+async function loadExternalRefsCard(aid) {
+  try {
+    const r = await fetch(`${API_BASE}/api/articles/${aid}/external_refs`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const refs = data.refs || [];
+    if (!refs.length) return;
+    document.getElementById('ext-refs-card').style.display = '';
+    const list = document.getElementById('ext-refs-list');
+    list.innerHTML = refs.map(r => `
+      <a href="${escHtml(r.url)}" target="_blank" rel="noopener"
+         style="display:block;padding:8px 10px;margin-bottom:6px;border:1px solid var(--border);
+                border-radius:6px;text-decoration:none;color:var(--txt1)">
+        <div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
+          <span style="font-size:9px;padding:1px 6px;border-radius:4px;font-weight:600;
+                       background:${r.tier==='T1'?'rgba(34,197,94,.15)':'rgba(234,179,8,.15)'};
+                       color:${r.tier==='T1'?'#22c55e':'#eab308'}">${r.tier}</span>
+          <span style="font-size:11px;font-weight:600">${escHtml(r.outlet_name)}</span>
+          <span style="font-size:10px;color:var(--txt2);margin-left:auto">${r.published_at||''}</span>
+        </div>
+        <div style="font-size:11px;line-height:1.4">${escHtml((r.title||'').slice(0,80))}</div>
+      </a>
+    `).join('');
+  } catch (e) {
+    console.warn('ext refs load err', e);
+  }
+}
+
+async function loadExtPoolCard(leadId) {
+  try {
+    const r = await fetch(`${API_BASE}/api/leads/${leadId}/external_pool`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const items = data.items || [];
+    if (!items.length) return;
+    document.getElementById('ext-pool-card').style.display = '';
+    const list = document.getElementById('ext-pool-list');
+    list.innerHTML = items.slice(0, 10).map(it => {
+      const statusColor = {
+        PASS: '#22c55e', PARTIAL: '#eab308',
+        FAIL: '#ef4444', NOT_CHECKED: '#94a3b8'
+      }[it.fact_check_status] || '#94a3b8';
+      return `
+        <div style="padding:6px 8px;margin-bottom:4px;border-left:3px solid ${statusColor};font-size:10px">
+          <div style="display:flex;gap:4px;align-items:center;margin-bottom:2px">
+            <span style="font-weight:600">${escHtml(it.outlet_name)}</span>
+            <span style="color:var(--txt2)">${it.published_at||''}</span>
+            <span style="margin-left:auto;color:${statusColor};font-weight:600">${it.fact_check_status}</span>
+          </div>
+          <a href="${escHtml(it.url)}" target="_blank" style="color:var(--txt1);text-decoration:none">
+            ${escHtml((it.title||'').slice(0,60))}
+          </a>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.warn('ext pool load err', e);
+  }
 }
 
 async function excludeThisArticle() {

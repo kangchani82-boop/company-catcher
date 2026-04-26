@@ -69,12 +69,15 @@ GEMINI_LIMITS = {
 
 # fallback 순서 (404 시 자동 시도)
 GEMINI_FALLBACKS = {
-    "flash":      ["gemini-2.5-flash-preview-05-20",
-                   "gemini-2.5-flash",
+    "flash":      ["gemma-4-31b-it",                 # 현재 가용 (쿼터 무제한 오픈모델)
+                   "gemini-2.5-flash",               # 9AM 리셋 후 자동 활성
+                   "gemini-3-flash-preview",
+                   "gemini-flash-latest",
                    "gemini-2.0-flash"],
-    "flash-lite": ["gemini-2.5-flash-lite-preview-06-17",
+    "flash-lite": ["gemma-4-31b-it",
                    "gemini-2.5-flash-lite",
-                   "gemini-2.5-flash-8b",
+                   "gemini-3-flash-preview",
+                   "gemini-flash-latest",
                    "gemini-2.0-flash-lite"],
     "pro":        ["gemini-2.5-pro-preview-05-06",
                    "gemini-2.5-pro",
@@ -281,9 +284,15 @@ def call_gemini_with_key(model_type: str, prompt: str, api_key: str,
                     _tprint(f"  ⚠ [{key_label}] 429 — {mtype}→{FALLBACK_ON_QUOTA.get(mtype,'없음')} 전환 시도")
                     last_err = f"할당량 초과({mtype})"
                     break  # 다음 mtype 시도
+                if e.code in (500, 503):
+                    last_err = f"{model_name} {e.code} (서버 오류) — 다음 모델 시도"
+                    continue  # 다음 fallback 모델로
                 raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
             except urllib.error.URLError as e:
                 raise RuntimeError(f"네트워크 오류: {e.reason}")
+            except (TimeoutError, OSError) as e:
+                last_err = f"{model_name} 타임아웃 — 다음 모델 시도"
+                continue
 
     raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
 
@@ -339,8 +348,6 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
                     other_keys = [k for k in keys if k != api_key]
                     if other_keys:
                         print(f"  ⚠ {label} 429 → 다른 키로 전환")
-                        exhausted_key = api_key
-                        # 다른 키로 같은 모델 즉시 재시도
                         alt_key = other_keys[0]
                         alt_label = key_labels.get(alt_key, "키")
                         alt_url = (
@@ -369,67 +376,75 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
                         print(f"  ⚠ {label} 429 → {FALLBACK_ON_QUOTA.get(mtype,'없음')}으로 전환")
                     last_err = f"할당량 초과({mtype})"
                     break  # inner loop 탈출 → 다음 mtype 시도
+                if e.code in (500, 503):
+                    last_err = f"{model_name} {e.code} (서버 오류) — 다음 모델 시도"
+                    continue  # 다음 fallback 모델로
                 raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
             except urllib.error.URLError as e:
                 raise RuntimeError(f"네트워크 오류: {e.reason}")
+            except (TimeoutError, OSError) as e:
+                last_err = f"{model_name} 타임아웃 — 다음 모델 시도"
+                continue
 
     raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
 
 
 def build_prompt(reports: list) -> str:
     """분석 프롬프트 생성 (biz_content 전용)
-    reports: rcept_dt 기준으로 정렬된 리스트 [오래된 보고서, 최신 보고서]
+    reports[0] = 2025 사업보고서(연간, 종합 레퍼런스) — 기준점
+    reports[1] = 분기보고서(1분기·반기·3분기) — 비교 대상
     """
     sep = "─" * 60
     assert len(reports) == 2
-    old_r = reports[0]  # 분기 등 오래된 보고서 — 베이스라인
-    new_r = reports[1]  # 사업보고서(연간) — 변화의 도착점
+    base_r  = reports[0]  # 사업보고서(연간) — 기준 레퍼런스
+    cmp_r   = reports[1]  # 분기보고서 — 비교 대상
 
     return f"""아래는 동일 기업의 DART 공시 **'2. 사업의 내용'** 섹션 두 개입니다.
 
 {sep}
-▶ [과거 기준 보고서] {old_r['label']}
-(이 시점까지의 사업 내용 — 비교의 출발점)
+▶ [기준 보고서] {base_r['label']}
+(2025 사업보고서 — 연간 종합 레퍼런스. 가장 완성된 공식 사업 기술서입니다.)
 
-{old_r['content']}
+{base_r['content']}
 
 {sep}
-▶ [최신 현재 보고서] {new_r['label']}
-(가장 최근·포괄적인 연간 사업 보고 — 변화의 도착점)
+▶ [비교 대상 보고서] {cmp_r['label']}
+(분기보고서 — 해당 시점의 사업 내용. 기준 보고서와 비교합니다.)
 
-{new_r['content']}
+{cmp_r['content']}
 {sep}
 
 ## ⚠ 분석 방향 (필수 준수)
 
-- **과거 기준**: {old_r['label']} — 이 보고서가 베이스라인입니다.
-- **최신 현재**: {new_r['label']} — 이 보고서가 가장 최신·포괄적입니다.
-- **핵심 질문**: "최신 보고서(사업보고서·연간)에서 과거 분기보고서 대비 무엇이 **새로 등장했거나 변화했는가**?"
-- 사업보고서는 1년 전체를 다루고, 분기보고서는 그 중 일부 기간만 다룹니다.
-  따라서 비교 방향은 항상 **"분기(과거) → 사업보고서(최신)"** 입니다.
-  사업보고서에만 있고 분기보고서에 없는 내용 = 연중 새롭게 추가된 사업·전략·리스크.
+- **기준(레퍼런스)**: {base_r['label']} — 2025 사업보고서. 연간 전체를 포괄하는 공식 사업 기술서입니다.
+- **비교 대상**: {cmp_r['label']} — 분기보고서. 해당 분기 시점의 사업 내용입니다.
+- **핵심 질문**: "분기보고서에서 연간 사업보고서 대비 무엇이 **달라지거나 주목할 만한가**?"
+- 사업보고서는 1년 전체를 완성된 시각으로 기술하고, 분기보고서는 그 시점의 스냅샷입니다.
+  따라서 비교 방향은 항상 **"사업보고서(기준) → 분기보고서(비교)"** 입니다.
+  분기보고서에만 있거나 강조된 내용 = 해당 분기에 특별히 부각된 사업·리스크·전략 신호.
 
 ## 분석 요청 항목
 
 1. **핵심 변화 요약**
-   - 최신 보고서 기준으로 과거 대비 달라진 핵심 사항을 표로 정리
-   - 표 컬럼: 항목 | 과거(분기) | 최신(사업보고서) | 변화 방향
+   - 기준(사업보고서) 대비 분기보고서에서 달라진 핵심 사항을 표로 정리
+   - 표 컬럼: 항목 | 사업보고서(기준) | 분기보고서(비교) | 변화 방향
 
-2. **신규 사업·전략 변화**
-   - 사업보고서에만 새로 등장한 신규 사업, 제품, 서비스
-   - 기존 사업의 확장·축소·철수
+2. **분기보고서에서 강조된 사업·전략**
+   - 분기보고서에서 사업보고서보다 더 구체적으로 기술된 사업, 제품, 서비스
+   - 사업보고서에 없거나 축소된 내용이 분기보고서에 등장한 경우
 
 3. **시장 및 경쟁환경 변화**
-   - 주요 고객, 점유율, 경쟁사 관련 서술이 어떻게 달라졌는가
+   - 분기 시점에 주요 고객, 점유율, 경쟁사 관련 서술이 어떻게 달랐는가
 
 4. **리스크 요인 변화**
-   - 사업보고서에 새로 등장했거나 해소된 리스크 (원재료·규제·기술·시장)
+   - 분기보고서에만 등장하거나 강조된 리스크 (원재료·규제·기술·시장)
+   - 사업보고서에서는 해소됐거나 표현이 완화된 리스크
 
 5. **수치·실적 언급 변화**
-   - 매출·물량·점유율 등 구체 수치가 어떻게 달라졌는가
+   - 매출·물량·점유율 등 구체 수치가 분기와 연간 사이에 어떻게 달라졌는가
 
 6. **취재 가치 판단**
-   - 이 변화 중 언론 보도 가치가 높은 시그널은 무엇인가? (긍정/부정 모두)
+   - 이 차이 중 언론 보도 가치가 높은 시그널은 무엇인가? (긍정/부정 모두)
    - 투자자·독자에게 중요한 정보를 1~3가지로 요약
 
 분석은 한국어로 작성하고, 각 항목마다 원문의 구체적인 표현·수치를 인용해 근거를 제시해주세요."""
@@ -483,7 +498,8 @@ def process_task(task: dict) -> dict:
             return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
         return dt or ""
 
-    # rcept_dt 기준으로 정렬: 오래된 보고서(분기) → 최신 보고서(사업보고서) 순
+    # type_a = 사업보고서(연간 기준)가 reports[0], type_b = 분기보고서가 reports[1]
+    # rcept_dt 기준 역순 정렬: 최신(사업보고서) → 오래된(분기보고서) 순
     reports = sorted([
         {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
          "content": biz_a,
@@ -491,7 +507,7 @@ def process_task(task: dict) -> dict:
         {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
          "content": biz_b,
          "rcept_dt": rr_b['rcept_dt'] or ''},
-    ], key=lambda x: x['rcept_dt'])
+    ], key=lambda x: x['rcept_dt'], reverse=True)  # 최신(사업보고서) 먼저 → 기준으로
     # build_prompt에서 rcept_dt 키는 불필요하므로 제거
     for r in reports:
         r.pop('rcept_dt', None)

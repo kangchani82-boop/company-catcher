@@ -7,16 +7,16 @@
   <script src="common.js"></script>
   <script src="https://d3js.org/d3.v7.min.js"></script>
   <style>
-    .supply-wrap { max-width: 1400px; margin: 0 auto; padding: 16px; }
+    .supply-wrap { max-width: 1600px; margin: 0 auto; padding: 12px 16px; }
 
-    /* 상단 컨트롤 */
+    /* 컨트롤 바 */
     .control-bar {
-      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px;
     }
-    .page-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .page-title { font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
     .count-badge { font-size: 11px; color: var(--txt2); font-weight: 400; }
     .ctrl-input {
-      flex: 1; min-width: 180px; background: var(--bg3); border: 1px solid var(--border);
+      flex: 1; min-width: 160px; background: var(--bg3); border: 1px solid var(--border);
       color: var(--txt1); border-radius: 8px; padding: 7px 12px; font-size: 12px; outline: none;
     }
     .ctrl-input:focus { border-color: var(--acc); }
@@ -26,7 +26,7 @@
     }
     .ctrl-btn {
       background: var(--acc); color: #fff; border: none; border-radius: 8px;
-      padding: 7px 16px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background .15s;
+      padding: 7px 14px; font-size: 12px; cursor: pointer; font-weight: 600; transition: background .15s; white-space: nowrap;
     }
     .ctrl-btn:hover { background: var(--acc2); }
     .ctrl-btn.secondary {
@@ -34,163 +34,514 @@
     }
     .ctrl-btn.secondary:hover { border-color: var(--acc); color: var(--acc); }
 
-    /* 메인 레이아웃 */
-    .main-layout { display: flex; gap: 12px; height: calc(100vh - 140px); }
+    /* 메인 레이아웃 — 3열 */
+    .main-layout {
+      display: grid;
+      grid-template-columns: 240px 1fr 300px;
+      gap: 10px;
+      height: calc(100vh - 120px);
+    }
+
+    /* 좌측 허브 패널 */
+    .hub-panel {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 12px;
+      overflow: hidden; display: flex; flex-direction: column;
+    }
+    .hub-panel-header {
+      padding: 12px 14px 8px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .hub-panel-title { font-size: 12px; font-weight: 700; color: var(--txt2); text-transform: uppercase; letter-spacing: .4px; margin-bottom: 8px; }
+    .sector-tabs {
+      display: flex; flex-wrap: wrap; gap: 4px;
+    }
+    .sector-tab {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 5px;
+      padding: 2px 7px; font-size: 10px; cursor: pointer; color: var(--txt2); transition: all .12s;
+    }
+    .sector-tab.active { background: var(--acc); border-color: var(--acc); color: #fff; }
+    .hub-list { overflow-y: auto; flex: 1; padding: 8px; }
+    .hub-item {
+      padding: 7px 8px; border-radius: 6px; cursor: pointer; transition: background .12s;
+      border-bottom: 1px solid var(--border); margin-bottom: 2px;
+    }
+    .hub-item:hover { background: var(--bg3); }
+    .hub-item-name { font-size: 11px; font-weight: 600; color: var(--txt1); margin-bottom: 3px;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hub-item-meta { font-size: 10px; color: var(--txt2); display: flex; gap: 6px; }
+    .hub-rank { font-size: 10px; color: var(--txt2); margin-right: 4px; }
 
     /* 그래프 캔버스 */
     .graph-panel {
-      flex: 1; background: var(--bg2); border: 1px solid var(--border);
+      background: var(--bg2); border: 1px solid var(--border);
       border-radius: 12px; overflow: hidden; position: relative;
     }
     #graph-svg { width: 100%; height: 100%; }
 
-    /* 범례 */
+    /* 그래프 오버레이 */
     .legend {
-      position: absolute; top: 12px; left: 12px; background: rgba(26,29,39,.9);
-      border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 11px;
+      position: absolute; top: 10px; left: 10px; background: rgba(26,29,39,.9);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 10px;
     }
-    .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-    .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-    .legend-line { width: 20px; height: 2px; flex-shrink: 0; }
+    .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 
-    /* 그래프 컨트롤 */
-    .graph-controls {
-      position: absolute; bottom: 12px; right: 12px; display: flex; gap: 6px;
+    .graph-toolbar {
+      position: absolute; top: 10px; right: 10px;
+      display: flex; gap: 5px; flex-direction: column;
     }
     .graph-btn {
       background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
-      border-radius: 6px; padding: 6px 10px; font-size: 13px; cursor: pointer;
+      border-radius: 6px; padding: 5px 9px; font-size: 12px; cursor: pointer;
       transition: all .15s; font-weight: 700;
     }
     .graph-btn:hover { border-color: var(--acc); color: var(--acc); }
 
-    /* 사이드 패널 */
+    .graph-controls {
+      position: absolute; bottom: 10px; right: 10px; display: flex; gap: 5px;
+    }
+
+    #graph-loading {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; gap: 10px; color: var(--txt2); font-size: 14px;
+      background: var(--bg2);
+    }
+
+    /* 우측 정보 패널 */
     .side-panel {
-      width: 300px; flex-shrink: 0; overflow-y: auto;
-      display: flex; flex-direction: column; gap: 10px;
+      display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
     }
     .info-card {
-      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px;
+      flex-shrink: 0;
     }
     .info-title {
-      font-size: 12px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
-      letter-spacing: .5px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+      font-size: 11px; font-weight: 700; color: var(--txt2); text-transform: uppercase;
+      letter-spacing: .4px; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 6px;
     }
-    .info-corp-name { font-size: 15px; font-weight: 700; color: var(--txt1); margin-bottom: 6px; }
-    .info-meta { font-size: 11px; color: var(--txt2); margin-bottom: 8px; }
+    .info-corp-name { font-size: 14px; font-weight: 700; color: var(--txt1); margin-bottom: 4px; }
+
+    /* 탭 (우측 패널용) */
+    .side-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 10px; }
+    .side-tab {
+      padding: 6px 12px; font-size: 11px; cursor: pointer; color: var(--txt2);
+      border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all .12s;
+    }
+    .side-tab:hover { color: var(--txt1); }
+    .side-tab.active { color: var(--acc); border-bottom-color: var(--acc); font-weight: 700; }
+    .side-tab-panel { display: none; }
+    .side-tab-panel.active { display: block; }
 
     /* 관계 목록 */
-    .rel-list { display: flex; flex-direction: column; gap: 6px; }
     .rel-item {
       background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
-      padding: 8px 10px; font-size: 11px;
+      padding: 7px 9px; margin-bottom: 5px; font-size: 11px;
     }
-    .rel-partner { font-weight: 600; color: var(--txt1); margin-bottom: 3px; }
-    .rel-context { color: var(--txt2); line-height: 1.5;
+    .rel-partner { font-weight: 600; color: var(--txt1); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rel-ctx { color: var(--txt2); line-height: 1.4; font-size: 10px;
       display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-    .rel-type-badge {
+    .rel-badge {
+      display: inline-block; border-radius: 4px; padding: 1px 5px; font-size: 9px;
+      font-weight: 700; margin-right: 3px;
+    }
+
+    /* 통계 그리드 */
+    .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .stat-box {
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+      padding: 8px 10px; text-align: center;
+    }
+    .stat-label { font-size: 9px; color: var(--txt2); margin-bottom: 4px; text-transform: uppercase; }
+    .stat-val { font-size: 16px; font-weight: 700; color: var(--txt1); }
+    .stat-sub { font-size: 9px; color: var(--txt2); margin-top: 2px; }
+
+    /* 검색 자동완성 */
+    .search-suggestions {
+      position: absolute; background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 8px; z-index: 200; top: 36px; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,.3);
+    }
+    .suggestion-item {
+      padding: 7px 12px; cursor: pointer; font-size: 12px; color: var(--txt1); border-bottom: 1px solid var(--border);
+    }
+    .suggestion-item:hover { background: var(--bg3); }
+
+    /* 경로 탐색 */
+    .path-input { width: 100%; background: var(--bg3); border: 1px solid var(--border);
+      color: var(--txt1); border-radius: 6px; padding: 6px 10px; font-size: 11px; outline: none; box-sizing: border-box; margin-bottom: 5px; }
+    .path-input:focus { border-color: var(--acc); }
+
+    /* 리스크 시나리오 */
+    .scenario-btn {
+      width: 100%; background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 6px; padding: 7px 10px; font-size: 11px; cursor: pointer;
+      text-align: left; margin-bottom: 4px; transition: all .12s;
+    }
+    .scenario-btn:hover { border-color: var(--acc); color: var(--acc); }
+    .scenario-btn.active { background: rgba(231,76,60,.1); border-color: rgba(231,76,60,.4); color: #e74c3c; }
+
+    .wave-tag {
       display: inline-block; border-radius: 4px; padding: 1px 6px; font-size: 9px;
-      font-weight: 700; margin-right: 4px;
+      font-weight: 600; margin: 2px;
     }
 
     .tooltip-box {
       position: fixed; background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 8px; padding: 10px 14px; font-size: 11px; pointer-events: none;
-      z-index: 9999; max-width: 260px; line-height: 1.6; box-shadow: 0 4px 20px rgba(0,0,0,.4);
+      border-radius: 8px; padding: 9px 12px; font-size: 11px; pointer-events: none;
+      z-index: 9999; max-width: 240px; line-height: 1.5; box-shadow: 0 4px 20px rgba(0,0,0,.4);
       display: none;
     }
 
-    .loading { text-align: center; color: var(--txt2); padding: 80px; font-size: 14px; }
-    .empty   { text-align: center; color: var(--txt2); padding: 40px; font-size: 13px; }
-    .search-suggestions {
-      position: absolute; background: var(--bg2); border: 1px solid var(--border);
-      border-radius: 8px; z-index: 100; top: 36px; left: 0; right: 0; max-height: 200px; overflow-y: auto;
+    .loading { text-align: center; color: var(--txt2); padding: 30px; font-size: 13px; }
+    .empty   { text-align: center; color: var(--txt2); padding: 20px; font-size: 12px; }
+
+    @media (max-width: 1100px) {
+      .main-layout { grid-template-columns: 0px 1fr 280px; }
+      .hub-panel   { display: none; }
     }
-    .suggestion-item {
-      padding: 8px 14px; cursor: pointer; font-size: 12px; color: var(--txt1); border-bottom: 1px solid var(--border);
+    @media (max-width: 800px) {
+      .main-layout { grid-template-columns: 1fr; height: auto; }
+      .graph-panel { height: 60vw; min-height: 300px; }
+      .side-panel  { flex-direction: row; flex-wrap: wrap; overflow: visible; }
     }
-    .suggestion-item:hover { background: var(--bg3); }
   </style>
 </head>
 <body>
 <div id="app">
   <div id="nav-container"></div>
   <div class="supply-wrap">
+
     <!-- 컨트롤 바 -->
     <div class="control-bar">
       <div class="page-title">🌐 공급망 네트워크 <span class="count-badge" id="total-count"></span></div>
-      <div style="position:relative;flex:1;min-width:180px">
+      <div style="position:relative;flex:1;min-width:160px">
         <input class="ctrl-input" id="corp-search" type="text" placeholder="기업명 검색..."
                oninput="onCorpSearch()" autocomplete="off">
         <div id="search-suggestions" class="search-suggestions" style="display:none"></div>
       </div>
       <select class="ctrl-select" id="rel-filter" onchange="onFilterChange()">
-        <option value="">전체 관계</option>
+        <option value="all">전체 관계</option>
         <option value="customer">고객사</option>
         <option value="supplier">공급사</option>
         <option value="partner">파트너</option>
         <option value="competitor">경쟁사</option>
-        <option value="subsidiary">자회사</option>
-        <option value="parent">모회사</option>
       </select>
-      <select class="ctrl-select" id="depth-select">
+      <select class="ctrl-select" id="depth-select" onchange="onFilterChange()">
         <option value="1">1단계</option>
         <option value="2" selected>2단계</option>
       </select>
       <button class="ctrl-btn secondary" onclick="resetGraph()">↺ 초기화</button>
+      <button class="ctrl-btn secondary" onclick="showStats()">📊 전체 통계</button>
     </div>
 
-    <!-- 메인 -->
+    <!-- 메인 3열 -->
     <div class="main-layout">
 
-      <!-- 그래프 패널 -->
-      <div class="graph-panel" id="graph-panel">
-        <svg id="graph-svg"></svg>
-        <!-- 범례 -->
-        <div class="legend">
-          <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:6px;text-transform:uppercase">관계 유형</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> 고객사 (customer)</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#3498db"></div> 공급사 (supplier)</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> 파트너 (partner)</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> 경쟁사 (competitor)</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#9b59b6"></div> 자회사/모회사</div>
-          <div style="margin-top:8px;padding-top:6px;border-top:1px solid var(--border);font-size:10px;color:var(--txt2)">
-            노드 크기 = 연결 수<br>클릭하면 상세 정보
+      <!-- ── 좌 : 허브 순위 패널 ── -->
+      <div class="hub-panel">
+        <div class="hub-panel-header">
+          <!-- 패널 모드 전환 버튼 -->
+          <div style="display:flex;gap:0;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+            <button id="hub-mode-hub" onclick="setHubMode('hub')"
+              style="flex:1;background:var(--acc);border:none;color:#fff;padding:4px 0;font-size:10px;font-weight:700;cursor:pointer">🏆 허브</button>
+            <button id="hub-mode-change" onclick="setHubMode('change')"
+              style="flex:1;background:var(--bg3);border:none;color:var(--txt2);padding:4px 0;font-size:10px;font-weight:700;cursor:pointer">🔄 변화</button>
+            <button id="hub-mode-risk" onclick="setHubMode('risk')"
+              style="flex:1;background:var(--bg3);border:none;color:var(--txt2);padding:4px 0;font-size:10px;font-weight:700;cursor:pointer">⚠️ 리스크</button>
+            <button id="hub-mode-map" onclick="setHubMode('map')"
+              style="flex:1;background:var(--bg3);border:none;color:var(--txt2);padding:4px 0;font-size:10px;font-weight:700;cursor:pointer">🗺️ 산업지도</button>
+            <button id="hub-mode-brief" onclick="setHubMode('brief')"
+              style="flex:1;background:var(--bg3);border:none;color:var(--txt2);padding:4px 0;font-size:10px;font-weight:700;cursor:pointer">📰 브리핑</button>
+          </div>
+
+          <!-- 허브 섹터 탭 -->
+          <div id="hub-sector-area">
+            <div class="hub-panel-title">🏆 허브 기업 순위</div>
+            <div class="sector-tabs" id="sector-tabs">
+              <span class="sector-tab active" onclick="loadHubs('all',this)">전체</span>
+              <span class="sector-tab" onclick="loadHubs('반도체·전자',this)">반도체</span>
+              <span class="sector-tab" onclick="loadHubs('자동차·부품',this)">자동차</span>
+              <span class="sector-tab" onclick="loadHubs('바이오·제약',this)">바이오</span>
+              <span class="sector-tab" onclick="loadHubs('IT·소프트웨어',this)">IT</span>
+              <span class="sector-tab" onclick="loadHubs('통신',this)">통신</span>
+              <span class="sector-tab" onclick="loadHubs('화학·에너지',this)">화학</span>
+              <span class="sector-tab" onclick="loadHubs('철강·소재',this)">철강</span>
+            </div>
+          </div>
+
+          <!-- 변화 알림 헤더 -->
+          <div id="hub-change-area" style="display:none">
+            <div class="hub-panel-title">🔄 공급망 변화 알림</div>
+            <div style="font-size:10px;color:var(--txt2)">복수 보고서 기준 비교 · 중요도순</div>
+            <!-- 기업 선택 시 해당 기업 변화 상세 -->
+            <div id="change-detail-box" style="display:none;margin-top:8px;padding:8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+                <div style="font-size:10px;font-weight:700" id="change-detail-title">선택 기업 변화</div>
+                <button onclick="document.getElementById('change-detail-box').style.display='none'"
+                  style="font-size:9px;border:none;background:none;color:var(--txt2);cursor:pointer">✕</button>
+              </div>
+              <div id="change-detail-content"></div>
+            </div>
+            <!-- 교집합 종목 발굴 -->
+            <div style="margin-top:10px;padding:8px;background:var(--bg2);border-radius:6px;border:1px solid var(--border)">
+              <div style="font-size:10px;font-weight:700;margin-bottom:5px">🔍 공통 파트너 발굴</div>
+              <div style="font-size:9px;color:var(--txt2);margin-bottom:4px">여러 대기업의 공통 공급사 / 납품처 찾기</div>
+              <textarea id="common-input" placeholder="기업명 줄바꿈 입력&#10;예: 삼성전자&#10;현대자동차&#10;LG에너지솔루션"
+                style="width:100%;height:60px;font-size:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--txt1);padding:4px;resize:none;box-sizing:border-box"></textarea>
+              <div style="display:flex;gap:4px;margin-top:4px">
+                <select id="common-relation" style="flex:1;font-size:9px;padding:3px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--txt1)">
+                  <option value="customer">공통 고객사 (이 기업들을 사는 곳)</option>
+                  <option value="supplier">공통 공급사 (이 기업들이 사는 곳)</option>
+                </select>
+                <button onclick="runCommonSearch()"
+                  style="padding:3px 8px;font-size:9px;background:var(--acc);border:none;border-radius:4px;color:#fff;cursor:pointer;font-weight:700">검색</button>
+              </div>
+              <div id="common-result" style="margin-top:6px"></div>
+            </div>
+          </div>
+
+          <!-- 산업지도 헤더 -->
+          <div id="hub-map-area" style="display:none">
+            <div class="hub-panel-title">🗺️ 산업별 공급망 흐름</div>
+            <div style="font-size:10px;color:var(--txt2);margin-bottom:4px">업종 간 공급·고객·파트너 관계</div>
+            <!-- 관계 타입 필터 -->
+            <div style="display:flex;gap:3px;flex-wrap:wrap">
+              <button onclick="loadIndustryMap(null)"
+                style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--acc);color:#fff;cursor:pointer" id="map-filter-all">전체</button>
+              <button onclick="loadIndustryMap('customer')"
+                style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer" id="map-filter-customer">📦 고객</button>
+              <button onclick="loadIndustryMap('supplier')"
+                style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer" id="map-filter-supplier">🔩 공급</button>
+              <button onclick="loadIndustryMap('partner')"
+                style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer" id="map-filter-partner">🤝 파트너</button>
+            </div>
+          </div>
+
+          <!-- 리스크 순위 헤더 -->
+          <div id="hub-risk-area" style="display:none">
+            <div class="hub-panel-title">⚠️ 집중도 리스크 순위</div>
+            <!-- 정렬 모드 -->
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <button onclick="setRiskSort('risk')"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--acc);color:#fff;cursor:pointer" id="risk-sort-risk">📊 집중도</button>
+              <button onclick="setRiskSort('systemic')"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer" id="risk-sort-systemic">⚡ 시스템</button>
+            </div>
+            <!-- 리스크 레벨 필터 -->
+            <div style="display:flex;gap:4px;margin-top:4px">
+              <button onclick="loadRiskRanking(null)"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--acc);color:#fff;cursor:pointer" id="risk-filter-all">전체</button>
+              <button onclick="loadRiskRanking('HIGH')"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:#e55;cursor:pointer" id="risk-filter-high">🔴 HIGH</button>
+              <button onclick="loadRiskRanking('MED')"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:#f90;cursor:pointer" id="risk-filter-med">🟡 MED</button>
+              <button onclick="loadRiskRanking('LOW')"
+                style="flex:1;font-size:9px;padding:3px 0;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:#4c4;cursor:pointer" id="risk-filter-low">🟢 LOW</button>
+            </div>
           </div>
         </div>
-        <!-- 그래프 컨트롤 -->
+
+        <!-- 허브 목록 -->
+        <div class="hub-list" id="hub-list">
+          <div class="loading">로딩 중...</div>
+        </div>
+
+        <!-- 변화 알림 목록 -->
+        <div class="hub-list" id="change-alert-list" style="display:none">
+          <div class="loading">로딩 중...</div>
+        </div>
+
+        <!-- 리스크 순위 목록 -->
+        <div class="hub-list" id="risk-ranking-list" style="display:none">
+          <div class="loading">로딩 중...</div>
+        </div>
+
+        <!-- 산업지도 목록 -->
+        <div class="hub-list" id="industry-map-list" style="display:none;padding:6px">
+          <div class="loading">로딩 중...</div>
+        </div>
+
+        <!-- 일일 취재 브리핑 -->
+        <div id="hub-brief-area" style="display:none">
+          <div class="hub-panel-title">📰 오늘의 취재 추천</div>
+          <div style="font-size:9px;color:var(--txt2);margin-bottom:6px">공급망 변화·리드·허브 종합 시그널</div>
+          <div id="brief-list"><div class="loading">로딩 중...</div></div>
+        </div>
+      </div>
+
+      <!-- ── 중 : 그래프 ── -->
+      <div class="graph-panel" id="graph-panel">
+        <svg id="graph-svg"></svg>
+
+        <!-- 범례 -->
+        <div class="legend">
+          <div style="font-size:9px;font-weight:700;color:var(--txt2);margin-bottom:5px;text-transform:uppercase">관계 유형</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#e74c3c"></div> 고객사</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#3498db"></div> 공급사</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#2ecc71"></div> 파트너</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f1c40f"></div> 경쟁사</div>
+          <div style="margin-top:6px;padding-top:5px;border-top:1px solid var(--border);font-size:9px;color:var(--txt2)">
+            노드 크기 = 연결 수<br>클릭 → 상세 정보
+          </div>
+        </div>
+
+        <!-- 줌 버튼 -->
         <div class="graph-controls">
           <button class="graph-btn" onclick="zoomIn()">+</button>
           <button class="graph-btn" onclick="zoomOut()">−</button>
           <button class="graph-btn" onclick="fitView()">⊡</button>
         </div>
-        <div id="graph-loading" class="loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
-          기업명을 검색하여 공급망 네트워크를 시작하세요
+
+        <div id="graph-loading">
+          <div style="font-size:30px">🌐</div>
+          <div>기업명을 검색하거나 좌측 허브를 클릭하세요</div>
         </div>
       </div>
 
-      <!-- 사이드 패널 -->
+      <!-- ── 우 : 정보 패널 ── -->
       <div class="side-panel" id="side-panel">
-        <div class="info-card">
-          <div class="info-title">🔍 분석 안내</div>
-          <div style="font-size:12px;color:var(--txt2);line-height:1.8">
-            위 검색창에서 기업명을 검색하면 해당 기업의 공급망 관계를 시각화합니다.<br><br>
-            • 노드 클릭: 기업 상세 정보<br>
-            • 마우스 휠: 확대/축소<br>
-            • 드래그: 화면 이동<br>
-            • 노드 드래그: 위치 이동
+
+        <!-- 선택된 기업 상세 -->
+        <div class="info-card" id="node-detail" style="display:none">
+          <div class="info-title">📌 기업 정보</div>
+          <div id="node-detail-content"></div>
+          <!-- ★ 뉴스화 CTA ★ -->
+          <div id="node-newsify" style="display:none;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:6px;text-transform:uppercase;letter-spacing:.3px">🗞️ 뉴스화</div>
+            <div style="display:flex;flex-direction:column;gap:5px">
+              <button onclick="scNewsify('hub')"
+                style="width:100%;background:linear-gradient(135deg,#5b6af0,#7b8af8);color:#fff;border:none;border-radius:7px;
+                       padding:9px;font-size:12px;font-weight:700;cursor:pointer;transition:opacity .15s"
+                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                ✍ 허브 영향력 기사 초안
+              </button>
+              <button onclick="scNewsify('change')"
+                style="width:100%;background:var(--bg3);color:var(--txt1);border:1px solid var(--border);border-radius:7px;
+                       padding:8px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s"
+                onmouseover="this.style.borderColor='var(--acc)'" onmouseout="this.style.borderColor='var(--border)'">
+                🔄 공급망 변화 기사 초안
+              </button>
+              <button onclick="scNewsify('risk')"
+                style="width:100%;background:var(--bg3);color:#e74c3c;border:1px solid rgba(231,76,60,.3);border-radius:7px;
+                       padding:8px;font-size:11px;font-weight:600;cursor:pointer;transition:all .15s"
+                onmouseover="this.style.background='rgba(231,76,60,.08)'" onmouseout="this.style.background='var(--bg3)'">
+                ⚠️ 리스크 기사 초안
+              </button>
+              <div style="display:flex;gap:4px">
+                <a id="node-google-news" href="#" target="_blank"
+                  style="flex:1;text-align:center;background:var(--bg3);border:1px solid var(--border);border-radius:6px;
+                         padding:5px;font-size:10px;color:var(--txt2);text-decoration:none;transition:all .15s"
+                  onmouseover="this.style.borderColor='var(--acc)'" onmouseout="this.style.borderColor='var(--border)'">
+                  🔍 구글뉴스
+                </a>
+                <a id="node-naver-news" href="#" target="_blank"
+                  style="flex:1;text-align:center;background:var(--bg3);border:1px solid var(--border);border-radius:6px;
+                         padding:5px;font-size:10px;color:var(--txt2);text-decoration:none;transition:all .15s"
+                  onmouseover="this.style.borderColor='#2db400'" onmouseout="this.style.borderColor='var(--border)'">
+                  📰 네이버뉴스
+                </a>
+              </div>
+            </div>
           </div>
         </div>
-        <div class="info-card" id="node-detail" style="display:none">
-          <div class="info-title">📌 선택된 기업</div>
-          <div id="node-detail-content"></div>
-        </div>
-        <div class="info-card" id="rel-detail" style="display:none">
-          <div class="info-title">🔗 관계 목록</div>
-          <div id="rel-list-content"></div>
-        </div>
-      </div>
 
+        <!-- 탭 패널 (관계목록 | 리스크 | 경로탐색) -->
+        <div class="info-card" id="side-tab-card">
+          <div class="side-tabs">
+            <span class="side-tab active" onclick="switchSideTab('relations')">관계 목록</span>
+            <span class="side-tab" onclick="switchSideTab('risk')">⚠️ 리스크</span>
+            <span class="side-tab" onclick="switchSideTab('path')">🔗 경로 탐색</span>
+            <span class="side-tab" onclick="switchSideTab('theme')">📰 기사</span>
+            <span class="side-tab" onclick="switchSideTab('profile')">📋 프로파일</span>
+          </div>
+
+          <!-- 관계 목록 -->
+          <div class="side-tab-panel active" id="stab-relations">
+            <div class="empty" id="rel-empty">기업을 선택하면 관계 목록이 표시됩니다</div>
+            <div id="rel-list-content"></div>
+          </div>
+
+          <!-- 리스크 시나리오 -->
+          <div class="side-tab-panel" id="stab-risk">
+            <div id="risk-concentration" style="margin-bottom:10px">
+              <div class="empty">기업을 선택하면 리스크를 분석합니다</div>
+            </div>
+            <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:4px">
+              <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:6px">시나리오 시뮬레이션</div>
+              <button class="scenario-btn" id="sc-btn-disruption" onclick="runScenario('disruption')">⛔ 공급 중단 시나리오</button>
+              <button class="scenario-btn" id="sc-btn-demand_drop" onclick="runScenario('demand_drop')">📉 수요 급감 시나리오</button>
+              <button class="scenario-btn" id="sc-btn-bankruptcy" onclick="runScenario('bankruptcy')">💥 파산 가정 시나리오</button>
+              <div id="scenario-result" style="margin-top:8px"></div>
+            </div>
+            <!-- 충격 전파 분석 → 기사화 -->
+            <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+                <div style="font-size:10px;font-weight:700;color:var(--txt2)">⚡ 충격 전파 분석</div>
+                <button onclick="loadImpact(currentCorpCode)"
+                  style="font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg3);color:var(--txt2);cursor:pointer">분석</button>
+              </div>
+              <div id="impact-result">
+                <div style="font-size:10px;color:var(--txt2);text-align:center;padding:8px 0">이 기업 위기 시 파급 범위를 분석합니다</div>
+              </div>
+              <!-- 리스크 기사화 버튼 -->
+              <button onclick="scNewsify('risk')"
+                style="width:100%;margin-top:8px;background:rgba(231,76,60,.1);color:#e74c3c;border:1px solid rgba(231,76,60,.35);
+                       border-radius:7px;padding:8px;font-size:11px;font-weight:700;cursor:pointer;transition:all .15s"
+                onmouseover="this.style.background='rgba(231,76,60,.18)'" onmouseout="this.style.background='rgba(231,76,60,.1)'">
+                ⚠️ 이 리스크로 기사 초안 생성
+              </button>
+            </div>
+          </div>
+
+          <!-- 경로 탐색 -->
+          <div class="side-tab-panel" id="stab-path">
+            <div style="font-size:11px;color:var(--txt2);margin-bottom:8px">두 기업 간 공급망 연결 경로를 탐색합니다</div>
+            <input class="path-input" id="path-from" placeholder="출발 기업 corp_code">
+            <div style="text-align:center;font-size:12px;color:var(--txt2);margin:2px 0">↓</div>
+            <input class="path-input" id="path-to" placeholder="도착 기업 corp_code">
+            <select class="ctrl-select" id="path-depth" style="width:100%;margin-bottom:6px">
+              <option value="3">최대 3단계</option>
+              <option value="4">최대 4단계</option>
+              <option value="5">최대 5단계</option>
+            </select>
+            <button class="ctrl-btn" style="width:100%" onclick="runPathFinder()">🔍 경로 탐색</button>
+            <div id="path-result" style="margin-top:8px"></div>
+          </div>
+
+          <!-- 테마 기사 -->
+          <div class="side-tab-panel" id="stab-theme">
+            <div style="font-size:11px;color:var(--txt2);margin-bottom:8px">공급망 팩트 기반 테마 기사 데이터</div>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+              <button class="scenario-btn" onclick="loadThemeData('supply_top10')">📦 납품사 TOP10</button>
+              <button class="scenario-btn" onclick="loadThemeData('customer_top10')">🛒 고객사 TOP10</button>
+              <button class="scenario-btn" onclick="loadThemeData('hub_ecosystem')">🌐 생태계 조망</button>
+            </div>
+            <div id="theme-result"></div>
+            <!-- 테마 기사화 버튼 -->
+            <button onclick="scNewsify('hub')" id="theme-newsify-btn" style="display:none;
+              width:100%;margin-top:8px;background:linear-gradient(135deg,#5b6af0,#7b8af8);color:#fff;
+              border:none;border-radius:7px;padding:9px;font-size:12px;font-weight:700;cursor:pointer">
+              ✍ 이 데이터로 기사 초안 생성
+            </button>
+          </div>
+
+          <!-- 공급망 프로파일 (기자 브리핑) -->
+          <div class="side-tab-panel" id="stab-profile">
+            <div id="profile-content">
+              <div style="font-size:11px;color:var(--txt2);text-align:center;padding:20px 0">
+                기업을 선택하면 공급망 프로파일이 표시됩니다
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 전체 통계 카드 (초기 표시) -->
+        <div class="info-card" id="stats-card">
+          <div class="info-title">📊 공급망 DB 현황</div>
+          <div id="stats-content"><div class="loading">로딩 중...</div></div>
+        </div>
+
+      </div>
     </div>
   </div>
 </div>
@@ -199,115 +550,300 @@
 <div class="tooltip-box" id="tooltip"></div>
 
 <script>
-initPage('home');
+initPage('supply_chain');
 
 const API_BASE = (location.hostname==='localhost'||location.hostname==='127.0.0.1') ? `http://${location.host}` : '';
 
-// ── 색상 매핑 ──────────────────────────────────────────────────────────────
+function escHtml(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 const REL_COLORS = {
-  customer:   '#e74c3c',
-  supplier:   '#3498db',
-  partner:    '#2ecc71',
-  competitor: '#f1c40f',
-  subsidiary: '#9b59b6',
-  parent:     '#9b59b6',
+  customer:'#e74c3c', supplier:'#3498db', partner:'#2ecc71',
+  competitor:'#f1c40f', subsidiary:'#9b59b6', parent:'#9b59b6',
 };
 const REL_KO = {
-  customer: '고객사', supplier: '공급사', partner: '파트너',
-  competitor: '경쟁사', subsidiary: '자회사', parent: '모회사',
+  customer:'고객사', supplier:'공급사', partner:'파트너',
+  competitor:'경쟁사', subsidiary:'자회사', parent:'모회사',
 };
 
-// ── D3 설정 ────────────────────────────────────────────────────────────────
-let simulation = null;
-let svgEl = null;
-let gEl   = null;
-let zoomBehavior = null;
+// ── 상태 ──────────────────────────────────────────────────────────────────────
+let simulation    = null;
+let svgEl         = null;
+let gEl           = null;
+let zoomBehavior  = null;
 let currentCorpCode = null;
 let currentCorpName = null;
-let graphData = { nodes: [], links: [] };
-let searchTimer = null;
+let graphData     = { nodes:[], links:[] };
+let searchTimer   = null;
+let _currentSideTab = 'relations';
 
+// ── 사이드 탭 ─────────────────────────────────────────────────────────────────
+function switchSideTab(name) {
+  _currentSideTab = name;
+  document.querySelectorAll('.side-tab').forEach((el,i) => {
+    const names = ['relations','risk','path','theme','profile'];
+    el.classList.toggle('active', names[i] === name);
+  });
+  document.querySelectorAll('.side-tab-panel').forEach(el => el.classList.remove('active'));
+  const panel = document.getElementById(`stab-${name}`);
+  if (panel) panel.classList.add('active');
+
+  // 기업 선택 상태면 즉시 로드
+  if (currentCorpCode) {
+    if (name === 'risk' && !document.getElementById('risk-concentration').dataset.loaded) {
+      loadRisk(currentCorpCode);
+    } else if (name === 'profile') {
+      loadProfile(currentCorpCode);
+    }
+  }
+}
+
+// ── 공급망 프로파일 로드 ────────────────────────────────────────────────────────
+async function loadProfile(corpCode) {
+  if (!corpCode) return;
+  const el = document.getElementById('profile-content');
+  el.innerHTML = '<div style="font-size:11px;color:var(--txt2);text-align:center;padding:20px 0">분석 중…</div>';
+
+  let d;
+  try {
+    const r = await fetch(`/api/supply-chain/profile?corp_code=${encodeURIComponent(corpCode)}`);
+    d = await r.json();
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e55;font-size:11px;padding:8px">오류: ${e.message}</div>`;
+    return;
+  }
+  if (d.error) {
+    el.innerHTML = `<div style="color:#e55;font-size:11px;padding:8px">오류: ${d.error}</div>`;
+    return;
+  }
+
+  const riskColor = v => v === 'HIGH' ? '#e55' : v === 'MED' ? '#f90' : '#4c4';
+  const hhi_badge = (hhi, label) => {
+    const lvl = hhi >= 2500 ? 'HIGH' : hhi >= 1000 ? 'MED' : 'LOW';
+    const clr = riskColor(lvl);
+    return `<span style="font-size:10px;background:${clr}22;color:${clr};border:1px solid ${clr}44;border-radius:3px;padding:1px 5px">${label} HHI ${hhi} (${lvl})</span>`;
+  };
+
+  const posIcon = {'제조·공급 중심':'⬆️','구매·유통 중심':'⬇️','파트너십 허브':'🔄','복합형':'⚡','upstream':'⬆️','downstream':'⬇️','integrated':'🔄','standalone':'⚪'}[d.position] || '🏢';
+  const posClr  = {'제조·공급 중심':'#6af','구매·유통 중심':'#f96','파트너십 허브':'#af6','복합형':'#fa0','upstream':'#6af','downstream':'#f96','integrated':'#af6','standalone':'#888'}[d.position] || '#aaa';
+
+  // 관계 목록 렌더링
+  const relList = (arr, type) => {
+    if (!arr || !arr.length) return '<span style="color:var(--txt2);font-size:10px">없음</span>';
+    const typeClr = {'customer':'#4af','supplier':'#f96','partner':'#a6f','competitor':'#f44'}[type] || '#888';
+    return arr.map(p => {
+      const nm = p.name || p.partner_name || '?';
+      const bar = `<div style="height:3px;width:${Math.min(100,p.share||20)}%;background:${typeClr};border-radius:2px;margin-top:1px"></div>`;
+      const shareStr = p.share ? `<span style="color:var(--txt2);font-size:9px">${p.share.toFixed(0)}%</span>` : '';
+      const ctxTitle = p.context ? ` title="${escHtml(p.context)}"` : '';
+      return `<div style="display:flex;align-items:center;gap:4px;padding:2px 0"${ctxTitle}>
+        <span style="font-size:11px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(nm)}</span>
+        ${shareStr}
+        ${bar}
+      </div>`;
+    }).join('');
+  };
+
+  // 스토리 앵글
+  const angles = (d.story_angles || []).map(a => `
+    <div style="border-left:3px solid var(--acc);padding:5px 8px;margin-bottom:6px;background:var(--bg2);border-radius:0 4px 4px 0">
+      <div style="font-size:11px;font-weight:700;margin-bottom:2px">${a.icon || ''} ${a.title || ''}</div>
+      <div style="font-size:10px;color:var(--txt2);line-height:1.4">${a.body || ''}</div>
+    </div>`).join('');
+
+  el.innerHTML = `
+    <!-- 헤더 -->
+    <div style="margin-bottom:10px">
+      <div style="font-size:14px;font-weight:700">${d.corp_name}</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-top:4px">
+        <span style="font-size:10px;background:${posClr}22;color:${posClr};border:1px solid ${posClr}44;border-radius:3px;padding:1px 5px">${posIcon} ${d.position_desc || d.position}</span>
+        <span style="font-size:10px;background:var(--bg3);color:var(--txt2);border-radius:3px;padding:1px 5px">${d.sector || '기타'}</span>
+        ${d.report_period ? `<span style="font-size:10px;color:var(--txt2)">${d.report_period}</span>` : ''}
+      </div>
+    </div>
+
+    <!-- HHI 리스크 -->
+    <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px">
+      ${d.cust_hhi != null ? hhi_badge(d.cust_hhi, '고객') : ''}
+      ${d.supp_hhi != null ? hhi_badge(d.supp_hhi, '공급') : ''}
+      ${d.exposure_count ? `<span style="font-size:10px;background:#f9022222;color:#f90;border:1px solid #f9022244;border-radius:3px;padding:1px 5px">🎯 ${d.exposure_count}개사 의존</span>` : ''}
+    </div>
+
+    <!-- 고객사 -->
+    ${d.customers && d.customers.length ? `
+    <div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;color:#4af;margin-bottom:3px">▶ 고객사 (${d.customers.length})</div>
+      ${relList(d.customers,'customer')}
+    </div>` : ''}
+
+    <!-- 공급사 -->
+    ${d.suppliers && d.suppliers.length ? `
+    <div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;color:#f96;margin-bottom:3px">▼ 공급사 (${d.suppliers.length})</div>
+      ${relList(d.suppliers,'supplier')}
+    </div>` : ''}
+
+    <!-- 파트너 -->
+    ${d.partners && d.partners.length ? `
+    <div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;color:#a6f;margin-bottom:3px">↔ 파트너 (${d.partners.length})</div>
+      ${relList(d.partners,'partner')}
+    </div>` : ''}
+
+    <!-- 경쟁사 -->
+    ${d.competitors && d.competitors.length ? `
+    <div style="margin-bottom:8px">
+      <div style="font-size:10px;font-weight:700;color:#f44;margin-bottom:3px">⚔ 경쟁사 (${d.competitors.length})</div>
+      ${relList(d.competitors,'competitor')}
+    </div>` : ''}
+
+    <!-- 기자 스토리 앵글 -->
+    ${angles ? `
+    <div style="margin-top:10px">
+      <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px">📰 기자 스토리 앵글</div>
+      ${angles}
+    </div>` : ''}
+
+    <!-- 취재 리드 연동 -->
+    ${d.story_leads && d.story_leads.length ? `
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-size:10px;font-weight:700;color:#fa0;margin-bottom:5px">⚡ 취재 리드 ${d.story_leads.length}건</div>
+      ${d.story_leads.map(l => {
+        const sevColor = l.severity >= 5 ? '#e55' : l.severity >= 4 ? '#f90' : '#aaa';
+        return `<div style="border-left:2px solid ${sevColor};padding:4px 8px;margin-bottom:5px;background:var(--bg2);border-radius:0 4px 4px 0;cursor:pointer"
+          onclick="window.open('/api/leads?corp_code=${escHtml(d.corp_code)}&limit=10','_blank')"
+          title="${escHtml(l.summary)}">
+          <div style="font-size:10px;font-weight:700;color:${sevColor}">${l.type_icon} ${escHtml(l.title)}</div>
+          <div style="font-size:9px;color:var(--txt2);line-height:1.3;margin-top:1px">${escHtml((l.summary||'').slice(0,120))}${l.summary&&l.summary.length>120?'…':''}</div>
+        </div>`;
+      }).join('')}
+    </div>` : ''}
+
+    <!-- 기사 초안 자동생성 버튼 -->
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
+      <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:6px">✍️ 기사 초안 자동 생성</div>
+      <div style="display:flex;gap:4px;flex-wrap:wrap">
+        <button onclick="loadArticleDraft('${d.corp_code}','partner_map')"
+          style="flex:1;min-width:60px;padding:4px 6px;font-size:9px;font-weight:700;background:var(--bg3);border:1px solid var(--border);color:var(--txt1);border-radius:3px;cursor:pointer">
+          🗺️ 공급망 지도
+        </button>
+        <button onclick="loadArticleDraft('${d.corp_code}','supply_change')"
+          style="flex:1;min-width:60px;padding:4px 6px;font-size:9px;font-weight:700;background:var(--bg3);border:1px solid var(--border);color:var(--txt1);border-radius:3px;cursor:pointer">
+          🔄 변화 기사
+        </button>
+        <button onclick="loadArticleDraft('${d.corp_code}','hub_risk')"
+          style="flex:1;min-width:60px;padding:4px 6px;font-size:9px;font-weight:700;background:var(--bg3);border:1px solid var(--border);color:var(--txt1);border-radius:3px;cursor:pointer">
+          ⚡ 리스크 기사
+        </button>
+      </div>
+      <div id="article-draft-result" style="margin-top:6px"></div>
+    </div>
+  `;
+}
+
+// ── D3 초기화 ─────────────────────────────────────────────────────────────────
 function initSvg() {
   const svg = d3.select('#graph-svg');
   svg.selectAll('*').remove();
 
-  zoomBehavior = d3.zoom()
-    .scaleExtent([0.1, 5])
+  zoomBehavior = d3.zoom().scaleExtent([0.05, 6])
     .on('zoom', (e) => gEl.attr('transform', e.transform));
-
   svg.call(zoomBehavior);
   gEl = svg.append('g');
 
-  // 화살표 마커
-  svg.append('defs').selectAll('marker')
-    .data(['customer','supplier','partner','competitor','subsidiary','parent','default'])
-    .join('marker')
-    .attr('id', d => `arrow-${d}`)
-    .attr('viewBox', '0 -5 10 10')
-    .attr('refX', 20).attr('refY', 0)
-    .attr('markerWidth', 6).attr('markerHeight', 6)
-    .attr('orient', 'auto')
-    .append('path')
-    .attr('d', 'M0,-5L10,0L0,5')
-    .attr('fill', d => REL_COLORS[d] || '#666');
+  // 화살표 마커 — refX를 넉넉하게 설정해서 노드 외곽에 정확히 표시
+  const defs = svg.append('defs');
+  ['customer','supplier','partner','competitor','default'].forEach(rel => {
+    defs.append('marker')
+      .attr('id', `arrow-${rel}`)
+      .attr('viewBox','0 -4 10 8')
+      .attr('refX', 28)   // 노드 최대 반경(20) + 여유(8) — 화살표가 노드 외곽에 닿도록
+      .attr('refY', 0)
+      .attr('markerWidth', 6).attr('markerHeight', 6)
+      .attr('orient', 'auto')
+      .append('path')
+      .attr('d', 'M0,-4L10,0L0,4Z')
+      .attr('fill', REL_COLORS[rel] || '#666')
+      .attr('opacity', 0.8);
+  });
 
   svgEl = svg;
 }
 
-// ── 데이터 로드 ────────────────────────────────────────────────────────────
+// ── 그래프 로드 ───────────────────────────────────────────────────────────────
 async function loadGraph(corpCode, corpName) {
   currentCorpCode = corpCode;
   currentCorpName = corpName;
+
+  // 경로 탐색 폼 자동 채우기
+  const fromEl = document.getElementById('path-from');
+  if (fromEl && !fromEl.value) fromEl.value = corpCode;
+
   const relFilter = document.getElementById('rel-filter').value;
+  const depth     = parseInt(document.getElementById('depth-select').value);
 
-  document.getElementById('graph-loading').textContent = '⏳ 공급망 데이터 로딩 중...';
+  document.getElementById('graph-loading').innerHTML = '<div style="font-size:24px">⏳</div><div>공급망 데이터 로딩 중...</div>';
   document.getElementById('graph-loading').style.display = 'flex';
+  document.getElementById('node-detail').style.display = 'none';
+  document.getElementById('stats-card').style.display = 'none';
 
-  let url = `${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(corpCode)}&limit=200`;
-  if (relFilter) url += `&relation=${encodeURIComponent(relFilter)}`;
+  // 관계 목록 초기화
+  document.getElementById('rel-empty').style.display = 'block';
+  document.getElementById('rel-list-content').innerHTML = '';
+
+  // 리스크 초기화
+  document.getElementById('risk-concentration').dataset.loaded = '';
+  if (_currentSideTab === 'risk') {
+    document.getElementById('risk-concentration').innerHTML = '<div class="empty">로딩 중...</div>';
+  }
+
+  const relParam = (relFilter && relFilter !== 'all') ? `&relation=${relFilter}` : '';
+  const url = `${API_BASE}/api/supply-chain/graph?corp_code=${encodeURIComponent(corpCode)}&depth=${depth}${relParam}`;
 
   try {
     const resp = await fetch(url);
     const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || '오류');
+    if (!resp.ok || data.error) throw new Error(data.error || '오류');
 
-    const edges = data.supply_chain || [];
-    document.getElementById('total-count').textContent = `${edges.length}개 관계`;
-    buildGraph(corpCode, corpName, edges);
+    const edges = data.edges || [];
+    const nodes = data.nodes || [];
+    const summary = data.summary || {};
+
+    document.getElementById('total-count').textContent = `${nodes.length}개 기업 · ${edges.length}개 관계`;
+    buildGraph(data);
+    renderNodeDetail(data.center, summary);
+
+    // 리스크 패널이 열려있으면 로드
+    if (_currentSideTab === 'risk') loadRisk(corpCode);
+
+    // 프로파일 패널이 열려있으면 로드
+    if (_currentSideTab === 'profile') loadProfile(corpCode);
+
+    // 변화 탭 모드면 해당 기업 변화 상세 자동 로드
+    if (document.getElementById('hub-change-area')?.style.display !== 'none') {
+      loadChangeDetail(corpCode, corpName);
+    }
+
   } catch(e) {
-    document.getElementById('graph-loading').textContent = '오류: ' + e.message;
+    document.getElementById('graph-loading').innerHTML = `<div style="color:#e74c3c">⚠️ ${escHtml(e.message)}</div>`;
   }
 }
 
-function buildGraph(centerCode, centerName, edges) {
-  const nodeMap = new Map();
-  const links   = [];
+function buildGraph(data) {
+  const nodes = data.nodes || [];
+  const edges = data.edges || [];
 
-  // 중심 노드
-  nodeMap.set(centerCode, { id: centerCode, name: centerName, type: 'center', degree: 0 });
+  graphData = {
+    nodes: nodes,
+    links: edges.map(e => ({
+      source: e.source, target: e.target,
+      relation: e.relation, context: e.context,
+      weight: e.weight || 1, depth: e.depth || 1,
+    })),
+  };
 
-  for (const edge of edges) {
-    const pKey = `partner::${edge.partner_name}`;
-    if (!nodeMap.has(pKey)) {
-      nodeMap.set(pKey, {
-        id: pKey, name: edge.partner_name, type: 'partner',
-        rel_type: edge.relation_type, context: edge.context, degree: 0,
-      });
-    }
-    const relType = edge.relation_type || 'default';
-    links.push({
-      source: centerCode,
-      target: pKey,
-      relation: relType,
-      context: edge.context || '',
-    });
-    nodeMap.get(pKey).degree++;
-    nodeMap.get(centerCode).degree++;
-  }
-
-  const nodes = [...nodeMap.values()];
-  graphData = { nodes, links };
-  renderGraph(nodes, links);
+  renderGraph(nodes, graphData.links);
 }
 
 function renderGraph(nodes, links) {
@@ -315,221 +851,1254 @@ function renderGraph(nodes, links) {
   initSvg();
 
   const svgNode = document.getElementById('graph-svg');
-  const W = svgNode.clientWidth || 900;
+  const W = svgNode.clientWidth  || 900;
   const H = svgNode.clientHeight || 600;
 
-  // 시뮬레이션
-  simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d => d.id).distance(120).strength(0.6))
-    .force('charge', d3.forceManyBody().strength(-300))
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('collision', d3.forceCollide().radius(d => nodeRadius(d) + 10));
+  // ── Force 설정 (노드 수에 따라 동적 조정) ────────────────────────────────
+  const n = nodes.length;
+  const chargeStr  = n > 100 ? -250 : n > 50 ? -350 : n > 20 ? -480 : -600;
+  const linkDist   = n > 80  ? 120  : n > 40 ? 140  : 160;
+  const collideR   = n > 80  ? 18   : 22;
 
-  // 링크
+  if (simulation) simulation.stop();
+  simulation = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links)
+      .id(d => d.id)
+      .distance(d => d.depth === 2 ? linkDist * 1.4 : linkDist)
+      .strength(d => d.depth === 2 ? 0.3 : 0.6))
+    .force('charge', d3.forceManyBody()
+      .strength(chargeStr)
+      .distanceMax(500))
+    .force('center', d3.forceCenter(W/2, H/2).strength(0.05))
+    .force('collision', d3.forceCollide()
+      .radius(d => nodeRadius(d) + collideR)
+      .strength(0.8))
+    .force('x', d3.forceX(W/2).strength(0.01))
+    .force('y', d3.forceY(H/2).strength(0.01))
+    .alphaDecay(0.025)
+    .velocityDecay(0.4);
+
+  // ── 링크 ─────────────────────────────────────────────────────────────────
   const link = gEl.append('g').attr('class','links').selectAll('line')
     .data(links).join('line')
-    .attr('stroke', d => REL_COLORS[d.relation] || '#666')
-    .attr('stroke-width', 1.5)
-    .attr('stroke-opacity', 0.7)
+    .attr('stroke', d => REL_COLORS[d.relation] || '#555')
+    .attr('stroke-width', d => d.depth === 2 ? 1.2 : 2)
+    .attr('stroke-opacity', d => d.depth === 2 ? 0.35 : 0.7)
     .attr('marker-end', d => `url(#arrow-${d.relation || 'default'})`);
 
-  // 노드 그룹
+  // ── 노드 그룹 ──────────────────────────────────────────────────────────
   const node = gEl.append('g').attr('class','nodes').selectAll('g')
     .data(nodes).join('g')
-    .attr('cursor','pointer')
+    .attr('cursor', 'pointer')
     .call(d3.drag()
-      .on('start', (e,d) => { if (!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
+      .on('start', (e,d) => { if(!e.active) simulation.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
       .on('drag',  (e,d) => { d.fx=e.x; d.fy=e.y; })
-      .on('end',   (e,d) => { if (!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
+      .on('end',   (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; }))
     .on('click', (e,d) => { e.stopPropagation(); selectNode(d); })
-    .on('mouseover', (e,d) => showTooltip(e, d))
-    .on('mousemove', (e) => moveTooltip(e))
-    .on('mouseout',  () => hideTooltip());
+    .on('mouseover', (e,d) => showTooltip(e,d))
+    .on('mousemove', e => moveTooltip(e))
+    .on('mouseout', () => hideTooltip());
+
+  // 그림자 (중심 노드)
+  node.filter(d => d.type==='center').append('circle')
+    .attr('r', d => nodeRadius(d) + 5)
+    .attr('fill', 'none')
+    .attr('stroke', 'var(--acc)')
+    .attr('stroke-width', 2)
+    .attr('stroke-dasharray', '4 2')
+    .attr('opacity', 0.5);
 
   // 원
   node.append('circle')
     .attr('r', d => nodeRadius(d))
-    .attr('fill', d => d.type==='center' ? 'var(--acc)' : (REL_COLORS[d.rel_type] || '#555'))
-    .attr('stroke', d => d.type==='center' ? '#fff' : 'transparent')
-    .attr('stroke-width', d => d.type==='center' ? 3 : 1);
+    .attr('fill', d => {
+      if (d.type==='center') return 'var(--acc)';
+      const base = REL_COLORS[d.type] || '#555';
+      return d.depth===2 ? base + 'aa' : base;
+    })
+    .attr('stroke', d => d.type==='center' ? '#fff' : (d.is_listed ? '#2ecc71' : 'transparent'))
+    .attr('stroke-width', d => d.type==='center' ? 3 : (d.is_listed ? 1.5 : 0));
 
-  // 레이블
-  node.append('text')
-    .text(d => truncate(d.name, 10))
-    .attr('text-anchor','middle')
+  // 레이블 (배경 + 텍스트)
+  const labelG = node.append('g').attr('pointer-events','none');
+  // 레이블 배경 (가독성)
+  labelG.filter(d => d.type==='center' || d.depth===1)
+    .append('rect')
+    .attr('rx', 2).attr('ry', 2)
+    .attr('fill', 'var(--bg1)')
+    .attr('opacity', 0.75)
+    .attr('x', d => -(trunc(d.name, d.type==='center'?13:10).length * 2.8))
+    .attr('y', d => nodeRadius(d) + 3)
+    .attr('width', d => trunc(d.name, d.type==='center'?13:10).length * 5.6)
+    .attr('height', 11);
+
+  labelG.append('text')
+    .text(d => trunc(d.name, d.type==='center' ? 13 : (d.depth===2 ? 7 : 10)))
+    .attr('text-anchor', 'middle')
     .attr('dy', d => nodeRadius(d) + 12)
-    .attr('font-size', 10)
-    .attr('fill','var(--txt2)')
-    .attr('pointer-events','none');
+    .attr('font-size', d => d.type==='center' ? 11 : (d.depth===2 ? 8 : 9.5))
+    .attr('font-weight', d => d.type==='center' ? '700' : '400')
+    .attr('fill', d => d.type==='center' ? 'var(--txt1)' : 'var(--txt2)')
+    .attr('opacity', d => d.depth===2 ? 0.7 : 1);
 
-  // 틱
+  // 등재 기업 표시 (녹색 점)
+  node.filter(d => d.is_listed && d.type!=='center')
+    .append('circle')
+    .attr('r', 3)
+    .attr('cx', d => nodeRadius(d) - 2)
+    .attr('cy', d => -nodeRadius(d) + 2)
+    .attr('fill', '#2ecc71');
+
   simulation.on('tick', () => {
+    // 화면 경계 내 제한 (노드가 캔버스 밖으로 나가지 않도록)
+    nodes.forEach(d => {
+      const r = nodeRadius(d);
+      d.x = Math.max(r, Math.min(W - r, d.x));
+      d.y = Math.max(r, Math.min(H - r, d.y));
+    });
     link
-      .attr('x1', d => d.source.x)
-      .attr('y1', d => d.source.y)
-      .attr('x2', d => d.target.x)
-      .attr('y2', d => d.target.y);
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
     node.attr('transform', d => `translate(${d.x},${d.y})`);
   });
 
-  setTimeout(fitView, 800);
+  setTimeout(fitView, 1200);
 }
 
 function nodeRadius(d) {
-  if (d.type === 'center') return 18;
-  return Math.min(14, 5 + (d.degree || 1) * 1.5);
+  if (d.type==='center') return 20;
+  const base = d.depth===2 ? 5 : 7;
+  return Math.min(14, base + (d.degree||1) * 0.8);
 }
 
-function truncate(s, n) { return s && s.length > n ? s.substring(0,n)+'…' : (s||''); }
+function trunc(s,n) { return s&&s.length>n ? s.substring(0,n)+'…' : (s||''); }
 
-// ── 노드 선택 ──────────────────────────────────────────────────────────────
+// ── 노드 선택 ────────────────────────────────────────────────────────────────
 function selectNode(d) {
-  // 선택 강조
-  d3.selectAll('circle').attr('stroke-width', n => n === d ? 3 : (n.type==='center' ? 3 : 1))
-                        .attr('stroke',       n => n === d ? '#fff' : (n.type==='center' ? '#fff' : 'transparent'));
+  d3.selectAll('circle')
+    .attr('stroke', n => n===d||n.type==='center' ? '#fff' : 'transparent')
+    .attr('stroke-width', n => n===d ? 3 : (n.type==='center'?3:1));
 
-  const detail = document.getElementById('node-detail');
-  const relDiv = document.getElementById('rel-detail');
-  detail.style.display = 'block';
+  const detailEl = document.getElementById('node-detail');
+  detailEl.style.display = 'block';
 
   if (d.type === 'center') {
     document.getElementById('node-detail-content').innerHTML = `
       <div class="info-corp-name">${escHtml(d.name)}</div>
-      <div class="info-meta">중심 기업 · ${graphData.links.length}개 관계</div>
-      <a href="/comparison_detail.html?corp_code=${encodeURIComponent(currentCorpCode)}"
-         style="font-size:11px;color:var(--acc)">📊 비교분석 보기 →</a>
-    `;
-    relDiv.style.display = 'none';
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:8px">중심 기업</div>
+      <a href="/company_detail.html?corp_code=${encodeURIComponent(currentCorpCode)}&corp_name=${encodeURIComponent(currentCorpName)}"
+         style="font-size:11px;color:var(--acc)">📊 기업 상세 →</a>`;
   } else {
-    const rels = graphData.links.filter(l => l.target.id === d.id || l.source.id === d.id);
+    const rels = graphData.links.filter(l =>
+      (typeof l.target==='object'?l.target.id:l.target)===d.id ||
+      (typeof l.source==='object'?l.source.id:l.source)===d.id);
+    const relBadge = `<span style="background:${REL_COLORS[d.type]||'#666'}20;color:${REL_COLORS[d.type]||'#888'};
+      border:1px solid ${REL_COLORS[d.type]||'#666'}40;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700">
+      ${REL_KO[d.type]||d.type||'관련'}</span>`;
     document.getElementById('node-detail-content').innerHTML = `
       <div class="info-corp-name">${escHtml(d.name)}</div>
-      <div class="info-meta">
-        <span style="background:${REL_COLORS[d.rel_type]||'#666'};color:#fff;border-radius:4px;padding:2px 7px;font-size:10px">${REL_KO[d.rel_type]||d.rel_type||'관련'}</span>
-      </div>
-      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-        ${newsSearchLinks(currentCorpName||'', d.name)}
-      </div>
-    `;
+      <div style="margin-bottom:8px">${relBadge}${d.is_listed?'<span style="font-size:10px;color:#2ecc71;margin-left:6px">📈 DB등록</span>':''}</div>
+      <div style="display:flex;gap:5px;flex-wrap:wrap">
+        ${d.corp_code?`<a href="/company_detail.html?corp_code=${escHtml(d.corp_code)}" style="font-size:11px;color:var(--acc)">기업 상세 →</a>`:''}
+        ${d.corp_code?`<a href="#" onclick="loadGraph('${d.corp_code}','${escHtml(d.name)}');document.getElementById('corp-search').value='${escHtml(d.name)}';return false;"
+          style="font-size:11px;color:var(--acc)">이 기업 중심으로 →</a>`:''}
+      </div>`;
 
-    const relHtml = rels.map(r => `
-      <div class="rel-item">
+    // 관계 목록 탭
+    const relHtml = rels.slice(0,30).map(r => {
+      const tgt = typeof r.target==='object'?r.target:graphData.nodes.find(n=>n.id===r.target);
+      const src = typeof r.source==='object'?r.source:graphData.nodes.find(n=>n.id===r.source);
+      return `<div class="rel-item">
         <div class="rel-partner">
-          <span class="rel-type-badge" style="background:${REL_COLORS[r.relation]||'#555'}20;color:${REL_COLORS[r.relation]||'#888'};border:1px solid ${REL_COLORS[r.relation]||'#555'}40">
-            ${REL_KO[r.relation]||r.relation||'관련'}
+          <span class="rel-badge" style="background:${REL_COLORS[r.relation]||'#666'}20;color:${REL_COLORS[r.relation]||'#888'};border:1px solid ${REL_COLORS[r.relation]||'#666'}40">
+            ${REL_KO[r.relation]||r.relation}
           </span>
-          ${escHtml(r.target.name || r.source.name || d.name)}
+          ${escHtml(tgt?.name||src?.name||d.name)}
         </div>
-        ${r.context ? `<div class="rel-context">${escHtml(r.context)}</div>` : ''}
-      </div>
-    `).join('');
+        ${r.context?`<div class="rel-ctx">${escHtml(r.context)}</div>`:''}
+      </div>`;
+    }).join('');
 
+    document.getElementById('rel-empty').style.display = 'none';
     document.getElementById('rel-list-content').innerHTML = relHtml || '<div class="empty">관계 정보 없음</div>';
-    relDiv.style.display = 'block';
+    if (_currentSideTab !== 'relations') switchSideTab('relations');
   }
 }
 
-// ── 툴팁 ──────────────────────────────────────────────────────────────────
+// ── 기업 중심 상세 (그래프 로드 후) ─────────────────────────────────────────
+function renderNodeDetail(center, summary) {
+  if (!center) return;
+  const detailEl = document.getElementById('node-detail');
+  detailEl.style.display = 'block';
+  document.getElementById('node-detail-content').innerHTML = `
+    <div class="info-corp-name">${escHtml(center.corp_name||'')}</div>
+    <div style="font-size:10px;color:var(--txt2);margin-bottom:8px">${escHtml(center.corp_code||'')}</div>
+    <div class="stat-grid">
+      <div class="stat-box"><div class="stat-label">고객사</div><div class="stat-val" style="color:#e74c3c">${summary.customers||0}</div></div>
+      <div class="stat-box"><div class="stat-label">공급사</div><div class="stat-val" style="color:#3498db">${summary.suppliers||0}</div></div>
+      <div class="stat-box"><div class="stat-label">파트너</div><div class="stat-val" style="color:#2ecc71">${summary.partners||0}</div></div>
+      <div class="stat-box"><div class="stat-label">경쟁사</div><div class="stat-val" style="color:#f1c40f">${summary.competitors||0}</div></div>
+    </div>
+    <div style="margin-top:8px;font-size:10px;color:var(--txt2)">DB 등록 파트너: ${summary.listed_partners||0}개</div>
+    <div style="margin-top:6px;display:flex;gap:5px;flex-wrap:wrap">
+      <a href="/company_detail.html?corp_code=${encodeURIComponent(center.corp_code)}&corp_name=${encodeURIComponent(center.corp_name)}"
+         style="font-size:11px;color:var(--acc)">📊 기업 상세 →</a>
+    </div>`;
+
+  // ★ 뉴스화 패널 표시 + 뉴스 검색 링크 업데이트
+  const newsifyEl = document.getElementById('node-newsify');
+  if (newsifyEl) {
+    newsifyEl.style.display = 'block';
+    const q = encodeURIComponent(center.corp_name + ' 공급망');
+    const gLink = document.getElementById('node-google-news');
+    const nLink = document.getElementById('node-naver-news');
+    if (gLink) gLink.href = `https://news.google.com/search?q=${q}&hl=ko&gl=KR`;
+    if (nLink) nLink.href = `https://search.naver.com/search.naver?where=news&query=${q}`;
+  }
+}
+
+// ── 공급망 뉴스화 (기사 초안 생성 연결) ────────────────────────────────────
+function scNewsify(mode) {
+  if (!currentCorpCode || !currentCorpName) {
+    alert('먼저 기업을 선택하세요');
+    return;
+  }
+  const modeLabel = { hub:'허브 영향력', change:'공급망 변화', risk:'리스크' }[mode] || mode;
+  // 취재단서 페이지로 이동 (해당 기업 필터)
+  const url = `/leads.html?corp_code=${encodeURIComponent(currentCorpCode)}&corp_name=${encodeURIComponent(currentCorpName)}`;
+  if (confirm(`[${escHtmlJs(currentCorpName)}] ${modeLabel} 기사 초안을 생성합니다.\n\n취재단서 페이지에서 해당 기업의 단서를 선택하여 초안을 생성하세요.\n\n이동하시겠습니까?`)) {
+    location.href = url;
+  }
+}
+
+function escHtmlJs(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// ── 리스크 분석 로드 ──────────────────────────────────────────────────────────
+async function loadRisk(corpCode) {
+  const el = document.getElementById('risk-concentration');
+  el.innerHTML = '<div class="loading">분석 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/concentration?corp_code=${encodeURIComponent(corpCode)}`);
+    const d = await r.json();
+    if (d.error) { el.innerHTML=`<div style="color:#e74c3c;font-size:11px">${escHtml(d.error)}</div>`; return; }
+
+    const riskColor = {HIGH:'#e74c3c',MED:'#f1c40f',LOW:'#2ecc71'}[d.risk_level]||'#888';
+    const bd = d.breakdown||{};
+    const alerts = d.alerts||[];
+
+    el.innerHTML = `
+      <div class="stat-grid" style="margin-bottom:8px">
+        <div class="stat-box">
+          <div class="stat-label">종합 스코어</div>
+          <div class="stat-val" style="color:${riskColor}">${d.risk_score}</div>
+          <div class="stat-sub" style="color:${riskColor}">${d.risk_level}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">고객 집중도</div>
+          <div class="stat-val">${bd.customer_concentration?.count||0}개사</div>
+          <div class="stat-sub">HHI ${bd.customer_concentration?.hhi?.toFixed(0)||'-'}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">공급사 집중도</div>
+          <div class="stat-val">${bd.supplier_concentration?.count||0}개사</div>
+          <div class="stat-sub">HHI ${bd.supplier_concentration?.hhi?.toFixed(0)||'-'}</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">의존 기업</div>
+          <div class="stat-val">${bd.systemic_exposure?.dependent_count||0}</div>
+          <div class="stat-sub">타 기업 의존</div>
+        </div>
+      </div>
+      ${alerts.map(a=>`
+        <div style="font-size:10px;margin-bottom:4px;padding:5px 8px;border-radius:5px;
+          background:${{HIGH:'rgba(231,76,60,.1)',MED:'rgba(241,196,15,.08)',LOW:'rgba(46,204,113,.08)'}[a.severity]||'var(--bg3)'};
+          border:1px solid ${{HIGH:'rgba(231,76,60,.3)',MED:'rgba(241,196,15,.3)',LOW:'rgba(46,204,113,.3)'}[a.severity]||'var(--border)'}">
+          ${{HIGH:'🔴',MED:'🟡',LOW:'🟢'}[a.severity]||'⚪'} ${escHtml(a.msg)}
+        </div>`).join('')}`;
+    el.dataset.loaded = '1';
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e74c3c;font-size:11px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 충격 전파 분석 ────────────────────────────────────────────────────────────
+async function loadImpact(corpCode) {
+  if (!corpCode) { alert('먼저 기업을 선택하세요'); return; }
+  const el = document.getElementById('impact-result');
+  el.innerHTML = '<div class="loading">분석 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/impact?corp_code=${encodeURIComponent(corpCode)}`);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="color:#e55;font-size:10px">${escHtml(d.error)}</div>`; return; }
+
+    const imp = d.impact || {};
+    const custImp = imp.customer_impact || {};
+    const suppImp = imp.supplier_impact || {};
+    const depComp = imp.dependent_companies || {};
+    const revExp  = imp.revenue_exposed || {};
+
+    // 파급 규모 배지
+    const totalAffected = (custImp.count||0) + (depComp.count||0) + (revExp.count||0);
+    const sevColor = totalAffected >= 10 ? '#e55' : totalAffected >= 5 ? '#f90' : '#4c4';
+
+    // 기사 앵글 텍스트 생성
+    const articleHook = `${d.corp_name} 공급망 위기 시나리오: 직접 납품처 ${custImp.count||0}개사 조달 차질, ${d.corp_name}에 납품하던 공급사 ${suppImp.count||0}개사 매출 감소, ${depComp.count||0}개 기업이 ${d.corp_name}을 핵심 공급사로 의존.`;
+
+    el.innerHTML = `
+      <!-- 파급 규모 요약 -->
+      <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap">
+        <div style="flex:1;text-align:center;padding:5px;background:var(--bg2);border-radius:5px;border:1px solid ${sevColor}44">
+          <div style="font-size:16px;font-weight:700;color:${sevColor}">${totalAffected}</div>
+          <div style="font-size:9px;color:var(--txt2)">파급 기업 수</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:5px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:700;color:#4af">${custImp.count||0}</div>
+          <div style="font-size:9px;color:var(--txt2)">조달 차질</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:5px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:700;color:#f96">${suppImp.count||0}</div>
+          <div style="font-size:9px;color:var(--txt2)">매출 감소</div>
+        </div>
+        <div style="flex:1;text-align:center;padding:5px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">
+          <div style="font-size:16px;font-weight:700;color:#fa0">${depComp.count||0}</div>
+          <div style="font-size:9px;color:var(--txt2)">직접 의존</div>
+        </div>
+      </div>
+
+      <!-- 직접 의존 기업 (가장 뉴스 가치 높음) -->
+      ${depComp.count > 0 ? `
+      <div style="margin-bottom:6px">
+        <div style="font-size:10px;font-weight:700;color:#fa0;margin-bottom:3px">⚡ 직접 의존 기업 (공급사로 지정)</div>
+        ${(depComp.companies||[]).slice(0,5).map(c=>`
+          <div style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer"
+            onclick="${c.corp_code ? `loadGraph('${c.corp_code}','${escHtml(c.corp_name)}')` : ''}">
+            <span style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.corp_name||c.partner_name)}</span>
+            ${c.corp_code ? `<span style="font-size:8px;color:var(--acc)">→</span>` : ''}
+          </div>`).join('')}
+        ${depComp.count > 5 ? `<div style="font-size:9px;color:var(--txt2)">외 ${depComp.count-5}개사</div>` : ''}
+      </div>` : ''}
+
+      <!-- 기사 앵글 박스 -->
+      <div style="margin-top:6px;padding:6px;background:rgba(100,200,255,.06);border:1px solid rgba(100,200,255,.2);border-radius:5px">
+        <div style="font-size:9px;font-weight:700;color:#6cf;margin-bottom:3px">📰 기사 앵글</div>
+        <div style="font-size:9px;color:var(--txt2);line-height:1.5">${escHtml(articleHook)}</div>
+        <button onclick="navigator.clipboard.writeText(${JSON.stringify(articleHook)}).then(()=>alert('복사됨'))"
+          style="margin-top:4px;font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);color:var(--txt2);cursor:pointer">📋 복사</button>
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e55;font-size:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 기업별 공급망 변화 상세 ─────────────────────────────────────────────────────
+async function loadChangeDetail(corpCode, corpName) {
+  const box = document.getElementById('change-detail-box');
+  const titleEl = document.getElementById('change-detail-title');
+  const el = document.getElementById('change-detail-content');
+  box.style.display = '';
+  titleEl.textContent = `🔄 ${corpName} 변화 상세`;
+  el.innerHTML = '<div class="loading">분석 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/changes?corp_code=${encodeURIComponent(corpCode)}`);
+    const d = await r.json();
+    if (d.error || d.message) {
+      el.innerHTML = `<div style="font-size:10px;color:var(--txt2)">${escHtml(d.error||d.message)}</div>`; return;
+    }
+
+    const cmp = d.compared || {};
+    const chg = d.changes || {};
+    const sum = d.summary || {};
+    const newP  = chg.new_partners  || [];
+    const lostP = chg.lost_partners || [];
+    const relChg = chg.relation_changed || [];
+    const sig = sum.significance || 0;
+    const sigColor = sig >= 30 ? '#e55' : sig >= 15 ? '#f90' : '#4c4';
+
+    const relIcon = {'customer':'👤','supplier':'📦','partner':'🤝','competitor':'⚔'};
+
+    // 기사 앵글 생성
+    const newNames  = newP.slice(0,3).map(p=>p.partner_name).join(', ');
+    const lostNames = lostP.slice(0,3).map(p=>p.partner_name).join(', ');
+    const articleLine = `${corpName}: ${cmp.from_label}→${cmp.to_label} 공급망 변화. 신규 ${sum.new}개사${newNames?` (${newNames})`:''}${sum.lost?`, 이탈 ${sum.lost}개사${lostNames?` (${lostNames})`:''}`:''}.`;
+
+    el.innerHTML = `
+      <div style="font-size:9px;color:var(--txt2);margin-bottom:4px">${escHtml(cmp.from_label)} → ${escHtml(cmp.to_label)}</div>
+      <div style="display:flex;gap:3px;margin-bottom:6px">
+        <span style="font-size:10px;padding:2px 5px;background:#4af22;color:#4af;border-radius:3px;border:1px solid #4af44">+${sum.new||0} 신규</span>
+        <span style="font-size:10px;padding:2px 5px;background:#f9022;color:#f90;border-radius:3px;border:1px solid #f9044">-${sum.lost||0} 이탈</span>
+        <span style="font-size:10px;padding:2px 5px;background:#8882;color:#888;border-radius:3px;border:1px solid #8884">±${sum.changed||0} 변경</span>
+        <span style="font-size:10px;padding:2px 5px;background:${sigColor}22;color:${sigColor};border-radius:3px;border:1px solid ${sigColor}44">중요도 ${sig}</span>
+      </div>
+      ${newP.length ? `
+      <div style="margin-bottom:5px">
+        <div style="font-size:9px;font-weight:700;color:#4af;margin-bottom:2px">✨ 신규 등장</div>
+        ${newP.slice(0,5).map(p=>`
+          <div style="font-size:10px;padding:1px 0;display:flex;align-items:center;gap:3px">
+            <span>${relIcon[p.relation_type]||'•'}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(p.partner_name)}</span>
+            ${p.is_listed ? '<span style="font-size:8px;color:#f90">상장</span>' : ''}
+          </div>`).join('')}
+        ${newP.length>5?`<div style="font-size:9px;color:var(--txt2)">외 ${newP.length-5}개</div>`:''}
+      </div>` : ''}
+      ${lostP.length ? `
+      <div style="margin-bottom:5px">
+        <div style="font-size:9px;font-weight:700;color:#f90;margin-bottom:2px">💨 이탈</div>
+        ${lostP.slice(0,5).map(p=>`
+          <div style="font-size:10px;padding:1px 0;display:flex;align-items:center;gap:3px">
+            <span>${relIcon[p.relation_type]||'•'}</span>
+            <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:line-through;color:var(--txt2)">${escHtml(p.partner_name)}</span>
+          </div>`).join('')}
+        ${lostP.length>5?`<div style="font-size:9px;color:var(--txt2)">외 ${lostP.length-5}개</div>`:''}
+      </div>` : ''}
+      ${relChg.length ? `
+      <div style="margin-bottom:5px">
+        <div style="font-size:9px;font-weight:700;color:#a6f;margin-bottom:2px">🔄 관계 변경</div>
+        ${relChg.slice(0,3).map(p=>`
+          <div style="font-size:10px;padding:1px 0">${escHtml(p.partner_name)}: ${escHtml(p.old_relation)}→${escHtml(p.new_relation)}</div>`).join('')}
+      </div>` : ''}
+      <div style="padding:5px;background:rgba(100,200,255,.06);border:1px solid rgba(100,200,255,.2);border-radius:4px;margin-top:4px">
+        <div style="font-size:9px;color:#6cf;font-weight:700;margin-bottom:2px">📰 기사 앵글</div>
+        <div style="font-size:9px;color:var(--txt2);line-height:1.4">${escHtml(articleLine)}</div>
+        <button onclick="navigator.clipboard.writeText(${JSON.stringify(articleLine)}).then(()=>alert('복사됨'))"
+          style="margin-top:3px;font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);color:var(--txt2);cursor:pointer">📋 복사</button>
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e55;font-size:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 공통 파트너 발굴 ───────────────────────────────────────────────────────────
+async function runCommonSearch() {
+  const textarea = document.getElementById('common-input');
+  const relation = document.getElementById('common-relation').value;
+  const el = document.getElementById('common-result');
+
+  const names = textarea.value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if (names.length < 2) { el.innerHTML = '<div style="font-size:10px;color:#f90">2개 이상 기업명을 입력하세요</div>'; return; }
+
+  el.innerHTML = '<div class="loading">검색 중...</div>';
+  try {
+    const params = names.map(n=>`partners=${encodeURIComponent(n)}`).join('&');
+    const r = await fetch(`${API_BASE}/api/supply-chain/common?${params}&relation=${relation}`);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="color:#e55;font-size:10px">${escHtml(d.error)}</div>`; return; }
+
+    const companies = d.common_companies || [];
+    const relKo = relation === 'customer' ? '고객사' : '공급사';
+    const articleLine = companies.length
+      ? `${names.join('·')} 모두에 ${relKo === '고객사' ? '납품하는' : '조달하는'} 기업 ${companies.length}개사 발굴: ${companies.slice(0,5).map(c=>c.corp_name).join(', ')}${companies.length>5?' 외 '+(companies.length-5)+'개':''}.`
+      : `${names.join('·')} 공통 ${relKo} 없음`;
+
+    el.innerHTML = `
+      <div style="font-size:10px;font-weight:700;margin-bottom:4px">
+        공통 ${relKo}: <span style="color:${companies.length?'var(--acc)':'#888'}">${companies.length}개사</span>
+      </div>
+      ${companies.length === 0 ? `<div style="font-size:10px;color:var(--txt2)">조건에 맞는 기업이 없습니다</div>` : `
+        <div style="max-height:120px;overflow-y:auto">
+          ${companies.map(c=>`
+            <div style="display:flex;align-items:center;gap:4px;padding:2px 0;cursor:pointer"
+              onclick="loadGraph('${escHtml(c.corp_code)}','${escHtml(c.corp_name)}')">
+              <span style="font-size:10px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(c.corp_name)}</span>
+              <span style="font-size:8px;color:var(--acc)">→</span>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:5px;padding:5px;background:rgba(100,200,255,.06);border:1px solid rgba(100,200,255,.2);border-radius:4px">
+          <div style="font-size:9px;color:#6cf;font-weight:700;margin-bottom:2px">📰 기사 앵글</div>
+          <div style="font-size:9px;color:var(--txt2);line-height:1.4">${escHtml(articleLine)}</div>
+          <button onclick="navigator.clipboard.writeText(${JSON.stringify(articleLine)}).then(()=>alert('복사됨'))"
+            style="margin-top:3px;font-size:9px;padding:2px 6px;border:1px solid var(--border);border-radius:3px;background:var(--bg3);color:var(--txt2);cursor:pointer">📋 복사</button>
+        </div>
+      `}
+      <div style="font-size:9px;color:var(--txt2);margin-top:4px">
+        ${names.map((n,i)=>`${escHtml(n)}: ${d.per_partner_count?.[n]||0}개`).join(' · ')}
+      </div>
+    `;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e55;font-size:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 리스크 시나리오 ───────────────────────────────────────────────────────────
+async function runScenario(scenario) {
+  if (!currentCorpCode) { alert('먼저 기업을 선택하세요'); return; }
+
+  ['disruption','demand_drop','bankruptcy'].forEach(s => {
+    document.getElementById(`sc-btn-${s}`)?.classList.toggle('active', s===scenario);
+  });
+
+  const resEl = document.getElementById('scenario-result');
+  resEl.innerHTML = '<div class="loading">시뮬레이션 중...</div>';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/risk-scenario?corp_code=${encodeURIComponent(currentCorpCode)}&scenario=${scenario}`);
+    const d = await r.json();
+    if (d.error) { resEl.innerHTML=`<div style="color:#e74c3c;font-size:11px">${escHtml(d.error)}</div>`; return; }
+
+    const w1=d.wave1||{}, w2=d.wave2||{}, sm=d.summary||{};
+    resEl.innerHTML = `
+      <div style="font-size:10px;font-weight:700;color:var(--txt1);margin-bottom:4px">${escHtml(d.scenario_ko||'')}</div>
+      <div style="font-size:9px;color:var(--txt2);margin-bottom:6px">${escHtml(d.scenario_desc||'')}</div>
+      <div class="stat-grid" style="margin-bottom:6px">
+        <div class="stat-box"><div class="stat-label">총 영향</div><div class="stat-val">${sm.total_exposed||0}개</div></div>
+        <div class="stat-box"><div class="stat-label">상장사</div><div class="stat-val">${sm.listed_exposed||0}개</div></div>
+      </div>
+      <div style="font-size:10px;font-weight:600;color:var(--txt2);margin-bottom:4px">1차 타격 ${w1.total||0}개사</div>
+      <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px">
+        ${(w1.companies||[]).slice(0,15).map(c=>`
+          <span class="wave-tag" style="background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);color:#e74c3c">
+            ${c.is_listed?'📈':'🏢'} ${escHtml(c.name)}
+          </span>`).join('')}
+        ${w1.total>15?`<span style="font-size:9px;color:var(--txt2)">+${w1.total-15}개</span>`:''}
+      </div>
+      ${w2.total?`
+        <div style="font-size:10px;font-weight:600;color:var(--txt2);margin-bottom:4px">2차 전파 ${w2.total}개사</div>
+        <div style="display:flex;flex-wrap:wrap;gap:3px">
+          ${(w2.companies||[]).slice(0,10).map(c=>`
+            <span class="wave-tag" style="background:rgba(241,196,15,.1);border:1px solid rgba(241,196,15,.3);color:#f1c40f">
+              ${escHtml(c.name)}
+            </span>`).join('')}
+          ${w2.total>10?`<span style="font-size:9px;color:var(--txt2)">+${w2.total-10}개</span>`:''}
+        </div>`:''}`;
+  } catch(e) {
+    resEl.innerHTML = `<div style="color:#e74c3c;font-size:11px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 경로 탐색 ─────────────────────────────────────────────────────────────────
+async function runPathFinder() {
+  const fromCode = document.getElementById('path-from').value.trim();
+  const toCode   = document.getElementById('path-to').value.trim();
+  const maxDepth = parseInt(document.getElementById('path-depth').value);
+
+  if (!fromCode || !toCode) { alert('두 기업의 corp_code를 입력하세요'); return; }
+
+  const resEl = document.getElementById('path-result');
+  resEl.innerHTML = '<div class="loading">경로 탐색 중...</div>';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/path?from=${encodeURIComponent(fromCode)}&to=${encodeURIComponent(toCode)}&max_depth=${maxDepth}`);
+    const d = await r.json();
+    if (d.error) { resEl.innerHTML=`<div style="color:#e74c3c;font-size:11px">${escHtml(d.error)}</div>`; return; }
+
+    if (!d.found) {
+      resEl.innerHTML = `<div style="color:var(--txt2);font-size:11px;padding:8px;background:var(--bg3);border-radius:6px">
+        🔍 ${escHtml(d.message||'연결 경로 없음')}</div>`;
+      return;
+    }
+
+    const pathHtml = (d.path||[]).map((p,i) => `
+      <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+        ${i>0?`<div style="font-size:9px;color:${REL_COLORS[p.via_relation]||'#888'};margin-right:4px">
+          ${REL_KO[p.via_relation]||p.via_relation||'→'}
+        </div>`:''}
+        <div style="background:var(--bg3);border:1px solid var(--border);border-radius:5px;padding:4px 8px;font-size:10px;
+          font-weight:${i===0||i===d.path.length-1?700:400}">
+          ${escHtml(p.name||p.code)}
+        </div>
+      </div>`).join('<div style="font-size:10px;color:var(--txt2);margin-left:8px">↓</div>');
+
+    resEl.innerHTML = `
+      <div style="background:rgba(46,204,113,.08);border:1px solid rgba(46,204,113,.3);border-radius:6px;padding:8px;margin-bottom:8px">
+        <div style="font-size:11px;font-weight:700;color:#2ecc71;margin-bottom:4px">✅ ${d.hops}단계 연결 발견</div>
+        <div style="font-size:10px;color:var(--txt2)">${escHtml(d.message||'')}</div>
+      </div>
+      ${pathHtml}`;
+  } catch(e) {
+    resEl.innerHTML = `<div style="color:#e74c3c;font-size:11px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 테마 기사 데이터 ──────────────────────────────────────────────────────────
+async function loadThemeData(type) {
+  if (!currentCorpCode) { alert('먼저 기업을 선택하세요'); return; }
+  const resEl = document.getElementById('theme-result');
+  resEl.innerHTML = '<div class="loading">구성 중...</div>';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/theme-article?corp_code=${encodeURIComponent(currentCorpCode)}&type=${type}`);
+    const d = await r.json();
+    if (d.error) { resEl.innerHTML=`<div style="color:#e74c3c;font-size:11px">${escHtml(d.error)}</div>`; return; }
+
+    const entities = type==='hub_ecosystem' ? [] : (d.entities||[]);
+    const ecoEntities = type==='hub_ecosystem' ? d.entities : null;
+
+    let html = `
+      <div style="background:rgba(91,106,240,.08);border:1px solid rgba(91,106,240,.3);border-radius:6px;padding:7px;margin-bottom:6px">
+        <div style="font-size:10px;font-style:italic;color:var(--txt1)">💡 ${escHtml(d.headline_hint||'')}</div>
+      </div>
+      ${(d.key_facts||[]).map(f=>`<div style="font-size:10px;color:var(--txt2);margin-bottom:3px">• ${escHtml(f)}</div>`).join('')}`;
+
+    if (entities.length) {
+      html += `<div style="margin-top:8px">
+        ${entities.map(e=>`
+          <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border)">
+            <span style="font-size:10px;color:var(--txt2);width:18px;text-align:right">${e.rank}</span>
+            <span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+              ${escHtml(e.partner_name)}
+            </span>
+            <span style="font-size:9px">${e.is_listed?'📈':'🏢'}</span>
+            <span style="font-size:9px;color:var(--txt2)">${e.mention_cnt}회</span>
+          </div>`).join('')}
+      </div>`;
+    } else if (ecoEntities) {
+      const relItems = Object.entries(ecoEntities).map(([rel, names]) =>
+        `<div style="margin-bottom:6px">
+          <div style="font-size:9px;font-weight:700;color:${REL_COLORS[rel]||'#888'};margin-bottom:3px">${REL_KO[rel]||rel}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:3px">
+            ${(names||[]).map(n=>`<span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:9px">${escHtml(n)}</span>`).join('')}
+          </div>
+        </div>`).join('');
+      html += `<div style="margin-top:8px">${relItems}</div>`;
+      if (d.reverse_mention_count) {
+        html += `<div style="font-size:10px;color:var(--txt2);margin-top:6px">타 기업 공시 언급: ${d.reverse_mention_count}건</div>`;
+      }
+    }
+
+    resEl.innerHTML = html;
+  } catch(e) {
+    resEl.innerHTML = `<div style="color:#e74c3c;font-size:11px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 전체 통계 ─────────────────────────────────────────────────────────────────
+async function showStats() {
+  const card = document.getElementById('stats-card');
+  const content = document.getElementById('stats-content');
+  card.style.display = 'block';
+  content.innerHTML = '<div class="loading">로딩 중...</div>';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/stats`);
+    const d = await r.json();
+    if (d.error) { content.innerHTML=`<div style="color:#e74c3c">${escHtml(d.error)}</div>`; return; }
+
+    const byType = (d.by_relation_type||[]);
+    const typeBars = byType.map(t => {
+      const pct = d.total_relations ? (t['COUNT(*)'] / d.total_relations * 100).toFixed(1) : 0;
+      const rel = t.relation_type;
+      return `<div style="margin-bottom:5px">
+        <div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:2px">
+          <span style="color:${REL_COLORS[rel]||'#888'}">${REL_KO[rel]||rel}</span>
+          <span style="color:var(--txt2)">${t['COUNT(*)']?.toLocaleString()}건 (${pct}%)</span>
+        </div>
+        <div style="height:4px;background:var(--bg3);border-radius:2px">
+          <div style="height:4px;background:${REL_COLORS[rel]||'#888'};border-radius:2px;width:${pct}%"></div>
+        </div>
+      </div>`;
+    }).join('');
+
+    content.innerHTML = `
+      <div class="stat-grid" style="margin-bottom:10px">
+        <div class="stat-box"><div class="stat-label">총 관계</div><div class="stat-val">${(d.total_relations||0).toLocaleString()}</div></div>
+        <div class="stat-box"><div class="stat-label">보고 기업</div><div class="stat-val">${(d.reporting_corps||0).toLocaleString()}</div></div>
+        <div class="stat-box"><div class="stat-label">파트너 수</div><div class="stat-val">${(d.unique_partners||0).toLocaleString()}</div></div>
+        <div class="stat-box"><div class="stat-label">허브 TOP1</div>
+          <div class="stat-val" style="font-size:11px">${escHtml(d.top_hubs?.[0]?.partner_name||'-')}</div>
+          <div class="stat-sub">${d.top_hubs?.[0]?.cnt||0}건</div>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">${typeBars}</div>
+      <div style="font-size:10px;font-weight:700;color:var(--txt2);margin-bottom:5px">허브 TOP10</div>
+      ${(d.top_hubs||[]).map((h,i)=>`
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border);cursor:pointer"
+             onclick="searchByHubName('${escHtml(h.partner_name)}')">
+          <span style="font-size:10px;color:var(--txt2);width:16px">${i+1}</span>
+          <span style="font-size:11px;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(h.partner_name)}</span>
+          <span style="font-size:10px;color:var(--txt2)">${h.cnt}건/${h.reporters}사</span>
+        </div>`).join('')}`;
+  } catch(e) {
+    content.innerHTML = `<div style="color:#e74c3c">${escHtml(e.message)}</div>`;
+  }
+}
+
+async function searchByHubName(name) {
+  // partner_name으로 직접 검색 → 해당 기업이 DB에 있으면 그래프 로드
+  try {
+    const r = await fetch(`${API_BASE}/api/dart/companies?q=${encodeURIComponent(name)}&limit=1`);
+    const d = await r.json();
+    const co = (d.companies||[])[0];
+    if (co) {
+      document.getElementById('corp-search').value = co.corp_name;
+      loadGraph(co.corp_code, co.corp_name);
+    }
+  } catch(_) {}
+}
+
+// ── 허브 순위 패널 ────────────────────────────────────────────────────────────
+async function loadHubs(sector, tabEl) {
+  document.querySelectorAll('.sector-tab').forEach(t => t.classList.remove('active'));
+  if (tabEl) tabEl.classList.add('active');
+
+  const listEl = document.getElementById('hub-list');
+  listEl.innerHTML = '<div class="loading">로딩 중...</div>';
+
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/hubs?sector=${encodeURIComponent(sector)}&limit=40`);
+    const d = await r.json();
+    const hubs = d.hubs || [];
+    if (!hubs.length) { listEl.innerHTML='<div class="empty">데이터 없음</div>'; return; }
+
+    listEl.innerHTML = hubs.map((h,i) => `
+      <div class="hub-item" onclick="onHubClick('${escHtml(h.partner_name)}')">
+        <div class="hub-item-name">
+          <span class="hub-rank">${i+1}.</span>${escHtml(h.partner_name)}
+        </div>
+        <div class="hub-item-meta">
+          <span title="총 언급">📊 ${h.total_mentions}</span>
+          <span title="언급 기업 수">🏢 ${h.reporter_count}사</span>
+          ${h.as_customer?`<span style="color:#e74c3c" title="고객사로">👥${h.as_customer}</span>`:''}
+          ${h.as_supplier?`<span style="color:#3498db" title="공급사로">📦${h.as_supplier}</span>`:''}
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:#e74c3c;font-size:11px;padding:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function onHubClick(partnerName) {
+  // 파트너명으로 기업 검색 → DB에 있으면 그래프, 없으면 역방향 조회
+  try {
+    const r = await fetch(`${API_BASE}/api/dart/companies?q=${encodeURIComponent(partnerName)}&limit=3`);
+    const d = await r.json();
+    const match = (d.companies||[]).find(c => c.corp_name === partnerName || c.corp_name.includes(partnerName));
+    if (match) {
+      document.getElementById('corp-search').value = match.corp_name;
+      document.getElementById('search-suggestions').style.display = 'none';
+      loadGraph(match.corp_code, match.corp_name);
+    } else {
+      // 역방향: 이 파트너를 언급한 기업들 목록 표시
+      const hr = await fetch(`${API_BASE}/api/supply-chain/hub?partner_name=${encodeURIComponent(partnerName)}`);
+      const hd = await hr.json();
+      const reporters = Object.values(hd.by_relation||{}).flat().slice(0,5);
+      if (reporters.length) {
+        const first = reporters[0];
+        loadGraph(first.corp_code, first.corp_name);
+        document.getElementById('corp-search').value = first.corp_name;
+      }
+    }
+  } catch(_) {}
+}
+
+// ── 허브 패널 모드 전환 (허브순위 / 변화알림 / 리스크순위) ───────────────────
+let _hubMode = 'hub';
+function setHubMode(mode) {
+  _hubMode = mode;
+  // 버튼 스타일
+  ['hub','change','risk','map','brief'].forEach(m => {
+    const btn = document.getElementById(`hub-mode-${m}`);
+    if (!btn) return;
+    const active = m === mode;
+    btn.style.background = active ? 'var(--acc)' : 'var(--bg3)';
+    btn.style.color      = active ? '#fff'       : 'var(--txt2)';
+  });
+  // 섹션 표시
+  document.getElementById('hub-sector-area').style.display    = mode==='hub'    ? '' : 'none';
+  document.getElementById('hub-change-area').style.display    = mode==='change' ? '' : 'none';
+  document.getElementById('hub-risk-area').style.display      = mode==='risk'   ? '' : 'none';
+  document.getElementById('hub-map-area').style.display       = mode==='map'    ? '' : 'none';
+  document.getElementById('hub-brief-area').style.display     = mode==='brief'  ? '' : 'none';
+  document.getElementById('hub-list').style.display           = mode==='hub'    ? '' : 'none';
+  document.getElementById('change-alert-list').style.display  = mode==='change' ? '' : 'none';
+  document.getElementById('risk-ranking-list').style.display  = mode==='risk'   ? '' : 'none';
+  document.getElementById('industry-map-list').style.display  = mode==='map'    ? '' : 'none';
+  if (mode === 'change') loadChangeAlerts();
+  if (mode === 'risk')   loadRiskRanking(null);
+  if (mode === 'map')    loadIndustryMap(null);
+  if (mode === 'brief')  loadDailyBriefing();
+}
+
+// ── 집중도 리스크 순위 ─────────────────────────────────────────────────────
+let _riskLevelFilter = null;
+let _riskSortMode    = 'risk';   // 'risk' | 'systemic'
+
+function setRiskSort(mode) {
+  _riskSortMode = mode;
+  ['risk','systemic'].forEach(m => {
+    const b = document.getElementById(`risk-sort-${m}`);
+    if (!b) return;
+    b.style.background = m === mode ? 'var(--acc)' : 'var(--bg3)';
+    b.style.color      = m === mode ? '#fff'       : 'var(--txt2)';
+  });
+  loadRiskRanking(_riskLevelFilter);
+}
+
+async function loadRiskRanking(riskLevel) {
+  _riskLevelFilter = riskLevel;
+  // 필터 버튼 스타일
+  ['all','high','med','low'].forEach(k => {
+    const b = document.getElementById(`risk-filter-${k}`);
+    if (!b) return;
+    const isActive = (k === 'all' && !riskLevel) || (k === (riskLevel||'').toLowerCase());
+    b.style.fontWeight = isActive ? '800' : '400';
+    b.style.opacity    = isActive ? '1'   : '0.6';
+  });
+
+  const listEl = document.getElementById('risk-ranking-list');
+  listEl.innerHTML = '<div class="loading">리스크 분석 중...</div>';
+  try {
+    let url = `${API_BASE}/api/supply-chain/risk-ranking?limit=60&sort_by=${_riskSortMode}&min_partners=5`;
+    if (riskLevel) url += `&risk_level=${riskLevel}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    const ranking = d.ranking || [];
+
+    const rlColor = l => l==='HIGH' ? '#e74c3c' : l==='MED' ? '#f1c40f' : '#2ecc71';
+    const isSys = _riskSortMode === 'systemic';
+
+    listEl.innerHTML = `
+      <div style="font-size:10px;color:var(--txt2);padding:6px 8px;border-bottom:1px solid var(--border)">
+        ${isSys ? '⚡시스템 리스크' : '📊 집중도 리스크'} 순위 &nbsp;·&nbsp;
+        전체 <strong>${d.total}</strong>개 &nbsp;
+        🔴<strong>${d.stats?.HIGH||0}</strong> 🟡<strong>${d.stats?.MED||0}</strong> 🟢<strong>${d.stats?.LOW||0}</strong>
+      </div>
+      ${ranking.map((item, idx) => {
+        const scoreVal   = isSys ? item.exposure_count : item.risk_score;
+        const scoreLabel = isSys ? `의존 ${item.exposure_count}개사` : `${item.risk_score}점`;
+        const hasInfo    = item.top_customer || item.top_supplier;
+        return `
+        <div class="hub-item" onclick="loadGraph('${escHtml(item.corp_code)}','${escHtml(item.corp_name)}')"
+          title="집중도:${item.risk_score}점 | 고객HHI:${item.cust_hhi} 공급HHI:${item.supp_hhi} | 의존:${item.exposure_count}개">
+          <div class="hub-item-name" style="display:flex;align-items:center;gap:5px">
+            <span style="color:var(--txt2);font-size:9px;min-width:18px">#${idx+1}</span>
+            <span style="background:${rlColor(item.risk_level)}20;color:${rlColor(item.risk_level)};
+              border:1px solid ${rlColor(item.risk_level)}40;border-radius:3px;
+              padding:1px 4px;font-size:9px;font-weight:700">
+              ${scoreLabel}
+            </span>
+            ${escHtml(item.corp_name)}
+          </div>
+          <div class="hub-item-meta" style="margin-top:3px;display:flex;flex-wrap:wrap;gap:4px">
+            ${item.cust_count ? `<span>고객 ${item.cust_count}개</span>` : ''}
+            ${item.supp_count ? `<span>공급 ${item.supp_count}개</span>` : ''}
+            ${!isSys && item.cust_hhi > 2500 ? `<span style="color:#e74c3c">고객HHI ${item.cust_hhi}</span>` : ''}
+            ${!isSys && item.supp_hhi > 2500 ? `<span style="color:#e74c3c">공급HHI ${item.supp_hhi}</span>` : ''}
+            ${isSys ? `<span style="color:#f39c12">집중도 ${item.risk_score}점 ${item.risk_level}</span>` : ''}
+          </div>
+          ${hasInfo ? `<div style="font-size:9px;color:var(--txt2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+            ${item.top_customer ? `👤${escHtml(item.top_customer.substring(0,12))}` : ''}
+            ${item.top_supplier ? `📦${escHtml(item.top_supplier.substring(0,12))}` : ''}
+          </div>` : ''}
+        </div>`;
+      }).join('')}`;
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:#e74c3c;font-size:11px;padding:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 산업별 공급망 지도 ─────────────────────────────────────────────────────
+let _mapRelFilter = null;
+
+async function loadIndustryMap(relType) {
+  _mapRelFilter = relType;
+  // 필터 버튼 스타일
+  ['all','customer','supplier','partner'].forEach(k => {
+    const b = document.getElementById(`map-filter-${k}`);
+    if (!b) return;
+    const isActive = relType === null ? k === 'all' : k === relType;
+    b.style.background = isActive ? 'var(--acc)' : 'var(--bg3)';
+    b.style.color      = isActive ? '#fff'       : 'var(--txt2)';
+  });
+
+  const listEl = document.getElementById('industry-map-list');
+  listEl.innerHTML = '<div class="loading">산업지도 분석 중...</div>';
+
+  try {
+    let url = `${API_BASE}/api/supply-chain/industry-map`;
+    if (relType) url += `?relation_type=${relType}`;
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.error) { listEl.innerHTML = `<div style="color:#e55;padding:8px">${escHtml(d.error)}</div>`; return; }
+
+    const { nodes, links, summary } = d;
+
+    // 섹터별 색상
+    const SECTOR_COLORS = {
+      '반도체·전자': '#3498db',
+      '자동차·배터리': '#2ecc71',
+      '바이오·제약': '#e74c3c',
+      '화학·소재': '#9b59b6',
+      '철강·금속': '#95a5a6',
+      '건설·인프라': '#e67e22',
+      '미디어·엔터': '#1abc9c',
+      'IT·소프트웨어': '#f39c12',
+      '에너지': '#d35400',
+      '식품·소비재': '#27ae60',
+      '유통·물류': '#16a085',
+      '금융': '#8e44ad',
+      '조선·방산': '#2980b9',
+      '중공업·기계': '#7f8c8d',
+      '통신': '#c0392b',
+    };
+    const sectorColor = (s) => SECTOR_COLORS[s] || '#aaa';
+
+    // 관계 타입 아이콘
+    const REL_ICON = { customer: '📦', supplier: '🔩', partner: '🤝', competitor: '⚔️' };
+
+    // 헤더 요약
+    let html = `
+      <div style="font-size:10px;color:var(--txt2);padding:4px 0 8px">
+        ${summary.sectors}개 업종 · ${summary.total_links.toLocaleString()}개 관계
+      </div>
+    `;
+
+    // 업종별 집계 차트 (수평 바)
+    const namedNodes = nodes.filter(n => n.sector !== '기타').slice(0, 12);
+    const maxCount = Math.max(...namedNodes.map(n => n.corp_count));
+    html += `<div style="font-size:10px;font-weight:700;color:var(--txt);margin-bottom:4px">업종별 기업 수</div>`;
+    html += `<div style="margin-bottom:10px">`;
+    for (const n of namedNodes) {
+      const pct = (n.corp_count / maxCount * 100).toFixed(0);
+      const col = sectorColor(n.sector);
+      html += `
+        <div style="margin:2px 0;cursor:pointer" onclick="filterBySector('${escHtml(n.sector)}')">
+          <div style="display:flex;align-items:center;gap:4px">
+            <div style="width:70px;font-size:9px;color:var(--txt2);text-align:right;flex-shrink:0">${escHtml(n.sector)}</div>
+            <div style="flex:1;background:var(--bg3);border-radius:2px;height:10px">
+              <div style="width:${pct}%;background:${col};height:100%;border-radius:2px"></div>
+            </div>
+            <div style="width:22px;font-size:9px;color:var(--txt)">${n.corp_count}</div>
+          </div>
+        </div>`;
+    }
+    html += `</div>`;
+
+    // 업종 간 주요 흐름 (기타 제외)
+    const namedLinks = links.filter(l => l.source !== '기타' && l.target !== '기타').slice(0, 30);
+    if (namedLinks.length > 0) {
+      html += `<div style="font-size:10px;font-weight:700;color:var(--txt);margin-bottom:4px">업종 간 주요 흐름</div>`;
+      for (const l of namedLinks) {
+        const icon = REL_ICON[l.relation_type] || '→';
+        const srcCol = sectorColor(l.source);
+        const tgtCol = sectorColor(l.target);
+        const samples = l.sample_corps.join(', ');
+        html += `
+          <div style="margin:3px 0;padding:4px 6px;background:var(--bg3);border-radius:4px;cursor:pointer"
+               onclick="filterSectorFlow('${escHtml(l.source)}','${escHtml(l.target)}','${l.relation_type}')">
+            <div style="display:flex;align-items:center;gap:4px;font-size:10px">
+              <span style="background:${srcCol}22;color:${srcCol};padding:1px 4px;border-radius:3px;font-size:9px">${escHtml(l.source)}</span>
+              <span style="color:var(--txt2)">${icon}</span>
+              <span style="background:${tgtCol}22;color:${tgtCol};padding:1px 4px;border-radius:3px;font-size:9px">${escHtml(l.target)}</span>
+              <span style="margin-left:auto;color:var(--txt2);font-size:9px">${l.count}건</span>
+            </div>
+            <div style="font-size:9px;color:var(--txt2);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(samples)}</div>
+          </div>`;
+      }
+    }
+
+    listEl.innerHTML = html;
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:#e55;padding:8px">${escHtml(String(e))}</div>`;
+  }
+}
+
+function filterBySector(sector) {
+  // 해당 업종 기업들을 허브순위에서 필터로 보여주기
+  setHubMode('hub');
+  // 섹터 선택 버튼 클릭 시뮬레이션 (현재 sector-btn 구조와 연계)
+  console.log('Filter by sector:', sector);
+}
+
+function filterSectorFlow(src, tgt, rel) {
+  // TODO: 향후 해당 흐름의 구체적인 기업들 목록 표시
+  console.log('Flow:', src, '→', tgt, rel);
+}
+
+// ── 일일 취재 브리핑 ────────────────────────────────────────────────────────
+let _briefLoaded = false;
+async function loadDailyBriefing() {
+  if (_briefLoaded) return;
+  const el = document.getElementById('brief-list');
+  el.innerHTML = '<div class="loading">브리핑 생성 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/daily-briefing?limit=20`);
+    const d = await r.json();
+    if (d.error) { el.innerHTML = `<div style="color:#e55;font-size:10px">${escHtml(d.error)}</div>`; return; }
+
+    const sigColor = {'change':'#5b6af0','lead':'#e67e22','hub':'#e74c3c'};
+    const sigLabel = {'change':'🔄 변화','lead':'🚨 리드','hub':'🏆 허브'};
+    const items = d.items || [];
+
+    el.innerHTML = `
+      <div style="font-size:9px;color:var(--txt2);margin-bottom:8px;display:flex;align-items:center;gap:6px">
+        <span>${escHtml(d.generated_at)}</span>
+        <span style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:1px 5px">
+          총 <strong>${d.total_signals}</strong>개 시그널
+        </span>
+        <button onclick="loadDailyBriefing(true)"
+          style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:4px;
+                 color:var(--txt2);font-size:9px;padding:2px 6px;cursor:pointer">↺ 새로고침</button>
+      </div>
+      ${items.map((item, idx) => {
+        const clr  = sigColor[item.signal] || '#888';
+        const lbl  = sigLabel[item.signal] || item.signal_icon;
+        const angle = (item.angle || '').slice(0, 150);
+        const safeCode = escHtml(item.corp_code || '');
+        const safeName = escHtml(item.corp_name || '');
+        return `
+        <div style="border:1px solid var(--border);border-left:3px solid ${clr};border-radius:6px;
+                    padding:8px 10px;margin-bottom:6px;background:var(--bg2)">
+          <!-- 헤더 -->
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+            <span style="font-size:10px;font-weight:700;background:${clr}22;color:${clr};
+                         border:1px solid ${clr}44;border-radius:3px;padding:1px 5px">${lbl}</span>
+            <span style="font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                         cursor:pointer;color:var(--txt1)"
+                  onclick="${safeCode ? `loadGraph('${safeCode}','${safeName}')` : ''}">${safeName}</span>
+            <span style="font-size:9px;color:var(--txt2);flex-shrink:0">${item.score}점</span>
+          </div>
+
+          <!-- 요약 -->
+          <div style="font-size:10px;color:var(--txt2);line-height:1.5;margin-bottom:4px">${escHtml(item.summary)}</div>
+
+          <!-- 기사 앵글 -->
+          ${angle ? `<div style="font-size:10px;color:var(--acc);background:rgba(91,106,240,.07);
+                        border-left:2px solid var(--acc);padding:4px 7px;border-radius:0 4px 4px 0;
+                        margin-bottom:6px;line-height:1.5">
+            📰 ${escHtml(angle)}${item.angle&&item.angle.length>150?'…':''}
+          </div>` : ''}
+
+          <!-- 뉴스화 액션 버튼 -->
+          <div style="display:flex;gap:5px;flex-wrap:wrap">
+            ${safeCode ? `
+            <button onclick="event.stopPropagation(); location.href='/leads.html?corp_code=${safeCode}&corp_name=${safeName}'"
+              style="flex:1;min-width:90px;background:linear-gradient(135deg,#5b6af0,#7b8af8);color:#fff;border:none;
+                     border-radius:5px;padding:5px 8px;font-size:10px;font-weight:700;cursor:pointer">
+              ✍ 기사 초안 생성
+            </button>
+            <button onclick="event.stopPropagation(); loadGraph('${safeCode}','${safeName}')"
+              style="background:var(--bg3);color:var(--txt2);border:1px solid var(--border);
+                     border-radius:5px;padding:5px 8px;font-size:10px;cursor:pointer">
+              🌐 그래프
+            </button>
+            <a href="https://news.google.com/search?q=${encodeURIComponent(item.corp_name+' 공급망')}&hl=ko&gl=KR"
+               target="_blank"
+               style="background:var(--bg3);color:var(--txt2);border:1px solid var(--border);
+                      border-radius:5px;padding:5px 8px;font-size:10px;text-decoration:none;cursor:pointer">
+              🔍 보도확인
+            </a>` : ''}
+          </div>
+        </div>`;
+      }).join('')}
+    `;
+    _briefLoaded = true;
+  } catch(e) {
+    el.innerHTML = `<div style="color:#e55;font-size:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// 브리핑 강제 새로고침
+const _origLoadDailyBriefing = loadDailyBriefing;
+loadDailyBriefing = async function(force=false) {
+  if (force) _briefLoaded = false;
+  return _origLoadDailyBriefing();
+};
+
+// ── 기사 초안 자동 생성 ─────────────────────────────────────────────────────
+async function loadArticleDraft(corpCode, draftType) {
+  const el = document.getElementById('article-draft-result');
+  if (!el) return;
+  el.innerHTML = '<div style="font-size:9px;color:var(--txt2);padding:6px">초안 생성 중...</div>';
+
+  const typeNames = { partner_map: '공급망 지도', supply_change: '공급망 변화', hub_risk: '리스크 분석' };
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/article-draft?corp_code=${encodeURIComponent(corpCode)}&draft_type=${draftType}`);
+    const d = await r.json();
+    if (d.error) {
+      el.innerHTML = `<div style="font-size:9px;color:#e74c3c;padding:4px">${escHtml(d.error)}${d.tip ? '<br><span style="color:var(--txt2)">' + escHtml(d.tip) + '</span>' : ''}</div>`;
+      return;
+    }
+
+    const readinessColor = d.publish_readiness === 'HIGH' ? '#4caf50' : d.publish_readiness === 'MED' ? '#f90' : '#aaa';
+    const bodySecs = (d.body_sections || []).map(sec => `
+      <div style="margin-top:5px">
+        <div style="font-size:9px;font-weight:700;color:var(--acc)">${escHtml(sec.title)}</div>
+        <div style="font-size:9px;color:var(--txt1);line-height:1.4;margin-top:2px">${escHtml(sec.content)}</div>
+      </div>`).join('');
+
+    const tips = (d.angle_tips || []).map(t =>
+      `<div style="font-size:8px;color:var(--txt2);padding:2px 0;border-left:2px solid var(--acc);padding-left:5px;margin-bottom:3px">${escHtml(t)}</div>`
+    ).join('');
+
+    el.innerHTML = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:8px;margin-top:4px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span style="font-size:9px;color:var(--txt2)">${typeNames[draftType] || draftType}</span>
+          <span style="font-size:8px;font-weight:700;color:${readinessColor};border:1px solid ${readinessColor};border-radius:2px;padding:1px 4px">${d.publish_readiness}</span>
+        </div>
+        <div style="font-size:10px;font-weight:700;color:var(--txt1);line-height:1.3;margin-bottom:5px">${escHtml(d.headline)}</div>
+        <div style="font-size:9px;color:var(--txt2);line-height:1.4;margin-bottom:5px;border-left:2px solid #4caf50;padding-left:5px">${escHtml(d.lead)}</div>
+        ${bodySecs}
+        ${tips ? `<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:5px">
+          <div style="font-size:8px;font-weight:700;color:var(--txt2);margin-bottom:3px">📌 취재 포인트</div>
+          ${tips}</div>` : ''}
+        <div style="font-size:7px;color:var(--txt2);margin-top:5px;border-top:1px solid var(--border);padding-top:4px">${escHtml(d.source_note || '')}</div>
+      </div>`;
+  } catch (e) {
+    el.innerHTML = `<div style="font-size:9px;color:#e74c3c;padding:4px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+async function loadChangeAlerts() {
+  const listEl = document.getElementById('change-alert-list');
+  listEl.innerHTML = '<div class="loading">변화 감지 분석 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/change-alerts?limit=40`);
+    const d = await r.json();
+    const alerts = d.alerts || [];
+    if (!alerts.length) {
+      listEl.innerHTML = '<div class="empty">변화 감지 기업 없음</div>';
+      return;
+    }
+
+    const sigColor = s => s >= 60 ? '#e74c3c' : s >= 30 ? '#f1c40f' : '#2ecc71';
+    const sigLabel = s => s >= 60 ? '고' : s >= 30 ? '중' : '저';
+
+    listEl.innerHTML = `
+      <div style="font-size:10px;color:var(--txt2);padding:6px 8px;border-bottom:1px solid var(--border);margin-bottom:4px">
+        모니터링 ${d.total_monitored}개 기업 중 변화 감지: <strong>${d.total_changed}개</strong>
+      </div>
+      ${alerts.map(a => `
+        <div style="border:1px solid var(--border);border-left:3px solid ${sigColor(a.significance)};
+                    border-radius:6px;padding:8px 10px;margin-bottom:6px;background:var(--bg2)">
+          <!-- 헤더 -->
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px;cursor:pointer"
+               onclick="loadGraph('${escHtml(a.corp_code)}','${escHtml(a.corp_name)}');loadChangeDetail('${escHtml(a.corp_code)}','${escHtml(a.corp_name)}')">
+            <span style="background:${sigColor(a.significance)}22;color:${sigColor(a.significance)};
+              border:1px solid ${sigColor(a.significance)}44;border-radius:3px;
+              padding:1px 5px;font-size:9px;font-weight:700">변화 ${sigLabel(a.significance)}</span>
+            <span style="font-size:11px;font-weight:700;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.corp_name)}</span>
+            <span style="font-size:9px;color:var(--txt2)">${escHtml(a.to_period)}</span>
+          </div>
+          <!-- 변화 요약 -->
+          <div style="display:flex;gap:6px;font-size:10px;margin-bottom:6px">
+            ${a.new  ? `<span style="color:#2ecc71;font-weight:700">+${a.new} 신규</span>` : ''}
+            ${a.lost ? `<span style="color:#e74c3c;font-weight:700">-${a.lost} 이탈</span>` : ''}
+            ${a.changed ? `<span style="color:#f39c12;font-weight:700">↺${a.changed} 변경</span>` : ''}
+            <span style="color:var(--txt2);font-size:9px;margin-left:auto">${escHtml(a.from_period)} → ${escHtml(a.to_period)}</span>
+          </div>
+          <!-- 기사화 버튼 -->
+          <div style="display:flex;gap:4px">
+            <button onclick="location.href='/leads.html?corp_code=${escHtml(a.corp_code)}&corp_name=${escHtml(a.corp_name)}'"
+              style="flex:1;background:linear-gradient(135deg,#5b6af0,#7b8af8);color:#fff;border:none;
+                     border-radius:5px;padding:5px;font-size:10px;font-weight:700;cursor:pointer">
+              ✍ 변화 기사 초안
+            </button>
+            <a href="https://news.google.com/search?q=${encodeURIComponent(a.corp_name+' 공급망 변화')}&hl=ko&gl=KR" target="_blank"
+               style="background:var(--bg3);color:var(--txt2);border:1px solid var(--border);
+                      border-radius:5px;padding:5px 7px;font-size:10px;text-decoration:none">🔍</a>
+          </div>
+        </div>`).join('')}`;
+  } catch(e) {
+    listEl.innerHTML = `<div style="color:#e74c3c;font-size:11px;padding:10px">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 툴팁 ─────────────────────────────────────────────────────────────────────
 function showTooltip(e, d) {
   const tt = document.getElementById('tooltip');
   tt.innerHTML = `
-    <div style="font-weight:700;color:var(--txt1);margin-bottom:4px">${escHtml(d.name)}</div>
-    ${d.rel_type ? `<div style="color:${REL_COLORS[d.rel_type]||'#888'}">${REL_KO[d.rel_type]||d.rel_type}</div>` : '<div style="color:var(--acc)">중심 기업</div>'}
-    ${d.context ? `<div style="color:var(--txt2);margin-top:4px;font-size:10px">${escHtml(d.context.substring(0,80))}...</div>` : ''}
-    <div style="color:var(--txt2);font-size:10px;margin-top:4px">연결 수: ${d.degree||0}</div>`;
+    <div style="font-weight:700;margin-bottom:3px">${escHtml(d.name)}</div>
+    ${d.type!=='center'?`<div style="color:${REL_COLORS[d.type]||'#888'};font-size:10px">${REL_KO[d.type]||d.type}</div>`
+      :'<div style="color:var(--acc);font-size:10px">중심 기업</div>'}
+    ${d.is_listed?'<div style="color:#2ecc71;font-size:10px">📈 DB 등록</div>':''}
+    <div style="color:var(--txt2);font-size:10px;margin-top:3px">연결 ${d.degree||0}개</div>`;
   tt.style.display = 'block';
   moveTooltip(e);
 }
-
 function moveTooltip(e) {
   const tt = document.getElementById('tooltip');
-  tt.style.left = (e.clientX + 14) + 'px';
-  tt.style.top  = (e.clientY - 28) + 'px';
+  tt.style.left = (e.clientX+12)+'px';
+  tt.style.top  = (e.clientY-24)+'px';
 }
+function hideTooltip() { document.getElementById('tooltip').style.display='none'; }
 
-function hideTooltip() { document.getElementById('tooltip').style.display = 'none'; }
-
-// ── 줌 컨트롤 ──────────────────────────────────────────────────────────────
-function zoomIn()  { svgEl && svgEl.transition().call(zoomBehavior.scaleBy, 1.3); }
-function zoomOut() { svgEl && svgEl.transition().call(zoomBehavior.scaleBy, 0.7); }
+// ── 줌 ───────────────────────────────────────────────────────────────────────
+function zoomIn()  { svgEl&&svgEl.transition().call(zoomBehavior.scaleBy, 1.35); }
+function zoomOut() { svgEl&&svgEl.transition().call(zoomBehavior.scaleBy, 0.75); }
 function fitView() {
-  if (!svgEl || !gEl) return;
+  if (!svgEl||!gEl) return;
   const svgNode = document.getElementById('graph-svg');
-  const W = svgNode.clientWidth, H = svgNode.clientHeight;
-  const bounds = gEl.node().getBBox();
-  if (!bounds.width) return;
-  const scale = Math.min(0.9 * W / bounds.width, 0.9 * H / bounds.height, 2);
-  const tx = (W - scale * bounds.width) / 2 - scale * bounds.x;
-  const ty = (H - scale * bounds.height) / 2 - scale * bounds.y;
-  svgEl.transition().duration(600).call(
-    zoomBehavior.transform, d3.zoomIdentity.translate(tx, ty).scale(scale)
-  );
+  const W=svgNode.clientWidth, H=svgNode.clientHeight;
+  try {
+    const bounds=gEl.node().getBBox();
+    if(!bounds.width) return;
+    const scale=Math.min(.88*W/bounds.width, .88*H/bounds.height, 2.5);
+    const tx=(W-scale*bounds.width)/2-scale*bounds.x;
+    const ty=(H-scale*bounds.height)/2-scale*bounds.y;
+    svgEl.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity.translate(tx,ty).scale(scale));
+  } catch(_){}
 }
 
 function resetGraph() {
-  currentCorpCode = null;
-  currentCorpName = null;
-  graphData = { nodes: [], links: [] };
-  document.getElementById('corp-search').value = '';
-  document.getElementById('total-count').textContent = '';
-  if (svgEl) svgEl.selectAll('*').remove();
-  document.getElementById('graph-loading').style.display = 'flex';
-  document.getElementById('graph-loading').textContent = '기업명을 검색하여 공급망 네트워크를 시작하세요';
-  document.getElementById('node-detail').style.display = 'none';
-  document.getElementById('rel-detail').style.display  = 'none';
+  currentCorpCode=null; currentCorpName=null;
+  graphData={nodes:[],links:[]};
+  document.getElementById('corp-search').value='';
+  document.getElementById('total-count').textContent='';
+  if(svgEl) svgEl.selectAll('*').remove();
+  const loadEl=document.getElementById('graph-loading');
+  loadEl.style.display='flex';
+  loadEl.innerHTML='<div style="font-size:30px">🌐</div><div>기업명을 검색하거나 좌측 허브를 클릭하세요</div>';
+  document.getElementById('node-detail').style.display='none';
+  document.getElementById('stats-card').style.display='block';
+  document.getElementById('rel-empty').style.display='block';
+  document.getElementById('rel-list-content').innerHTML='';
+  document.getElementById('scenario-result').innerHTML='';
+  document.getElementById('theme-result').innerHTML='';
+  document.getElementById('path-result').innerHTML='';
 }
 
-// ── 기업 검색 자동완성 ─────────────────────────────────────────────────────
+// ── 기업 검색 자동완성 ────────────────────────────────────────────────────────
 async function onCorpSearch() {
   clearTimeout(searchTimer);
-  const q = document.getElementById('corp-search').value.trim();
-  if (!q || q.length < 1) {
-    document.getElementById('search-suggestions').style.display = 'none';
-    return;
-  }
-  searchTimer = setTimeout(async () => {
-    try {
-      const resp = await fetch(`${API_BASE}/api/dart/companies?q=${encodeURIComponent(q)}&limit=8`);
-      const data = await resp.json();
-      const corps = data.companies || [];
-      if (!corps.length) {
-        document.getElementById('search-suggestions').style.display = 'none';
-        return;
-      }
-      const html = corps.map(c => `
-        <div class="suggestion-item" onclick="selectCorp('${escHtml(c.corp_code)}', '${escHtml(c.corp_name)}')">
-          ${escHtml(c.corp_name)}
-          ${c.stock_code ? `<span style="color:var(--txt2);margin-left:6px">${escHtml(c.stock_code)}</span>` : ''}
+  const q=document.getElementById('corp-search').value.trim();
+  if(!q||q.length<1){ document.getElementById('search-suggestions').style.display='none'; return; }
+  searchTimer=setTimeout(async()=>{
+    try{
+      const r=await fetch(`${API_BASE}/api/dart/companies?q=${encodeURIComponent(q)}&limit=8`);
+      const data=await r.json();
+      const corps=data.companies||[];
+      if(!corps.length){ document.getElementById('search-suggestions').style.display='none'; return; }
+      const html=corps.map(c=>`
+        <div class="suggestion-item" onclick="selectCorp('${escHtml(c.corp_code)}','${escHtml(c.corp_name)}')">
+          ${escHtml(c.corp_name)}${c.stock_code?`<span style="color:var(--txt2);margin-left:6px">${escHtml(c.stock_code)}</span>`:''}
         </div>`).join('');
-      document.getElementById('search-suggestions').innerHTML = html;
-      document.getElementById('search-suggestions').style.display = 'block';
-    } catch(e) { /* silent */ }
-  }, 300);
+      document.getElementById('search-suggestions').innerHTML=html;
+      document.getElementById('search-suggestions').style.display='block';
+    }catch(_){}
+  }, 280);
 }
 
 function selectCorp(code, name) {
-  document.getElementById('corp-search').value = name;
-  document.getElementById('search-suggestions').style.display = 'none';
+  document.getElementById('corp-search').value=name;
+  document.getElementById('search-suggestions').style.display='none';
   loadGraph(code, name);
 }
 
 function onFilterChange() {
-  if (currentCorpCode) loadGraph(currentCorpCode, currentCorpName);
+  if(currentCorpCode) loadGraph(currentCorpCode, currentCorpName);
 }
 
-// URL 파라미터로 초기 로드
-const urlParams = new URLSearchParams(location.search);
-const initCode  = urlParams.get('corp_code');
-const initName  = urlParams.get('corp_name');
-if (initCode) {
-  document.getElementById('corp-search').value = initName || initCode;
-  loadGraph(initCode, initName || initCode);
+// ── 초기화 ────────────────────────────────────────────────────────────────────
+const urlParams=new URLSearchParams(location.search);
+const initCode=urlParams.get('corp_code');
+const initName=urlParams.get('corp_name');
+
+if(initCode){
+  document.getElementById('corp-search').value=initName||initCode;
+  loadGraph(initCode, initName||initCode);
+} else {
+  showStats();
 }
 
-// 클릭 시 자동완성 닫기
-document.addEventListener('click', e => {
-  if (!e.target.closest('#corp-search') && !e.target.closest('#search-suggestions'))
-    document.getElementById('search-suggestions').style.display = 'none';
+loadHubs('all', null);
+
+document.addEventListener('click', e=>{
+  if(!e.target.closest('#corp-search')&&!e.target.closest('#search-suggestions'))
+    document.getElementById('search-suggestions').style.display='none';
 });
 </script>
 </body>

@@ -13,6 +13,13 @@
     .art-preview { font-size: 12px; color: var(--txt2); line-height: 1.6; margin-bottom: 8px;
       display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .art-footer { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--txt2); flex-wrap: wrap; }
+    .verify-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: 10px; line-height: 1.2; }
+    .verify-SAFE   { background: rgba(34,197,94,.15); color: #22c55e; border: 1px solid rgba(34,197,94,.4); }
+    .verify-LOW    { background: rgba(251,146,60,.15); color: #fb923c; border: 1px solid rgba(251,146,60,.4); }
+    .verify-MEDIUM { background: rgba(234,179,8,.15);  color: #eab308; border: 1px solid rgba(234,179,8,.4); }
+    .verify-HIGH   { background: rgba(239,68,68,.15);  color: #ef4444; border: 1px solid rgba(239,68,68,.4); }
+    .verify-NONE   { background: rgba(148,163,184,.1); color: #94a3b8; border: 1px solid rgba(148,163,184,.3); }
+    .verify-detail { font-size: 10px; color: var(--txt2); margin-left: 4px; }
     .status-flow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
     .status-flow-arrow { color: var(--txt2); font-size: 12px; }
 
@@ -81,6 +88,47 @@
       border-radius: 8px; padding: 8px 16px; font-size: 12px; cursor: pointer;
     }
     .btn-close-modal:hover { background: var(--bg4); }
+
+    /* 뉴스 관련주 패널 */
+    .news-panel { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+    .news-panel-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; cursor: pointer; user-select: none; }
+    .news-panel-title { font-size: 14px; font-weight: 700; color: var(--txt1); }
+    .news-panel-toggle { font-size: 11px; color: var(--txt2); margin-left: auto; }
+    .news-panel-body { display: none; }
+    .news-panel-body.open { display: block; }
+    .news-textarea {
+      width: 100%; box-sizing: border-box;
+      background: var(--bg3); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 8px; padding: 10px 12px; font-size: 12px; font-family: inherit;
+      line-height: 1.6; resize: vertical; min-height: 80px; outline: none;
+    }
+    .news-textarea:focus { border-color: var(--acc); }
+    .news-textarea::placeholder { color: var(--txt2); }
+    .news-actions { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; }
+    .btn-news-search {
+      background: #e67e22; color: #fff; border: none; border-radius: 8px;
+      padding: 8px 18px; font-size: 12px; font-weight: 700; cursor: pointer;
+    }
+    .btn-news-search:hover { background: #d35400; }
+    .btn-news-search:disabled { opacity: .5; cursor: default; }
+    .news-hint { font-size: 11px; color: var(--txt2); }
+    .news-results { margin-top: 12px; }
+    .news-result-meta { font-size: 11px; color: var(--txt2); margin-bottom: 8px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .news-result-meta span { background: var(--bg3); padding: 2px 8px; border-radius: 4px; }
+    .news-result-direct { font-size: 12px; color: #e67e22; font-weight: 700; margin-bottom: 6px; }
+    .news-stock-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+    .news-stock-group { background: var(--bg3); border-radius: 8px; padding: 10px 12px; }
+    .nsg-title { font-size: 11px; font-weight: 700; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .nsg-list { display: flex; flex-direction: column; gap: 4px; }
+    .nsg-item { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px; cursor: pointer; transition: background .1s; font-size: 12px; }
+    .nsg-item:hover { background: rgba(230,126,34,.12); }
+    .nsg-score { color: var(--acc); font-weight: 700; min-width: 26px; font-size: 11px; }
+    .nsg-name { color: var(--txt1); font-weight: 600; flex: 1; }
+    .nsg-sector { color: var(--txt2); font-size: 11px; }
+    .nsg-reason { color: var(--txt2); font-size: 10px; margin-top: 1px; }
+    .nsg-item-inner { flex: 1; min-width: 0; }
+    .news-more-btn { font-size: 11px; color: var(--acc); cursor: pointer; margin-top: 6px; text-align: center; padding: 4px; }
+    .news-more-btn:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -91,11 +139,35 @@
       <span class="count" id="total-count"></span>
     </div>
 
+    <!-- 뉴스 → 관련주 탐색 패널 -->
+    <div class="news-panel" id="news-panel">
+      <div class="news-panel-header" onclick="toggleNewsPanel()">
+        <span style="font-size:18px;">📰</span>
+        <span class="news-panel-title">뉴스 → 관련주 탐색</span>
+        <span class="news-panel-hint" style="font-size:11px;color:var(--txt2);">뉴스를 붙여넣으면 관련 종목을 자동 분석합니다</span>
+        <span class="news-panel-toggle" id="news-panel-toggle">▼ 펼치기</span>
+      </div>
+      <div class="news-panel-body" id="news-panel-body">
+        <textarea class="news-textarea" id="news-input"
+          placeholder="뉴스 기사 제목 또는 본문을 붙여넣으세요.&#10;예) 삼성전자, HBM3E 공급 계약 체결… SK하이닉스와 엔비디아 수혜 예상&#10;예) 미국 IRA 보조금 축소에 국내 배터리·전기차 업체 타격 우려"
+          oninput="onNewsInput()"></textarea>
+        <div class="news-actions">
+          <button class="btn-news-search" id="btn-news-search" onclick="searchRelatedStocks()" disabled>🔍 관련주 분석</button>
+          <span class="news-hint" id="news-char-count">0자</span>
+          <span class="news-hint">| 최소 20자 이상 입력</span>
+        </div>
+        <div class="news-results" id="news-results" style="display:none;"></div>
+      </div>
+    </div>
+
     <!-- 검색/정렬 바 -->
     <div class="search-bar">
       <input type="text" id="search-input" placeholder="기업명, 제목, 부제 검색..." oninput="onSearchInput()">
       <select id="sort-select" onchange="onFilterChange()">
         <option value="recent">최신순</option>
+        <option value="verify_high">검증 점수↑</option>
+        <option value="verify_low">검증 점수↓ (위험 우선)</option>
+        <option value="char_count">자수↑</option>
         <option value="relevant">관련순</option>
       </select>
       <select id="status-filter" onchange="onFilterChange()">
@@ -105,6 +177,14 @@
         <option value="ready">게재가능</option>
         <option value="published">게재완료</option>
         <option value="rejected">반려</option>
+      </select>
+      <select id="verify-filter" onchange="onFilterChange()">
+        <option value="">검증 전체</option>
+        <option value="SAFE">🟢 SAFE</option>
+        <option value="LOW">🟠 LOW</option>
+        <option value="MEDIUM">🟡 MEDIUM</option>
+        <option value="HIGH">🔴 HIGH</option>
+        <option value="NONE">⏳ 미검증</option>
       </select>
     </div>
 
@@ -236,11 +316,14 @@
     const q      = document.getElementById('search-input').value.trim();
     const sort   = document.getElementById('sort-select').value;
     const status = document.getElementById('status-filter').value;
+    const verify = document.getElementById('verify-filter').value;
     const offset = (currentPage - 1) * PER_PAGE;
 
     if (updateUrl) pushUrl({ page: currentPage, q, sort, status });
 
-    const params = new URLSearchParams({ limit: PER_PAGE, offset, sort });
+    // 검증 필터는 클라이언트에서 적용 (오버페치 후 필터링)
+    const fetchLimit = verify ? Math.max(PER_PAGE * 4, 200) : PER_PAGE;
+    const params = new URLSearchParams({ limit: fetchLimit, offset: verify ? 0 : offset, sort });
     if (q)                params.set('q',        q);
     if (status)           params.set('status',   status);
     if (CORP_CODE_FILTER) params.set('corp_code', CORP_CODE_FILTER);
@@ -253,8 +336,22 @@
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || '서버 오류');
 
-      totalItems = data.total || 0;
-      const articles = data.articles || [];
+      let articles = data.articles || [];
+      let total = data.total || 0;
+
+      // 클라이언트 검증 필터
+      if (verify) {
+        if (verify === 'NONE') {
+          articles = articles.filter(a => !a.verify_flag);
+        } else {
+          articles = articles.filter(a => a.verify_flag === verify);
+        }
+        total = articles.length;
+        // 페이지 슬라이싱
+        articles = articles.slice(offset, offset + PER_PAGE);
+      }
+
+      totalItems = total;
 
       document.getElementById('total-count').textContent = `총 ${totalItems.toLocaleString()}건`;
 
@@ -295,8 +392,21 @@
           <span>${escHtml(art.model || '')}</span>
           ${wordCount ? `<span>· ${wordCount}</span>` : ''}
           ${charCount ? `<span>· ${charCount}</span>` : ''}
+          ${verifyBadgeHtml(art)}
         </div>
       </div>`;
+  }
+
+  // 검증 점수 배지 렌더러
+  function verifyBadgeHtml(art) {
+    const flag = art.verify_flag;
+    const score = art.verify_score;
+    if (!flag || score === null || score === undefined) {
+      return `<span class="verify-badge verify-NONE" title="아직 검증되지 않음">⏳ 미검증</span>`;
+    }
+    const icon = { SAFE:'🟢', LOW:'🟠', MEDIUM:'🟡', HIGH:'🔴' }[flag] || '⚪';
+    const dim = `수${art.score_numeric||0}/방${art.score_direction||0}/단${art.score_evidence||0}/그${art.score_grounding||0}`;
+    return `<span class="verify-badge verify-${flag}" title="총점 ${score} (${dim})">${icon} ${flag} ${score}</span>`;
   }
 
   function excludeArticle(id, btn) {
@@ -448,6 +558,158 @@
   // ── 초기 로드 ────────────────────────────────────────────────────────────
   loadFromUrl();
   window.addEventListener('popstate', loadFromUrl);
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // 뉴스 → 관련주 탐색
+  // ══════════════════════════════════════════════════════════════════════════
+  let _newsData = null;
+  const _groupState = {};
+
+  function stockItemHtml(s, showVia = false) {
+    const via = (showVia && s.supply_via) ? `<div class="nsg-reason">via ${s.supply_via}</div>` : '';
+    const link = s.stock_code
+      ? `<a href="https://finance.naver.com/item/main.naver?code=${s.stock_code}" target="_blank"
+           style="font-size:10px;color:var(--acc);text-decoration:none;flex-shrink:0;"
+           onclick="event.stopPropagation()">📈</a>`
+      : '';
+    return `<div class="nsg-item" onclick="openNewsStock('${s.corp_code}','${s.corp_name.replace(/'/g, "\\'")}')">
+      <span class="nsg-score">${s.score}</span>
+      <div class="nsg-item-inner">
+        <div style="display:flex;align-items:center;gap:4px;">
+          <span class="nsg-name">${s.corp_name}</span>
+          <span class="nsg-sector">${s.sector}</span>
+          ${link}
+        </div>
+        ${via}
+      </div>
+    </div>`;
+  }
+
+  function expandGroupById(groupId) {
+    const state = _groupState[groupId];
+    if (!state) return;
+    const listEl = document.getElementById(groupId + '-list');
+    const btn = listEl.nextElementSibling;
+    const newItems = state.items.slice(state.showing);
+    listEl.innerHTML += newItems.map(s => stockItemHtml(s, state.showVia)).join('');
+    state.showing = state.items.length;
+    if (btn && btn.classList.contains('news-more-btn')) btn.remove();
+  }
+
+  function toggleNewsPanel() {
+    const body = document.getElementById('news-panel-body');
+    const tog  = document.getElementById('news-panel-toggle');
+    if (body.classList.toggle('open')) {
+      tog.textContent = '▲ 접기';
+    } else {
+      tog.textContent = '▼ 펼치기';
+    }
+  }
+
+  function onNewsInput() {
+    const ta  = document.getElementById('news-input');
+    const btn = document.getElementById('btn-news-search');
+    const cnt = document.getElementById('news-char-count');
+    const len = ta.value.trim().length;
+    cnt.textContent = len + '자';
+    btn.disabled = len < 20;
+  }
+
+  async function searchRelatedStocks() {
+    const text = document.getElementById('news-input').value.trim();
+    if (text.length < 20) return;
+
+    const btn = document.getElementById('btn-news-search');
+    btn.disabled = true;
+    btn.textContent = '⏳ 분석 중...';
+    document.getElementById('news-results').style.display = 'none';
+
+    try {
+      const res = await fetch('/api/news/related-stocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({ news_text: text, top_n: 50 })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      _newsData = data;
+      renderNewsResults(data);
+    } catch (e) {
+      document.getElementById('news-results').innerHTML =
+        `<div style="color:#e74c3c;font-size:12px;">오류: ${e.message}</div>`;
+      document.getElementById('news-results').style.display = 'block';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔍 관련주 분석';
+    }
+  }
+
+  function renderNewsResults(data) {
+    const el = document.getElementById('news-results');
+    const stocks = data.related_stocks || [];
+    if (!stocks.length) {
+      el.innerHTML = '<div style="color:var(--txt2);font-size:12px;">관련주를 찾지 못했습니다.</div>';
+      el.style.display = 'block';
+      return;
+    }
+
+    // 섹터·관계유형별 메타 정보
+    const sectors = (data.matched_sectors || []).slice(0, 4)
+      .map(s => `<span>📌 ${s.sector} (${s.score}점)</span>`).join('');
+    const directs = data.direct_mentions?.length
+      ? `<b style="color:#e67e22;">직접 언급:</b> ${data.direct_mentions.join(', ')}`
+      : '';
+    const kws = (data.keywords || []).slice(0, 8).join(', ');
+
+    // 관련주 그룹 분류
+    const direct = stocks.filter(s => s.relation_type === 'direct');
+    const supplyChain = stocks.filter(s => s.relation_type === 'supply_chain');
+    const sectorRelated = stocks.filter(s => s.relation_type === 'sector');
+
+    // stockItemHtml, expandGroupById, _groupState 는 전역 정의
+
+    function groupHtml(title, items, maxShow = 8, showVia = false) {
+      if (!items.length) return '';
+      const groupId = 'nsg-' + title.replace(/[^a-zA-Z가-힣]/g, '');
+      _groupState[groupId] = { items, showVia, maxShow, showing: Math.min(maxShow, items.length) };
+      const shown = items.slice(0, maxShow);
+      const more  = items.length - maxShow;
+      const moreBtn = more > 0
+        ? `<div class="news-more-btn" onclick="expandGroupById('${groupId}')">+${more}개 더 보기</div>`
+        : '';
+      return `<div class="news-stock-group" id="${groupId}">
+        <div class="nsg-title">${title} (${items.length}개)</div>
+        <div class="nsg-list" id="${groupId}-list">${shown.map(s => stockItemHtml(s, showVia)).join('')}</div>
+        ${moreBtn}
+      </div>`;
+    }
+
+    el.innerHTML = `
+      <div class="news-result-meta">
+        <span>총 ${data.total_found}개 관련주 발굴</span>
+        ${sectors}
+      </div>
+      ${directs ? `<div class="news-result-direct">${directs}</div>` : ''}
+      ${kws ? `<div style="font-size:11px;color:var(--txt2);margin-bottom:8px;">추출 키워드: ${kws}</div>` : ''}
+      <div class="news-stock-groups">
+        ${groupHtml('🎯 직접 언급', direct, 6)}
+        ${groupHtml('🔗 공급망 연관', supplyChain, 8, true)}
+        ${groupHtml('📂 섹터 관련', sectorRelated, 8)}
+      </div>
+    `;
+    el.style.display = 'block';
+  }
+
+  function openNewsStock(corpCode, corpName) {
+    // 해당 기업의 공급망 페이지로 이동
+    window.open(`/supply_chain.html?corp_code=${corpCode}&corp_name=${encodeURIComponent(corpName)}`, '_blank');
+  }
+
+  // URL 파라미터로 뉴스 패널 자동 열기 지원
+  if (new URLSearchParams(location.search).get('news') === '1') {
+    document.getElementById('news-panel-body').classList.add('open');
+    document.getElementById('news-panel-toggle').textContent = '▲ 접기';
+  }
 </script>
 </body>
 </html>

@@ -107,6 +107,61 @@
     .comp-link-title { font-size: 13px; font-weight: 600; color: var(--txt1); margin-bottom: 4px; }
     .comp-link-meta { font-size: 11px; color: var(--txt2); }
 
+    /* 뉴스화 센터 */
+    .newsify-center {
+      background: linear-gradient(135deg, rgba(91,106,240,.08), rgba(91,106,240,.02));
+      border: 2px solid rgba(91,106,240,.3); border-radius: 14px;
+      padding: 20px 22px; margin-bottom: 14px;
+    }
+    .newsify-title {
+      font-size: 14px; font-weight: 800; color: var(--txt1);
+      display: flex; align-items: center; gap: 8px; margin-bottom: 14px;
+    }
+    .newsify-title span { font-size: 18px; }
+    .newsify-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+    .btn-newsify-primary {
+      flex: 1; min-width: 160px;
+      background: linear-gradient(135deg, #5b6af0, #7b8af8);
+      color: #fff; border: none; border-radius: 10px;
+      padding: 14px 18px; font-size: 14px; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      transition: all .15s; box-shadow: 0 3px 12px rgba(91,106,240,.35);
+    }
+    .btn-newsify-primary:hover { background: linear-gradient(135deg, #4a5ae0, #6a7ae8); transform: translateY(-1px); box-shadow: 0 5px 18px rgba(91,106,240,.45); }
+    .btn-newsify-primary:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+    .btn-newsify-secondary {
+      flex: 1; min-width: 120px;
+      background: var(--bg3); color: var(--txt1); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+      text-decoration: none; transition: all .15s;
+    }
+    .btn-newsify-secondary:hover { border-color: var(--acc); color: var(--acc); }
+
+    .news-check-row {
+      display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+      padding-top: 12px; border-top: 1px solid rgba(91,106,240,.2);
+    }
+    .news-check-label { font-size: 11px; color: var(--txt2); font-weight: 600; margin-right: 4px; }
+    .news-search-pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--bg3); border: 1px solid var(--border); border-radius: 20px;
+      padding: 4px 10px; font-size: 11px; color: var(--txt2); cursor: pointer;
+      text-decoration: none; transition: all .12s;
+    }
+    .news-search-pill:hover { border-color: var(--acc); color: var(--acc); }
+
+    .draft-exists-box {
+      background: rgba(46,204,113,.08); border: 1px solid rgba(46,204,113,.3);
+      border-radius: 8px; padding: 10px 14px; display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px; text-decoration: none; color: inherit; transition: border-color .15s;
+    }
+    .draft-exists-box:hover { border-color: #2ecc71; }
+    .draft-exists-icon { font-size: 20px; }
+    .draft-exists-info { flex: 1; }
+    .draft-exists-title { font-size: 13px; font-weight: 700; color: var(--txt1); margin-bottom: 2px; }
+    .draft-exists-meta { font-size: 11px; color: var(--txt2); }
+
     .loading { text-align:center; color:var(--txt2); padding:80px; font-size:14px; }
     .error-box { background: rgba(231,76,60,.1); border:1px solid rgba(231,76,60,.3);
       border-radius:10px; padding:20px; text-align:center; color:#e74c3c; }
@@ -189,8 +244,52 @@ function renderMain(l) {
       <a href="/leads.html" class="toolbar-btn">← 취재단서 목록</a>
       ${l.comparison_id ? `<a href="/comparison_detail.html?id=${l.comparison_id}" class="toolbar-btn">📊 비교분석 보기</a>` : ''}
       <span class="spacer"></span>
-      <button class="toolbar-btn primary" onclick="generateDraftFromLead(${l.id}, '${escHtml(l.corp_name||'')}', this)">✍ 기사초안 생성</button>
       <button class="toolbar-btn danger" onclick="excludeThisLead(${l.id})">🚫 제외</button>
+    </div>
+
+    <!-- ★ 뉴스화 센터 ★ -->
+    <div class="newsify-center">
+      <div class="newsify-title"><span>🗞️</span> 뉴스화 센터</div>
+
+      <!-- 기존 초안이 있으면 먼저 표시 -->
+      ${(l.drafts && l.drafts.length) ? l.drafts.map(d => `
+        <a class="draft-exists-box" href="/article_detail.html?id=${d.id}">
+          <div class="draft-exists-icon">📄</div>
+          <div class="draft-exists-info">
+            <div class="draft-exists-title">${escHtml(d.headline||'(제목 없음)')}</div>
+            <div class="draft-exists-meta">${articleStatusBadge(d.status)} &nbsp;${fmtDateShort(d.created_at)} · ${escHtml(d.model||'')}</div>
+          </div>
+          <div style="font-size:10px;color:var(--acc)">열기 →</div>
+        </a>
+      `).join('') : ''}
+
+      <div class="newsify-row">
+        <button class="btn-newsify-primary" id="detail-draft-btn"
+          onclick="generateDraftFromLead(${l.id}, '${escHtml((l.corp_name||'').replace(/'/g,"\\'"))}', this)">
+          ✍ 기사 초안 생성${(l.drafts && l.drafts.length) ? ' (재생성)' : ''}
+        </button>
+        ${l.comparison_id ? `
+        <a class="btn-newsify-secondary" href="/comparison_detail.html?id=${l.comparison_id}">
+          📊 비교분석 원문
+        </a>` : ''}
+        <a class="btn-newsify-secondary" href="/articles.html?corp_code=${encodeURIComponent(l.corp_code||'')}">
+          📄 이 기업 초안 목록
+        </a>
+      </div>
+
+      <!-- 뉴스 보도 여부 확인 -->
+      <div class="news-check-row">
+        <span class="news-check-label">📡 보도 현황:</span>
+        <span id="news-status-badge">${newsCoverBadgeHtml(l.news_status)}</span>
+        <button id="news-check-btn"
+          onclick="checkNewsCoverage(${l.id})"
+          class="news-search-pill" style="cursor:pointer;border:none;padding:5px 12px;font-weight:700">
+          🔍 보도 여부 확인
+        </button>
+        ${newsSearchLinks(l.corp_name||'', l.title||'')}
+        ${newsSearchLinks(l.corp_name||'', typeKo)}
+      </div>
+      <div id="news-found-urls"></div>
     </div>
 
     <!-- 요약 -->
@@ -251,19 +350,6 @@ function renderMain(l) {
         </div>` : ''}
       </div>
     </div>
-
-    <!-- 관련 기사초안 목록 -->
-    ${(l.drafts && l.drafts.length) ? `
-    <div class="section-card">
-      <div class="section-title">✍ 기사초안 (${l.drafts.length}건)</div>
-      ${l.drafts.map(d => `
-        <a class="mini-card" href="/article_detail.html?id=${d.id}">
-          <div class="mini-card-top">${articleStatusBadge(d.status)}</div>
-          <div class="mini-card-title">${escHtml(d.headline||'제목 없음')}</div>
-          <div class="mini-card-meta">${fmtDateShort(d.created_at)} · ${escHtml(d.model||'')}</div>
-        </a>
-      `).join('')}
-    </div>` : ''}
   `;
 }
 
@@ -295,6 +381,50 @@ async function changeStatus(newStatus) {
     alert(`상태가 "${newStatus}"(으)로 변경되었습니다.`);
   } catch(e) {
     alert('상태 변경 오류: ' + e.message);
+  }
+}
+
+// ── 뉴스 보도 여부 배지 HTML ─────────────────────────────────────────────────
+function newsCoverBadgeHtml(status) {
+  const map = {
+    exclusive: ['🔴 독점 (미보도)', '#e74c3c', 'rgba(231,76,60,.15)', 'rgba(231,76,60,.4)'],
+    partial:   ['🟡 일부보도',      '#d4ac0d', 'rgba(241,196,15,.15)', 'rgba(241,196,15,.4)'],
+    covered:   ['🟢 기보도',        '#aaa',    'rgba(160,160,160,.15)', 'rgba(160,160,160,.3)'],
+  };
+  const [label, color, bg, border] = map[status] || ['🔵 보도확인 전', '#7a8af0', 'rgba(91,106,240,.1)', 'rgba(91,106,240,.3)'];
+  return `<span style="display:inline-flex;align-items:center;gap:4px;border-radius:6px;
+    padding:4px 10px;font-size:12px;font-weight:700;border:1px solid ${border};
+    background:${bg};color:${color}">${label}</span>`;
+}
+
+// ── 뉴스 보도 여부 API 호출 ───────────────────────────────────────────────────
+async function checkNewsCoverage(leadId) {
+  const btn = document.getElementById('news-check-btn');
+  const badgeEl = document.getElementById('news-status-badge');
+  if (btn) { btn.textContent = '⏳ 확인 중...'; btn.disabled = true; }
+  try {
+    const resp = await fetch(`${API_BASE}/api/leads/${leadId}/check-news`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' },
+    });
+    const d = await resp.json();
+    if (!resp.ok) throw new Error(d.error || '오류');
+    if (badgeEl) badgeEl.innerHTML = newsCoverBadgeHtml(d.news_status);
+    // 관련 URL 표시
+    const urlsEl = document.getElementById('news-found-urls');
+    if (urlsEl && (d.news_urls || []).length > 0) {
+      urlsEl.innerHTML = `<div style="margin-top:8px;font-size:11px;color:var(--txt2)">
+        <div style="margin-bottom:4px;font-weight:600">검색된 기사:</div>
+        ${d.news_urls.slice(0,3).map(u =>
+          `<a href="${u}" target="_blank" style="display:block;color:var(--acc);
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:2px">${u}</a>`
+        ).join('')}
+      </div>`;
+    }
+  } catch(e) {
+    alert('뉴스 확인 오류: ' + e.message);
+  } finally {
+    if (btn) { btn.textContent = '🔍 보도 여부 재확인'; btn.disabled = false; }
   }
 }
 

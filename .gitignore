@@ -16,10 +16,26 @@ data/dart/*.db-wal
 data/dart/*.db-shm
 data/dart/corp_codes.json
 data/dart/ai_usage.json
+data/backups/
+*.db
+*.db-wal
+*.db-shm
 
 # 내보내기 파일 (스크립트로 재생성 가능, 대용량)
 data/sectors/
 exports/
+data/crawl_keywords.md
+data/supply_chain_keywords.md
+data/test_export.docx
+data/test_export.pdf
+*.docx
+*.pdf
+_fin_test.txt
+server_log.txt
+
+# MCP / 스케줄러 / 임시
+.playwright-mcp/
+.claude/scheduled_tasks.lock
 
 # 로그
 logs/

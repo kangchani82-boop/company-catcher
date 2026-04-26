@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>공급망 단서 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .scl-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+    .scl-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; transition: all .15s;
+    }
+    .scl-card:hover { border-color: var(--acc); }
+    .scl-card .head {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+    .scl-scenario {
+      font-size: 10px; font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+    .sc-HUB         { background: rgba(59,130,246,.15); color: #3b82f6; border:1px solid rgba(59,130,246,.4); }
+    .sc-DEPENDENCE  { background: rgba(239,68,68,.15);  color: #ef4444; border:1px solid rgba(239,68,68,.4); }
+    .sc-CLUSTER     { background: rgba(168,85,247,.15); color: #a855f7; border:1px solid rgba(168,85,247,.4); }
+    .sc-VERTICAL    { background: rgba(245,158,11,.15); color: #f59e0b; border:1px solid rgba(245,158,11,.4); }
+    .sc-GLOBAL      { background: rgba(20,184,166,.15); color: #14b8a6; border:1px solid rgba(20,184,166,.4); }
+    .sc-INDUSTRY    { background: rgba(236,72,153,.15); color: #ec4899; border:1px solid rgba(236,72,153,.4); }
+    .sc-IMPACT      { background: rgba(220,38,38,.20);  color: #dc2626; border:1px solid rgba(220,38,38,.4); }
+    .sc-NEW_ENTRANT { background: rgba(34,197,94,.15);  color: #22c55e; border:1px solid rgba(34,197,94,.4); }
+
+    .sev-badge {
+      font-size: 11px; padding: 3px 8px; border-radius: 6px;
+      background: rgba(234,179,8,.15); color: #eab308; font-weight: 600;
+    }
+    .sev-5 { background: rgba(239,68,68,.20); color: #ef4444; }
+    .sev-4 { background: rgba(251,146,60,.15); color: #fb923c; }
+
+    .scl-title { font-size: 14px; font-weight: 700; color: var(--txt1); margin: 4px 0; line-height: 1.4; }
+    .scl-summary { font-size: 12px; color: var(--txt2); line-height: 1.6; }
+    .scl-meta { display: flex; gap: 12px; font-size: 11px; color: var(--txt2); margin-top: 8px; flex-wrap: wrap; }
+    .article-link {
+      display: inline-block; font-size: 11px; color: var(--acc);
+      text-decoration: none; padding: 2px 8px; border: 1px solid var(--acc);
+      border-radius: 4px; margin-left: auto;
+    }
+    .article-link:hover { background: var(--acc); color: #fff; }
+    .scenario-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+    .scenario-tab {
+      padding: 6px 14px; border: 1px solid var(--border); border-radius: 999px;
+      cursor: pointer; font-size: 12px; background: var(--bg2);
+      transition: all .15s; text-decoration: none; color: var(--txt2);
+    }
+    .scenario-tab.active { background: var(--acc); color: #fff; border-color: var(--acc); }
+    .scenario-tab:hover { border-color: var(--acc); }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="page-container" style="max-width: 1200px; margin: 0 auto; padding: 20px 16px;">
+  <div style="margin-bottom: 24px;">
+    <h1 style="font-size: 22px; margin: 0 0 8px 0;">🕸 공급망 기사 단서</h1>
+    <p style="color: var(--txt2); font-size: 13px; margin: 0;">
+      8가지 시나리오 — 거래처 변화·의존도·허브·클러스터·산업종합으로 자동 발굴
+    </p>
+  </div>
+
+  <!-- 시나리오별 탭 -->
+  <div class="scenario-tabs" id="scenario-tabs"></div>
+
+  <!-- 통계 표시 -->
+  <div id="scl-stats" style="margin-bottom: 16px; font-size: 12px; color: var(--txt2);"></div>
+
+  <!-- 단서 그리드 -->
+  <div class="scl-grid" id="scl-grid">
+    <div class="loading">로딩 중...</div>
+  </div>
+
+  <div id="pagination-container"></div>
+</div>
+
+<script>
+const API = window.location.origin;
+const PER_PAGE = 30;
+let currentScenario = 'all';
+let currentPage = 1;
+let totalItems = 0;
+
+const SCENARIO_LABELS = {
+  'all':         '🌐 전체',
+  'HUB':         '🌐 허브',
+  'DEPENDENCE':  '⚠️ 의존도',
+  'CLUSTER':     '🔗 클러스터',
+  'VERTICAL':    '🏢 그룹내부',
+  'GLOBAL':      '🌍 글로벌',
+  'INDUSTRY':    '📊 산업종합',
+  'IMPACT':      '💥 충격전파',
+  'NEW_ENTRANT': '🆕 신규진입',
+};
+
+function renderTabs() {
+  const tabs = document.getElementById('scenario-tabs');
+  tabs.innerHTML = Object.entries(SCENARIO_LABELS).map(([k, v]) =>
+    `<a class="scenario-tab ${k === currentScenario ? 'active' : ''}"
+        href="#" onclick="event.preventDefault(); selectScenario('${k}');">${v}</a>`
+  ).join('');
+}
+
+function selectScenario(k) {
+  currentScenario = k;
+  currentPage = 1;
+  renderTabs();
+  loadList();
+}
+
+async function loadList() {
+  const grid = document.getElementById('scl-grid');
+  grid.innerHTML = '<div class="loading">로딩 중...</div>';
+  const offset = (currentPage - 1) * PER_PAGE;
+  const params = new URLSearchParams({ limit: PER_PAGE, offset });
+  if (currentScenario !== 'all') params.set('scenario', currentScenario);
+
+  try {
+    const r = await fetch(`${API}/api/supply-chain-leads?${params}`);
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || '서버 오류');
+    totalItems = data.total || 0;
+    renderList(data.items || []);
+    renderPagination();
+    document.getElementById('scl-stats').innerHTML = `
+      <strong>${totalItems.toLocaleString()}</strong>건 중 ${offset+1}~${Math.min(offset+PER_PAGE, totalItems)}
+      ${currentScenario !== 'all' ? ` · ${SCENARIO_LABELS[currentScenario]}` : ''}
+    `;
+  } catch (e) {
+    grid.innerHTML = `<div class="loading">오류: ${e.message}</div>`;
+  }
+}
+
+function renderList(items) {
+  const grid = document.getElementById('scl-grid');
+  if (!items.length) {
+    grid.innerHTML = '<div class="loading">단서가 없습니다.</div>';
+    return;
+  }
+  grid.innerHTML = items.map(it => {
+    let meta = {};
+    try { meta = JSON.parse(it.metadata || '{}'); } catch {}
+    const partners = (() => {
+      try { return JSON.parse(it.related_partners || '[]'); } catch { return []; }
+    })();
+
+    return `
+      <div class="scl-card">
+        <div class="head">
+          <span class="scl-scenario sc-${it.scenario}">${SCENARIO_LABELS[it.scenario] || it.scenario}</span>
+          <span class="sev-badge sev-${it.severity}">⚠️ severity ${it.severity}</span>
+          ${it.article_id ? `<a class="article-link" href="/article_detail.html?id=${it.article_id}">기사 보기 →</a>`
+                          : `<span style="font-size:11px;color:var(--txt2);margin-left:auto">아직 기사화 안됨</span>`}
+        </div>
+        <div class="scl-title">${escHtml(it.title || '')}</div>
+        ${it.summary ? `<div class="scl-summary">${escHtml(it.summary)}</div>` : ''}
+        <div class="scl-meta">
+          ${it.primary_corp_name ? `<span>📌 ${escHtml(it.primary_corp_name)}</span>` : ''}
+          ${partners.length ? `<span>🔗 ${escHtml(partners.slice(0,3).join(', '))}${partners.length > 3 ? ` 외 ${partners.length-3}곳` : ''}</span>` : ''}
+          ${meta.company_count ? `<span>👥 ${meta.company_count}개사</span>` : ''}
+          ${meta.dependence_pct ? `<span>📊 의존도 ${meta.dependence_pct}%</span>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function renderPagination() {
+  const pages = Math.ceil(totalItems / PER_PAGE);
+  if (pages <= 1) { document.getElementById('pagination-container').innerHTML = ''; return; }
+  let html = '<div style="text-align:center;margin-top:20px;display:flex;gap:6px;justify-content:center;flex-wrap:wrap">';
+  if (currentPage > 1) html += `<button onclick="goPage(${currentPage-1})" class="toolbar-btn">‹ 이전</button>`;
+  const start = Math.max(1, currentPage - 3);
+  const end   = Math.min(pages, currentPage + 3);
+  for (let p = start; p <= end; p++) {
+    html += `<button onclick="goPage(${p})" class="toolbar-btn${p === currentPage ? ' primary' : ''}">${p}</button>`;
+  }
+  if (currentPage < pages) html += `<button onclick="goPage(${currentPage+1})" class="toolbar-btn">다음 ›</button>`;
+  html += '</div>';
+  document.getElementById('pagination-container').innerHTML = html;
+}
+
+function goPage(p) {
+  currentPage = p;
+  loadList();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav();
+  renderTabs();
+  loadList();
+});
+</script>
+
+</body>
+</html>

@@ -95,9 +95,19 @@ BIZ_END_PATTERNS = [
     r'III\s*[.\s]\s*주\s*요',
     r'3\s*[.\s]\s*주\s*요',
     r'제\s*3\s*장\s*주\s*요',
+    r'Ⅲ\s*[.\s]\s*재\s*무',
+    r'Ⅲ\s*[.\s]\s*주\s*요',
     r'IV\s*[.\s]',
+    r'Ⅳ\s*[.\s]',
     r'4\s*[.\s]\s*감\s*사',
+    r'V\s*[.\s]',       # V. 회계감사인 등
+    r'Ⅴ\s*[.\s]',
+    r'5\s*[.\s]\s*회\s*계',
 ]
+
+# 끝점 탐색 시 최소 앞부분 길이 (이 이상이어야 끝점으로 인정)
+# 기존 MIN_BIZ_CONTENT(300)는 너무 커서 짧은 섹션에서 끝점을 무시하는 문제 발생
+BIZ_END_MIN_START = 50
 
 logging.basicConfig(
     level=logging.INFO,
@@ -282,7 +292,7 @@ def extract_biz_content(zip_data: bytes) -> str | None:
 
     for pat in BIZ_END_PATTERNS:
         m = re.search(pat, search_text)
-        if m and m.start() > MIN_BIZ_CONTENT:
+        if m and m.start() > BIZ_END_MIN_START:
             if m.start() < end_idx:
                 end_idx = m.start()
 
@@ -320,7 +330,7 @@ def try_extract_from_existing_raw(raw_text: str) -> str | None:
         end_idx = len(search_text)
         for end_pat in BIZ_END_PATTERNS:
             m = re.search(end_pat, search_text)
-            if m and m.start() > MIN_BIZ_CONTENT:
+            if m and m.start() > BIZ_END_MIN_START:
                 if m.start() < end_idx:
                     end_idx = m.start()
 

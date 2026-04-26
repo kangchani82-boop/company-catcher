@@ -256,9 +256,16 @@ async function loadTab(name) {
   const el = document.getElementById(`tab-${name}`);
   try {
     if (name === 'supply_chain') {
-      const r = await fetch(`${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(CORP_CODE)}&limit=100`);
-      const d = await r.json();
-      renderSupplyChain(d.supply_chain||[], el);
+      // 공급망 + 집중도 리스크 + 변화 감지 병렬 로드
+      const [scResp, riskResp, chgResp] = await Promise.allSettled([
+        fetch(`${API_BASE}/api/dart/supply_chain?corp_code=${encodeURIComponent(CORP_CODE)}&limit=200`),
+        fetch(`${API_BASE}/api/supply-chain/concentration?corp_code=${encodeURIComponent(CORP_CODE)}`),
+        fetch(`${API_BASE}/api/supply-chain/changes?corp_code=${encodeURIComponent(CORP_CODE)}`),
+      ]);
+      const scData   = scResp.status==='fulfilled'   ? (await scResp.value.json()) : {};
+      const riskData = riskResp.status==='fulfilled' ? (await riskResp.value.json()) : {};
+      const chgData  = chgResp.status==='fulfilled'  ? (await chgResp.value.json()) : {};
+      renderSupplyChain(scData.supply_chain||[], riskData, chgData, el);
     } else if (name === 'comparisons') {
       const r = await fetch(`${API_BASE}/api/ai/comparisons?corp_code=${encodeURIComponent(CORP_CODE)}&limit=20`);
       const d = await r.json();
@@ -489,43 +496,392 @@ function drawRatioChart(sorted) {
 
 // ── 공급망 탭 ────────────────────────────────────────────────────────────────
 let _scSim = null;
-function renderSupplyChain(edges, el) {
+let _scRelFilter = 'all';
+let _scEdgesAll  = [];
+
+function renderSupplyChain(edges, riskData, chgData, el) {
+  _scEdgesAll = edges;
   if (!edges.length) {
     el.innerHTML = '<div class="empty">공급망 데이터가 없습니다.</div>';
     return;
   }
 
+  const corpName = edges[0]?.corp_name || CORP_CODE;
+
   // 관계 유형별 카운트
   const typeCnt = {};
   edges.forEach(e => { typeCnt[e.relation_type] = (typeCnt[e.relation_type]||0)+1; });
-  const typeHtml = Object.entries(typeCnt).map(([t,c]) => `
-    <span style="background:${SC_COLORS[t]||'#666'}20;color:${SC_COLORS[t]||'#888'};border:1px solid ${SC_COLORS[t]||'#666'}40;
-      border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600">
-      ${SC_KO[t]||t} ${c}개
-    </span>`).join('');
+
+  // ── 집중도 리스크 KPI ──
+  const riskScore = riskData.risk_score ?? null;
+  const riskLevel = riskData.risk_level ?? 'N/A';
+  const riskColor = {HIGH:'#e74c3c', MED:'#f1c40f', LOW:'#2ecc71'}[riskLevel] || '#888';
+  const bd        = riskData.breakdown || {};
+  const alerts    = riskData.alerts    || [];
+
+  const riskHtml = riskScore !== null ? `
+    <div class="section-card" style="margin-bottom:14px">
+      <div class="section-title">⚠️ 공급망 집중도 리스크</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+        <div class="kpi-box">
+          <div class="kpi-label">종합 리스크 스코어</div>
+          <div class="kpi-val" style="color:${riskColor}">${riskScore}</div>
+          <div class="kpi-sub" style="color:${riskColor}">${riskLevel}</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">고객 집중도 (HHI)</div>
+          <div class="kpi-val ${bd.customer_concentration?.level==='HIGH'?'neg':bd.customer_concentration?.level==='MED'?'':'pos'}">
+            ${bd.customer_concentration?.hhi?.toFixed(0) ?? '-'}
+          </div>
+          <div class="kpi-sub">${bd.customer_concentration?.count ?? 0}개 고객사</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">공급사 집중도 (HHI)</div>
+          <div class="kpi-val ${bd.supplier_concentration?.level==='HIGH'?'neg':bd.supplier_concentration?.level==='MED'?'':'pos'}">
+            ${bd.supplier_concentration?.hhi?.toFixed(0) ?? '-'}
+          </div>
+          <div class="kpi-sub">${bd.supplier_concentration?.count ?? 0}개 공급사</div>
+        </div>
+        <div class="kpi-box">
+          <div class="kpi-label">의존 기업 수</div>
+          <div class="kpi-val">${bd.systemic_exposure?.dependent_count ?? 0}</div>
+          <div class="kpi-sub">다른 기업의 공급사 의존</div>
+        </div>
+      </div>
+      ${alerts.length ? `
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${alerts.map(a => `
+            <div style="background:${{HIGH:'rgba(231,76,60,.1)',MED:'rgba(241,196,15,.1)',LOW:'rgba(46,204,113,.1)'}[a.severity]||'var(--bg3)'};
+              border:1px solid ${{HIGH:'rgba(231,76,60,.3)',MED:'rgba(241,196,15,.3)',LOW:'rgba(46,204,113,.3)'}[a.severity]||'var(--border)'};
+              border-radius:6px;padding:8px 12px;font-size:11px;color:var(--txt1);display:flex;gap:8px;align-items:flex-start">
+              <span style="font-size:13px">${{HIGH:'🔴',MED:'🟡',LOW:'🟢'}[a.severity]||'⚪'}</span>
+              <span>${escHtml(a.msg)}</span>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>` : '';
+
+  // ── 공급망 개요 + 필터 ──
+  const typeFilterHtml = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    ${['all','customer','supplier','partner','competitor'].map(t => `
+      <button onclick="filterScRel('${t}')" id="sc-flt-${t}"
+        style="background:${t==='all'?'var(--acc)':'var(--bg3)'};border:1px solid ${t==='all'?'var(--acc)':'var(--border)'};
+               color:${t==='all'?'#fff':'var(--txt1)'};border-radius:6px;padding:4px 12px;font-size:11px;cursor:pointer">
+        ${t==='all'?'전체':(SC_KO[t]||t)} ${t==='all'?edges.length:(typeCnt[t]||0)}
+      </button>`).join('')}
+  </div>`;
+
+  // ── 리스크 시나리오 버튼 ──
+  const scenarioHtml = `
+    <div class="section-card" style="margin-bottom:14px">
+      <div class="section-title">🎯 리스크 시나리오 시뮬레이션</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="co-btn" onclick="runScenario('disruption')">⛔ 공급 중단</button>
+        <button class="co-btn" onclick="runScenario('demand_drop')">📉 수요 급감</button>
+        <button class="co-btn" onclick="runScenario('bankruptcy')">💥 파산 가정</button>
+        <button class="co-btn" onclick="loadThemeArticle()">📰 테마 기사 데이터</button>
+      </div>
+      <div id="sc-scenario-result" style="display:none"></div>
+    </div>`;
+
+  // ── 공급망 변화 감지 섹션 ──
+  const chgHtml = renderChangeDetection(chgData);
 
   el.innerHTML = `
-    <div class="section-card">
-      <div class="section-title">🌐 공급망 개요 <span class="cnt">${edges.length}개 관계</span>
-        <a href="/supply_chain.html?corp_code=${encodeURIComponent(CORP_CODE)}&corp_name=${encodeURIComponent(edges[0]?.corp_name||CORP_CODE)}">그래프 보기 →</a>
+    ${riskHtml}
+    ${chgHtml}
+    ${scenarioHtml}
+    <div class="section-card" style="margin-bottom:14px">
+      <div class="section-title">🌐 공급망 그래프 <span class="cnt">${edges.length}개 관계</span>
+        <a href="/supply_chain.html?corp_code=${encodeURIComponent(CORP_CODE)}&corp_name=${encodeURIComponent(corpName)}">전체 그래프 →</a>
       </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">${typeHtml}</div>
-      <svg id="sc-svg"></svg>
+      ${typeFilterHtml}
+      <svg id="sc-svg" style="width:100%;height:340px;background:var(--bg3);border-radius:8px"></svg>
     </div>
     <div class="section-card">
       <div class="section-title">📋 관계 목록</div>
-      ${edges.map(e => `
-        <div class="sc-row">
-          <span class="sc-badge" style="background:${SC_COLORS[e.relation_type]||'#666'}20;color:${SC_COLORS[e.relation_type]||'#888'};border:1px solid ${SC_COLORS[e.relation_type]||'#666'}40">
-            ${SC_KO[e.relation_type]||e.relation_type||'관련'}
-          </span>
-          <div class="sc-partner">${escHtml(e.partner_name||'')}</div>
-          <div class="sc-ctx">${escHtml(e.context||'')}</div>
-        </div>`).join('')}
+      <div id="sc-rel-list">
+        ${renderScList(edges)}
+      </div>
     </div>`;
 
   // D3 미니 그래프
-  drawScGraph(edges);
+  requestAnimationFrame(() => drawScGraph(edges));
+}
+
+function renderScList(edges) {
+  const filtered = _scRelFilter === 'all' ? edges : edges.filter(e => e.relation_type === _scRelFilter);
+  if (!filtered.length) return '<div class="empty">해당 관계 없음</div>';
+  return filtered.map(e => `
+    <div class="sc-row">
+      <span class="sc-badge" style="background:${SC_COLORS[e.relation_type]||'#666'}20;color:${SC_COLORS[e.relation_type]||'#888'};border:1px solid ${SC_COLORS[e.relation_type]||'#666'}40">
+        ${SC_KO[e.relation_type]||e.relation_type||'관련'}
+      </span>
+      <div class="sc-partner">${escHtml(e.partner_name||'')}</div>
+      <div class="sc-ctx">${escHtml(e.context||'')}</div>
+    </div>`).join('');
+}
+
+// ── 공급망 변화 감지 렌더 ───────────────────────────────────────────────────
+let _chgData = null;
+function renderChangeDetection(d) {
+  _chgData = d;
+  if (!d || d.error || !d.changes) {
+    const msg = d?.message || '변화 감지 데이터 없음 (단일 보고서)';
+    return `<div class="section-card" style="margin-bottom:14px">
+      <div class="section-title">🔄 공급망 변화 감지</div>
+      <div style="color:var(--txt2);font-size:12px;padding:8px 0">${escHtml(msg)}</div>
+    </div>`;
+  }
+
+  const s   = d.summary || {};
+  const cmp = d.compared || {};
+  const sig = s.significance ?? 0;
+  const sigColor = sig >= 60 ? '#e74c3c' : sig >= 30 ? '#f1c40f' : '#2ecc71';
+
+  // 기간 선택기 (periods 배열)
+  const periods = d.periods || [];
+  const periodSelector = periods.length > 2 ? `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <span style="font-size:11px;color:var(--txt2)">비교 기간:</span>
+      <select id="sc-chg-from" style="background:var(--bg3);border:1px solid var(--border);color:var(--txt1);border-radius:4px;padding:3px 8px;font-size:11px">
+        ${periods.map((p,i) => `<option value="${escHtml(p.rcept_no)}" ${p.rcept_no===cmp.from?'selected':''}>${escHtml(p.label)}</option>`).join('')}
+      </select>
+      <span style="font-size:11px;color:var(--txt2)">→</span>
+      <select id="sc-chg-to" style="background:var(--bg3);border:1px solid var(--border);color:var(--txt1);border-radius:4px;padding:3px 8px;font-size:11px">
+        ${periods.map((p,i) => `<option value="${escHtml(p.rcept_no)}" ${p.rcept_no===cmp.to?'selected':''}>${escHtml(p.label)}</option>`).join('')}
+      </select>
+      <button onclick="reloadChanges()" style="background:var(--acc);color:#fff;border:none;border-radius:4px;padding:3px 10px;font-size:11px;cursor:pointer">재조회</button>
+    </div>` : '';
+
+  const newList  = d.changes.new_partners  || [];
+  const lostList = d.changes.lost_partners || [];
+  const chgList  = d.changes.relation_changed || [];
+  const unchanged = d.changes.unchanged_count ?? 0;
+
+  const relBadge = (rel) => {
+    const colors = {customer:'#3498db',supplier:'#e74c3c',partner:'#f39c12',competitor:'#8e44ad'};
+    const ko = {customer:'고객사',supplier:'공급사',partner:'파트너',competitor:'경쟁사'};
+    const c = colors[rel] || '#888';
+    return `<span style="background:${c}20;color:${c};border:1px solid ${c}40;border-radius:3px;padding:1px 6px;font-size:10px">${ko[rel]||rel}</span>`;
+  };
+
+  const listedBadge = (p) => p.is_listed
+    ? `<span style="background:rgba(46,204,113,.15);color:#2ecc71;border:1px solid rgba(46,204,113,.3);border-radius:3px;padding:1px 5px;font-size:9px">📈상장</span>`
+    : '';
+
+  const renderRow = (p, color, icon) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <span style="font-size:12px">${icon}</span>
+      ${relBadge(p.relation_type)}
+      ${listedBadge(p)}
+      <span style="color:var(--txt1);flex:1">${escHtml(p.partner_name)}</span>
+      ${p.corp_code ? `<a href="/company_detail.html?corp_code=${p.corp_code}" style="color:var(--acc);font-size:10px">상세→</a>` : ''}
+    </div>`;
+
+  const renderRelChanged = (p) => `
+    <div style="display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <span style="font-size:12px">🔁</span>
+      ${relBadge(p.old_relation)} <span style="color:var(--txt2)">→</span> ${relBadge(p.new_relation)}
+      <span style="color:var(--txt1);flex:1">${escHtml(p.partner_name)}</span>
+      ${p.corp_code ? `<a href="/company_detail.html?corp_code=${p.corp_code}" style="color:var(--acc);font-size:10px">상세→</a>` : ''}
+    </div>`;
+
+  return `
+  <div class="section-card" style="margin-bottom:14px" id="sc-chg-card">
+    <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+      <span>🔄 공급망 변화 감지</span>
+      <span style="font-size:11px;font-weight:400;color:${sigColor}">중요도 ${sig}점</span>
+    </div>
+    <div style="font-size:11px;color:var(--txt2);margin-bottom:10px">
+      ${escHtml(cmp.from_label)} → ${escHtml(cmp.to_label)} 비교
+    </div>
+    ${periodSelector}
+
+    <!-- 요약 KPI -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+      <div class="kpi-box">
+        <div class="kpi-label">신규 파트너</div>
+        <div class="kpi-val pos">${s.new ?? 0}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">소멸 파트너</div>
+        <div class="kpi-val neg">${s.lost ?? 0}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">관계 변경</div>
+        <div class="kpi-val" style="color:#f39c12">${s.changed ?? 0}</div>
+      </div>
+      <div class="kpi-box">
+        <div class="kpi-label">유지</div>
+        <div class="kpi-val">${unchanged}</div>
+      </div>
+    </div>
+
+    <!-- 변화 목록 -->
+    ${newList.length ? `
+      <div style="font-weight:600;color:#2ecc71;font-size:11px;margin-bottom:4px">✅ 신규 등장 (${newList.length})</div>
+      <div style="max-height:160px;overflow-y:auto;margin-bottom:10px">
+        ${newList.map(p => renderRow(p,'#2ecc71','🟢')).join('')}
+      </div>` : ''}
+
+    ${lostList.length ? `
+      <div style="font-weight:600;color:#e74c3c;font-size:11px;margin-bottom:4px">❌ 소멸 (${lostList.length})</div>
+      <div style="max-height:160px;overflow-y:auto;margin-bottom:10px">
+        ${lostList.map(p => renderRow(p,'#e74c3c','🔴')).join('')}
+      </div>` : ''}
+
+    ${chgList.length ? `
+      <div style="font-weight:600;color:#f39c12;font-size:11px;margin-bottom:4px">🔁 관계 변경 (${chgList.length})</div>
+      <div style="max-height:120px;overflow-y:auto">
+        ${chgList.map(p => renderRelChanged(p)).join('')}
+      </div>` : ''}
+
+    ${!newList.length && !lostList.length && !chgList.length ? `
+      <div style="color:var(--txt2);font-size:12px;padding:8px 0">변화 없음 (파트너 구성 동일)</div>` : ''}
+  </div>`;
+}
+
+async function reloadChanges() {
+  const fromEl = document.getElementById('sc-chg-from');
+  const toEl   = document.getElementById('sc-chg-to');
+  if (!fromEl || !toEl) return;
+  const fromR = fromEl.value, toR = toEl.value;
+  if (!fromR || !toR || fromR === toR) return;
+
+  const card = document.getElementById('sc-chg-card');
+  if (card) card.style.opacity = '0.5';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/changes?corp_code=${encodeURIComponent(CORP_CODE)}&from=${encodeURIComponent(fromR)}&to=${encodeURIComponent(toR)}`);
+    const d = await r.json();
+    const newHtml = renderChangeDetection(d);
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = newHtml;
+    card?.replaceWith(wrapper.firstElementChild);
+  } catch(e) {
+    if (card) { card.style.opacity = '1'; }
+  }
+}
+
+function filterScRel(relType) {
+  _scRelFilter = relType;
+  // 버튼 스타일 갱신
+  ['all','customer','supplier','partner','competitor'].forEach(t => {
+    const btn = document.getElementById(`sc-flt-${t}`);
+    if (!btn) return;
+    const active = t === relType;
+    btn.style.background = active ? 'var(--acc)' : 'var(--bg3)';
+    btn.style.borderColor = active ? 'var(--acc)' : 'var(--border)';
+    btn.style.color = active ? '#fff' : 'var(--txt1)';
+  });
+  // 목록 갱신
+  const listEl = document.getElementById('sc-rel-list');
+  if (listEl) listEl.innerHTML = renderScList(_scEdgesAll);
+  // 그래프 갱신
+  const filtered = relType === 'all' ? _scEdgesAll : _scEdgesAll.filter(e => e.relation_type === relType);
+  drawScGraph(filtered);
+}
+
+// ── 리스크 시나리오 ──────────────────────────────────────────────────────────
+async function runScenario(scenario) {
+  const resEl = document.getElementById('sc-scenario-result');
+  if (!resEl) return;
+  resEl.style.display = 'block';
+  resEl.innerHTML = '<div style="color:var(--txt2);font-size:12px">⏳ 시나리오 분석 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/risk-scenario?corp_code=${encodeURIComponent(CORP_CODE)}&scenario=${scenario}`);
+    const d = await r.json();
+    if (d.error) { resEl.innerHTML = `<div class="error-box">${escHtml(d.error)}</div>`; return; }
+
+    const w1 = d.wave1 || {};
+    const w2 = d.wave2 || {};
+    const sm = d.summary || {};
+
+    resEl.innerHTML = `
+      <div style="background:var(--bg3);border-radius:8px;padding:12px;font-size:12px">
+        <div style="font-weight:700;color:var(--txt1);margin-bottom:6px;font-size:13px">
+          ${escHtml(d.scenario_ko||'')}
+        </div>
+        <div style="color:var(--txt2);margin-bottom:10px">${escHtml(d.scenario_desc||'')}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px">
+          <div class="kpi-box"><div class="kpi-label">총 영향 기업</div><div class="kpi-val">${sm.total_exposed||0}</div></div>
+          <div class="kpi-box"><div class="kpi-label">상장사</div><div class="kpi-val">${sm.listed_exposed||0}</div></div>
+          <div class="kpi-box"><div class="kpi-label">전파 단계</div><div class="kpi-val">${sm.propagation_depth||1}</div></div>
+        </div>
+        <div style="font-weight:600;color:var(--txt2);margin-bottom:6px">1차 타격 (${w1.total||0}개사) — ${escHtml(w1.label||'')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+          ${(w1.companies||[]).slice(0,20).map(c=>`
+            <span style="background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.3);border-radius:4px;padding:2px 8px;font-size:10px;color:#e74c3c">
+              ${c.is_listed ? '📈' : '🏢'} ${escHtml(c.name)}
+            </span>`).join('')}
+          ${w1.total > 20 ? `<span style="color:var(--txt2);font-size:10px">외 ${w1.total-20}개사</span>` : ''}
+        </div>
+        ${w2.total ? `
+          <div style="font-weight:600;color:var(--txt2);margin-bottom:6px">2차 전파 (${w2.total}개사)</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px">
+            ${(w2.companies||[]).slice(0,15).map(c=>`
+              <span style="background:rgba(241,196,15,.12);border:1px solid rgba(241,196,15,.3);border-radius:4px;padding:2px 8px;font-size:10px;color:#f1c40f">
+                ${escHtml(c.name)} <span style="opacity:.6">via ${escHtml(c.via||'')}</span>
+              </span>`).join('')}
+            ${w2.total > 15 ? `<span style="color:var(--txt2);font-size:10px">외 ${w2.total-15}개사</span>` : ''}
+          </div>` : ''}
+      </div>`;
+  } catch(e) {
+    resEl.innerHTML = `<div class="error-box">오류: ${escHtml(e.message)}</div>`;
+  }
+}
+
+// ── 테마 기사 데이터 ──────────────────────────────────────────────────────────
+async function loadThemeArticle() {
+  const resEl = document.getElementById('sc-scenario-result');
+  if (!resEl) return;
+  resEl.style.display = 'block';
+  resEl.innerHTML = '<div style="color:var(--txt2);font-size:12px">⏳ 테마 기사 데이터 구성 중...</div>';
+  try {
+    const r = await fetch(`${API_BASE}/api/supply-chain/theme-article?corp_code=${encodeURIComponent(CORP_CODE)}&type=supply_top10`);
+    const d = await r.json();
+    if (d.error) { resEl.innerHTML = `<div class="error-box">${escHtml(d.error)}</div>`; return; }
+
+    const entities = d.entities || [];
+    resEl.innerHTML = `
+      <div style="background:var(--bg3);border-radius:8px;padding:12px;font-size:12px">
+        <div style="font-weight:700;color:var(--txt1);margin-bottom:4px;font-size:13px">📰 테마 기사 팩트 데이터</div>
+        <div style="background:rgba(91,106,240,.1);border:1px solid rgba(91,106,240,.3);border-radius:6px;
+                    padding:8px 12px;margin-bottom:10px;font-style:italic;color:var(--txt1)">
+          💡 헤드라인 아이디어: ${escHtml(d.headline_hint||'')}
+        </div>
+        <div style="margin-bottom:10px">
+          ${(d.key_facts||[]).map(f=>`<div style="color:var(--txt2);margin-bottom:4px">• ${escHtml(f)}</div>`).join('')}
+        </div>
+        <div style="font-size:10px;color:var(--txt2);margin-bottom:8px">${escHtml(d.data_table_hint||'')}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px">
+          <thead>
+            <tr style="background:var(--bg2)">
+              <th style="padding:6px 8px;border:1px solid var(--border);color:var(--txt2)">순위</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);color:var(--txt2)">기업명</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);color:var(--txt2)">상장여부</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);color:var(--txt2)">공시 언급</th>
+              <th style="padding:6px 8px;border:1px solid var(--border);color:var(--txt2)">출처 보고서</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${entities.map(e=>`
+              <tr>
+                <td style="padding:5px 8px;border:1px solid var(--border);text-align:center;color:var(--txt2)">${e.rank}</td>
+                <td style="padding:5px 8px;border:1px solid var(--border);font-weight:600">
+                  ${e.corp_code ? `<a href="/company_detail.html?corp_code=${escHtml(e.corp_code)}" style="color:var(--acc)">${escHtml(e.partner_name)}</a>` : escHtml(e.partner_name)}
+                </td>
+                <td style="padding:5px 8px;border:1px solid var(--border);text-align:center">
+                  ${e.is_listed ? '<span style="color:#2ecc71">📈 상장</span>' : '<span style="color:var(--txt2)">🏢 비상장</span>'}
+                </td>
+                <td style="padding:5px 8px;border:1px solid var(--border);text-align:center">${e.mention_cnt}회</td>
+                <td style="padding:5px 8px;border:1px solid var(--border);color:var(--txt2);font-size:10px">${escHtml(e.reports||'')}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    resEl.innerHTML = `<div class="error-box">오류: ${escHtml(e.message)}</div>`;
+  }
 }
 
 function drawScGraph(edges) {
@@ -533,61 +889,85 @@ function drawScGraph(edges) {
   if (!svgEl) return;
 
   const W = svgEl.clientWidth || 600;
-  const H = 320;
+  const H = 340;
 
   const svg = d3.select('#sc-svg');
   svg.selectAll('*').remove();
+  svg.attr('height', H);
 
   const centerCode = CORP_CODE;
-  const centerName = edges[0]?.corp_name || CORP_CODE;
+  const centerName = _scEdgesAll[0]?.corp_name || CORP_CODE;
 
   const nodeMap = new Map();
   nodeMap.set(centerCode, { id:centerCode, name:centerName, type:'center', degree:0 });
 
   const links = [];
+  // 중복 엣지 합산
+  const edgeMap = new Map();
   edges.forEach(e => {
-    const key = `p::${e.partner_name}`;
-    if (!nodeMap.has(key)) nodeMap.set(key, { id:key, name:e.partner_name, type:'partner', rel_type:e.relation_type, degree:0 });
-    links.push({ source:centerCode, target:key, relation:e.relation_type });
-    nodeMap.get(key).degree++;
+    const key = `${e.relation_type}::${e.partner_name}`;
+    if (!edgeMap.has(key)) edgeMap.set(key, { ...e, weight: 0 });
+    edgeMap.get(key).weight++;
+  });
+
+  edgeMap.forEach((e) => {
+    const nKey = `p::${e.partner_name}`;
+    if (!nodeMap.has(nKey)) nodeMap.set(nKey, { id:nKey, name:e.partner_name, type:'partner', rel_type:e.relation_type, degree:0 });
+    links.push({ source:centerCode, target:nKey, relation:e.relation_type, weight:e.weight });
+    nodeMap.get(nKey).degree += e.weight;
     nodeMap.get(centerCode).degree++;
   });
 
   const nodes = [...nodeMap.values()];
+  if (nodes.length <= 1) {
+    svg.append('text').attr('x',W/2).attr('y',H/2).attr('text-anchor','middle')
+      .attr('fill','var(--txt2)').attr('font-size',13).text('관계 데이터 없음');
+    return;
+  }
 
-  const zoom = d3.zoom().scaleExtent([.2,4]).on('zoom', e=>g.attr('transform',e.transform));
+  const zoom = d3.zoom().scaleExtent([.15,4]).on('zoom', e=>g.attr('transform',e.transform));
   svg.call(zoom);
   const g = svg.append('g');
 
   const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(d=>d.id).distance(90).strength(.6))
-    .force('charge', d3.forceManyBody().strength(-200))
+    .force('link', d3.forceLink(links).id(d=>d.id).distance(100).strength(.5))
+    .force('charge', d3.forceManyBody().strength(-220))
     .force('center', d3.forceCenter(W/2, H/2))
-    .force('collision', d3.forceCollide().radius(d=>d.type==='center'?22:12));
+    .force('collision', d3.forceCollide().radius(d=>d.type==='center'?24:14));
 
   if (_scSim) _scSim.stop();
   _scSim = sim;
 
+  // 링크
   const link = g.append('g').selectAll('line').data(links).join('line')
-    .attr('stroke', d=>SC_COLORS[d.relation]||'#666')
-    .attr('stroke-width', 1.2).attr('stroke-opacity', .6);
+    .attr('stroke', d=>SC_COLORS[d.relation]||'#555')
+    .attr('stroke-width', d=>Math.min(3, .8 + (d.weight||1)*.3))
+    .attr('stroke-opacity', .55);
 
+  // 노드
   const node = g.append('g').selectAll('g').data(nodes).join('g').attr('cursor','pointer')
     .call(d3.drag()
       .on('start',(e,d)=>{ if(!e.active) sim.alphaTarget(.3).restart(); d.fx=d.x; d.fy=d.y; })
       .on('drag', (e,d)=>{ d.fx=e.x; d.fy=e.y; })
-      .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
+      .on('end',  (e,d)=>{ if(!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+    .on('click', (ev, d) => {
+      if (d.type === 'center') return;
+      // 파트너 클릭 시 하이라이트
+      d3.selectAll('circle')
+        .attr('stroke-width', n => n===d ? 3 : (n.type==='center'?3:1))
+        .attr('stroke', n => n===d ? '#fff' : (n.type==='center'?'#fff':'transparent'));
+    });
 
   node.append('circle')
-    .attr('r', d=>d.type==='center'?16:Math.min(12,4+d.degree*1.5))
+    .attr('r', d=>d.type==='center'?18:Math.min(14,4+(d.degree||1)))
     .attr('fill', d=>d.type==='center'?'var(--acc)':(SC_COLORS[d.rel_type]||'#555'))
     .attr('stroke', d=>d.type==='center'?'#fff':'transparent')
-    .attr('stroke-width', 2);
+    .attr('stroke-width', d=>d.type==='center'?3:1);
 
   node.append('text')
-    .text(d=>d.name.length>8?d.name.substring(0,8)+'…':d.name)
+    .text(d=>d.name.length>9?d.name.substring(0,9)+'…':d.name)
     .attr('text-anchor','middle')
-    .attr('dy', d=>(d.type==='center'?16:12)+12)
+    .attr('dy', d=>(d.type==='center'?18:Math.min(14,4+(d.degree||1)))+12)
     .attr('font-size', 9).attr('fill','var(--txt2)').attr('pointer-events','none');
 
   sim.on('tick',()=>{
@@ -595,6 +975,18 @@ function drawScGraph(edges) {
         .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
     node.attr('transform',d=>`translate(${d.x},${d.y})`);
   });
+
+  // 자동 fitView
+  setTimeout(() => {
+    try {
+      const b = g.node().getBBox();
+      if (!b.width) return;
+      const sc = Math.min(.85*W/b.width, .85*H/b.height, 2);
+      const tx = (W - sc*b.width)/2 - sc*b.x;
+      const ty = (H - sc*b.height)/2 - sc*b.y;
+      svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(tx,ty).scale(sc));
+    } catch(_){}
+  }, 900);
 }
 
 // ── 비교분석 탭 ──────────────────────────────────────────────────────────────

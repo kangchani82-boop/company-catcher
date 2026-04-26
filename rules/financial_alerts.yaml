@@ -1,0 +1,291 @@
+# ══════════════════════════════════════════════════════════════════
+# Company Catcher — 취재 단서 감지 규칙 (YAML 마스터)
+# ══════════════════════════════════════════════════════════════════
+# 변경 후 DB 동기화: python scripts/rule_engine.py --sync
+# 통계 확인:         python scripts/rule_engine.py --stats
+# ══════════════════════════════════════════════════════════════════
+
+# 공통 설정
+defaults:
+  min_evidence_len: 0
+  is_active: true
+
+# ──────────────────────────────────────────────────────────────────
+# [A] 경영전략 변화 (strategy_change)
+# ──────────────────────────────────────────────────────────────────
+rules:
+
+  - rule_code: biz_exit
+    lead_type: strategy_change
+    severity: 5
+    description: "사업 철수·폐업·청산 결정 감지"
+    keywords:
+      - "사업 철수"
+      - "영업 중단"
+      - "폐업 결정"
+      - "청산 결정"
+      - "사업 포기"
+      - "사업을 중지"
+      - "사업 중단 결정"
+    require_context:
+      - "결정했"
+      - "결정하였"
+      - "완료"
+      - "진행"
+      - "시행"
+      - "실시"
+      - "발표"
+      - "공시"
+      - "철수했"
+      - "중단했"
+      - "중단하였"
+      - "폐업했"
+      - "청산했"
+      - "중지했"
+    min_evidence_len: 50
+    title_tmpl: "{corp_name} 사업 철수·중단 감지"
+
+  - rule_code: biz_new_mega
+    lead_type: strategy_change
+    severity: 5
+    description: "대규모 신사업 진출·사업목적 추가"
+    keywords:
+      - "신규 사업 진출"
+      - "신사업 추진"
+      - "사업 다각화 추진"
+      - "신규 사업부 설립"
+      - "새로운 사업 영역 진출"
+      - "사업목적 추가"
+      - "사업 영역 확대"
+    require_context:
+      - "추가되었"
+      - "추가됩"
+      - "신설"
+      - "설립"
+      - "인수"
+      - "취득"
+      - "진출했"
+      - "진출하였"
+      - "진출을 완료"
+      - "사업 개시"
+      - "새롭게 추가"
+      - "새로 추가"
+      - "확장했"
+      - "확장하였"
+      - "추진하고 있"
+      - "추진 중"
+      - "본격"
+      - "착수"
+    min_evidence_len: 60
+    title_tmpl: "{corp_name} 대규모 신사업 진출"
+
+  - rule_code: overseas_entry
+    lead_type: strategy_change
+    severity: 4
+    description: "해외 시장 신규 진출·법인 설립"
+    keywords:
+      - "해외 시장 신규 진출"
+      - "해외 법인 신설"
+      - "해외 사업장 신규 설립"
+      - "신규 해외 시장 개척"
+      - "해외 지사 설립"
+      - "해외 거점 신설"
+      - "글로벌 시장 진출"
+    title_tmpl: "{corp_name} 해외 신규 진출"
+
+  - rule_code: product_shift
+    lead_type: strategy_change
+    severity: 3
+    description: "주력 제품·사업 포트폴리오 전환"
+    keywords:
+      - "주력 제품 변경"
+      - "핵심 제품 교체"
+      - "사업 포트폴리오 재편"
+      - "포트폴리오 전환"
+      - "주력 사업 전환"
+      - "제품군 대폭 변경"
+    title_tmpl: "{corp_name} 주력 제품 변화"
+
+  - rule_code: ai_tech
+    lead_type: strategy_change
+    severity: 3
+    description: "AI·첨단기술 도입·구축 완료"
+    keywords:
+      - "AI 시스템 구축 완료"
+      - "AI 솔루션 도입 완료"
+      - "인공지능 플랫폼 구축"
+      - "머신러닝 시스템 구축"
+      - "AI 기반 서비스 출시"
+      - "딥러닝 시스템 도입"
+    title_tmpl: "{corp_name} AI·첨단기술 전략 변화"
+
+# ──────────────────────────────────────────────────────────────────
+# [B] 시장 변화 (market_shift)
+# ──────────────────────────────────────────────────────────────────
+
+  - rule_code: market_share_surge
+    lead_type: market_shift
+    severity: 5
+    description: "시장점유율 급등·급락 감지"
+    keywords:
+      - "시장점유율이 상승"
+      - "시장점유율이 하락"
+      - "시장점유율 급등"
+      - "시장점유율 급락"
+      - "점유율이 증가"
+      - "점유율이 감소"
+      - "점유율 크게 상승"
+      - "점유율 크게 하락"
+    title_tmpl: "{corp_name} 시장점유율 급변"
+
+  - rule_code: new_competitor
+    lead_type: market_shift
+    severity: 4
+    description: "신규 경쟁사 출현·경쟁 심화"
+    keywords:
+      - "새로운 경쟁사 출현"
+      - "신규 경쟁업체 등장"
+      - "경쟁사 신규 진입"
+      - "새로운 경쟁자 등장"
+      - "경쟁사가 시장에 진입"
+      - "신규 경쟁자 출현"
+      - "경쟁 심화"
+    title_tmpl: "{corp_name} 경쟁 환경 변화"
+
+# ──────────────────────────────────────────────────────────────────
+# [C] 리스크 경보 (risk_alert)
+# ──────────────────────────────────────────────────────────────────
+
+  - rule_code: supply_risk
+    lead_type: risk_alert
+    severity: 4
+    description: "공급망 차질·원재료 부족 리스크"
+    keywords:
+      - "공급 리스크"
+      - "원재료 부족"
+      - "공급망 차질"
+      - "공급 불안정"
+      - "조달 어려움"
+      - "공급망 위기"
+      - "부품 수급 불안"
+    title_tmpl: "{corp_name} 공급망 리스크 발생"
+
+  - rule_code: restructure
+    lead_type: risk_alert
+    severity: 4
+    description: "구조조정·인력 감축 리스크"
+    keywords:
+      - "구조조정 결정"
+      - "희망퇴직 실시"
+      - "인력 감축 계획"
+      - "사업 재편 추진"
+      - "조직 슬림화"
+      - "인원 감축"
+    title_tmpl: "{corp_name} 구조조정 리스크 발생"
+
+  - rule_code: regulation_risk
+    lead_type: risk_alert
+    severity: 3
+    description: "규제·인허가·법규 리스크"
+    keywords:
+      - "규제 강화"
+      - "법규 위반"
+      - "인허가 취소"
+      - "인증 문제"
+      - "정책 변화로 인한"
+      - "환경 규제"
+      - "안전 규제"
+    title_tmpl: "{corp_name} 규제 리스크 변화"
+
+  # ── 신규 추가: 재무 지표 기반 리스크 ────────────────────────────
+  - rule_code: debt_surge
+    lead_type: risk_alert
+    severity: 4
+    description: "부채비율 급등·재무 악화 경보"
+    keywords:
+      - "부채비율이 상승"
+      - "부채비율 급등"
+      - "차입금 급증"
+      - "단기차입금 증가"
+      - "재무 건전성 악화"
+      - "유동성 위기"
+      - "자본 잠식"
+    title_tmpl: "{corp_name} 재무 리스크 발생"
+
+  - rule_code: cash_drain
+    lead_type: risk_alert
+    severity: 4
+    description: "현금 고갈·영업CF 악화 경보"
+    keywords:
+      - "현금 부족"
+      - "영업현금흐름 악화"
+      - "현금흐름 적자"
+      - "운전자본 부족"
+      - "자금난"
+      - "유동성 부족"
+    title_tmpl: "{corp_name} 현금 유동성 리스크"
+
+# ──────────────────────────────────────────────────────────────────
+# [D] 수치 급변 (numeric_change)
+# ──────────────────────────────────────────────────────────────────
+
+  - rule_code: numeric_surge
+    lead_type: numeric_change
+    severity: 3
+    description: "주요 수치 급변 (YoY 30%+ 변화)"
+    keywords:
+      - "급등"
+      - "급락"
+      - "급증"
+      - "급감"
+      - "전년 대비 50%"
+      - "전년 대비 30%"
+      - "2배 이상"
+      - "절반 이하"
+    title_tmpl: "{corp_name} 주요 수치 급변"
+
+  # ── 신규 추가: 재고·수익성 이상 감지 ────────────────────────────
+  - rule_code: inventory_warning
+    lead_type: numeric_change
+    severity: 4
+    description: "재고자산 급증 + 매출 정체 → 전방 수요 악화 신호"
+    keywords:
+      - "재고자산 급증"
+      - "재고 누적"
+      - "재고 증가"
+      - "재고 부담"
+      - "재고 소진 지연"
+    exclude_keywords:
+      - "재고 감소"
+      - "재고 효율"
+    title_tmpl: "{corp_name} 재고 이상 경보"
+
+  - rule_code: margin_collapse
+    lead_type: numeric_change
+    severity: 4
+    description: "영업이익률 급락·적자 전환 감지"
+    keywords:
+      - "영업이익률 하락"
+      - "영업적자 전환"
+      - "수익성 악화"
+      - "마진 축소"
+      - "원가 급등으로 인한"
+      - "적자 전환"
+    title_tmpl: "{corp_name} 수익성 급락 경보"
+
+# ──────────────────────────────────────────────────────────────────
+# [E] 공급망 변화 (supply_chain)
+# ──────────────────────────────────────────────────────────────────
+
+  - rule_code: partner_change
+    lead_type: supply_chain
+    severity: 3
+    description: "주요 거래처·협력사 변경"
+    keywords:
+      - "주요 협력사 변경"
+      - "파트너사 교체"
+      - "핵심 공급사 변경"
+      - "거래처 변동"
+      - "납품처 변경"
+      - "주요 고객사 교체"
+    title_tmpl: "{corp_name} 거래처 변화 감지"
