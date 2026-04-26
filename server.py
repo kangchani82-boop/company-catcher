@@ -540,8 +540,11 @@ class DartHandler(BaseHTTPRequestHandler):
             "/article_detail":     "article_detail.html",
             "/comparison_detail":  "comparison_detail.html",
             "/supply_chain":       "supply_chain.html",
+            "/supply_chain_leads": "supply_chain_leads.html",
             "/company_detail":     "company_detail.html",
             "/alert_rules":        "alert_rules.html",
+            "/home_v2":            "home_v2.html",
+            "/dashboard":          "home_v2.html",
         }
         if path in _spa:
             f = WEB_ROOT / _spa[path]
@@ -1132,6 +1135,194 @@ class DartHandler(BaseHTTPRequestHandler):
                     "SELECT * FROM article_verification WHERE article_id=?", [art_id]
                 ).fetchone()
                 self._json(dict(row) if row else {})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/cross-signals (교차 신호) ────────────────────────────────
+        if path == "/api/cross-signals":
+            try:
+                limit = int(qs.get("limit", ["30"])[0])
+                pattern = qs.get("pattern", [None])[0]
+                db = get_db()
+                exists = db.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='cross_signals'"
+                ).fetchone()[0]
+                if not exists:
+                    self._json({"items": [], "total": 0}); return
+
+                where = ""
+                params = []
+                if pattern:
+                    where = "WHERE pattern = ?"
+                    params.append(pattern.upper())
+                total = db.execute(
+                    f"SELECT COUNT(*) FROM cross_signals {where}", params
+                ).fetchone()[0]
+                rows = db.execute(f"""
+                    SELECT * FROM cross_signals {where}
+                    ORDER BY severity DESC, signal_count DESC, id DESC LIMIT ?
+                """, params + [limit]).fetchall()
+                self._json({"items": [dict(r) for r in rows], "total": total})
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)})
+            return
+
+        # ── /api/dashboard (홈 대시보드 통합) ─────────────────────────────
+        if path == "/api/dashboard":
+            try:
+                db = get_db()
+                result = {}
+
+                # 1. 핫 단서 (severity 5 + 새로움 70+ 우선)
+                try:
+                    hot = db.execute("""
+                        SELECT sl.id, sl.corp_name, sl.lead_type, sl.severity,
+                               sl.title, sl.summary, sl.news_status,
+                               ln.score_total as novelty,
+                               ln.pattern as novelty_pattern,
+                               cig.score_total as info_gap,
+                               cig.grade as info_gap_grade,
+                               (SELECT COUNT(*) FROM article_drafts ad
+                                WHERE ad.lead_id = sl.id AND ad.char_count >= 500) as has_article
+                        FROM story_leads sl
+                        LEFT JOIN lead_novelty ln      ON sl.id = ln.lead_id
+                        LEFT JOIN company_info_gap cig ON sl.corp_code = cig.corp_code
+                        WHERE sl.severity >= 4
+                        ORDER BY
+                            COALESCE(ln.score_total, 50) DESC,
+                            COALESCE(cig.score_total, 50) DESC,
+                            sl.severity DESC
+                        LIMIT 8
+                    """).fetchall()
+                    result["hot_leads"] = [dict(r) for r in hot]
+                except Exception as e:
+                    result["hot_leads"] = []
+                    result["_hot_err"] = str(e)
+
+                # 2. KPI 4개
+                try:
+                    kpi = {}
+                    kpi["new_leads_24h"] = db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE created_at >= datetime('now', '-24 hours')"
+                    ).fetchone()[0]
+                    kpi["drafted_total"] = db.execute(
+                        "SELECT COUNT(*) FROM article_drafts WHERE char_count >= 500"
+                    ).fetchone()[0]
+                    kpi["safe_articles"] = db.execute("""
+                        SELECT COUNT(*) FROM article_verification WHERE flag IN ('SAFE','LOW')
+                    """).fetchone()[0] if db.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE name='article_verification'"
+                    ).fetchone()[0] else 0
+                    kpi["info_gap_high"] = db.execute("""
+                        SELECT COUNT(*) FROM company_info_gap WHERE grade = '🚨'
+                    """).fetchone()[0] if db.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE name='company_info_gap'"
+                    ).fetchone()[0] else 0
+                    result["kpi"] = kpi
+                except Exception as e:
+                    result["kpi"] = {}
+                    result["_kpi_err"] = str(e)
+
+                # 3. 콘셉별 카운트
+                try:
+                    concepts = {}
+                    concepts["story_leads_active"] = db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE severity >= 3"
+                    ).fetchone()[0]
+                    if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='supply_chain_leads'").fetchone()[0]:
+                        sc_rows = db.execute(
+                            "SELECT scenario, COUNT(*) cnt FROM supply_chain_leads GROUP BY scenario"
+                        ).fetchall()
+                        concepts["supply_chain"] = {r["scenario"]: r["cnt"] for r in sc_rows}
+                        concepts["supply_chain_total"] = sum(r["cnt"] for r in sc_rows)
+                    if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='event_disclosures'").fetchone()[0]:
+                        concepts["disclosures_total"] = db.execute(
+                            "SELECT COUNT(*) FROM event_disclosures"
+                        ).fetchone()[0]
+                    risk = db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE lead_type='risk_alert' AND severity >= 4"
+                    ).fetchone()[0]
+                    concepts["risk_alerts"] = risk
+                    if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='lead_novelty'").fetchone()[0]:
+                        concepts["new_strong"] = db.execute(
+                            "SELECT COUNT(*) FROM lead_novelty WHERE score_total >= 70"
+                        ).fetchone()[0]
+                    result["concepts"] = concepts
+                except Exception as e:
+                    result["concepts"] = {}
+                    result["_concepts_err"] = str(e)
+
+                # 4. 최근 수시공시 (severity 4+ 만)
+                try:
+                    if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='event_leads'").fetchone()[0]:
+                        rd = db.execute("""
+                            SELECT el.corp_name, el.event_type, el.title, el.severity,
+                                   ed.rcept_dt, ed.raw_url, ed.report_nm
+                            FROM event_leads el
+                            LEFT JOIN event_disclosures ed ON el.rcept_no = ed.rcept_no
+                            WHERE el.severity >= 4
+                            ORDER BY ed.rcept_dt DESC LIMIT 12
+                        """).fetchall()
+                        result["recent_disclosures"] = [dict(r) for r in rd]
+                    else:
+                        result["recent_disclosures"] = []
+                except Exception as e:
+                    result["recent_disclosures"] = []
+                    result["_disc_err"] = str(e)
+
+                # 4.5 교차 신호 (Phase Cross) — 사용자 사명 직결
+                try:
+                    if db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='cross_signals'").fetchone()[0]:
+                        cs = db.execute("""
+                            SELECT pattern, COUNT(*) cnt FROM cross_signals
+                            GROUP BY pattern
+                        """).fetchall()
+                        cs_total = sum(r["cnt"] for r in cs)
+                        cs_top = db.execute("""
+                            SELECT pattern, title, interpretation, primary_corp_name,
+                                   severity, signal_count
+                            FROM cross_signals
+                            ORDER BY severity DESC, signal_count DESC LIMIT 6
+                        """).fetchall()
+                        result["cross_signals"] = {
+                            "total": cs_total,
+                            "by_pattern": {r["pattern"]: r["cnt"] for r in cs},
+                            "top": [dict(r) for r in cs_top],
+                        }
+                    else:
+                        result["cross_signals"] = {"total": 0, "by_pattern": {}, "top": []}
+                except Exception as e:
+                    result["cross_signals"] = {"total": 0, "_err": str(e)}
+
+                # 5. 최근 기사 (검증 점수 포함)
+                try:
+                    has_v = db.execute(
+                        "SELECT COUNT(*) FROM sqlite_master WHERE name='article_verification'"
+                    ).fetchone()[0]
+                    if has_v:
+                        la = db.execute("""
+                            SELECT ad.id, ad.corp_name, ad.headline, ad.char_count,
+                                   ad.created_at, ad.model,
+                                   av.flag as verify_flag, av.score_total as verify_score,
+                                   (SELECT COUNT(*) FROM article_fact_cards afc WHERE afc.article_id = ad.id) as is_v3
+                            FROM article_drafts ad
+                            LEFT JOIN article_verification av ON ad.id = av.article_id
+                            WHERE ad.char_count >= 500
+                            ORDER BY ad.id DESC LIMIT 6
+                        """).fetchall()
+                    else:
+                        la = db.execute("""
+                            SELECT id, corp_name, headline, char_count, created_at, model
+                            FROM article_drafts WHERE char_count >= 500
+                            ORDER BY id DESC LIMIT 6
+                        """).fetchall()
+                    result["latest_articles"] = [dict(r) for r in la]
+                except Exception as e:
+                    result["latest_articles"] = []
+                    result["_la_err"] = str(e)
+
+                self._json(result)
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return

@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Company Catcher — 종합 대시보드</title>
+  <script src="common.js"></script>
+  <style>
+    .dash-wrap { max-width: 1400px; margin: 0 auto; padding: 20px 16px; }
+    .dash-header { margin-bottom: 24px; }
+    .dash-h1 {
+      font-size: 22px; font-weight: 700; margin: 0 0 6px 0;
+      background: linear-gradient(135deg, #ef4444, #f59e0b);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .dash-sub { font-size: 12px; color: var(--txt2); margin: 0; }
+
+    /* KPI 카드 */
+    .kpi-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;
+      margin-bottom: 24px;
+    }
+    .kpi-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; cursor: pointer;
+      transition: all .15s;
+    }
+    .kpi-card:hover { border-color: var(--acc); transform: translateY(-1px); }
+    .kpi-icon { font-size: 18px; margin-bottom: 8px; }
+    .kpi-value { font-size: 26px; font-weight: 800; color: var(--txt1); margin-bottom: 2px; }
+    .kpi-label { font-size: 11px; color: var(--txt2); }
+
+    /* 섹션 헤더 */
+    .sec-header {
+      display: flex; align-items: center; gap: 10px; margin: 28px 0 12px 0;
+      padding-bottom: 8px; border-bottom: 2px solid var(--border);
+    }
+    .sec-title { font-size: 14px; font-weight: 700; color: var(--txt1); margin: 0; }
+    .sec-count {
+      font-size: 11px; padding: 2px 8px; border-radius: 999px;
+      background: var(--bg3); color: var(--txt2);
+    }
+
+    /* 핫 단서 카드 */
+    .hot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hot-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-left: 4px solid #ef4444;
+      border-radius: 10px; padding: 12px 16px; cursor: pointer;
+      transition: all .15s;
+    }
+    .hot-card:hover { border-left-color: #ec4899; border-color: var(--acc); }
+    .hot-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+    .hot-corp { font-size: 13px; font-weight: 700; color: var(--txt1); }
+    .hot-title { font-size: 13px; color: var(--txt1); margin: 4px 0; line-height: 1.4; }
+    .hot-summary { font-size: 11px; color: var(--txt2); line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .hot-meta { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; font-size: 10px; color: var(--txt2); }
+
+    /* 콘셉별 그리드 */
+    .concept-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    }
+    .concept-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 14px 16px; cursor: pointer;
+      transition: all .15s; text-decoration: none; color: var(--txt1);
+      display: block;
+    }
+    .concept-card:hover { border-color: var(--acc); transform: translateY(-1px); }
+    .concept-icon { font-size: 22px; margin-bottom: 8px; }
+    .concept-name { font-size: 12px; font-weight: 600; color: var(--txt1); margin-bottom: 4px; }
+    .concept-desc { font-size: 10px; color: var(--txt2); margin-bottom: 6px; line-height: 1.5; min-height: 30px; }
+    .concept-count { font-size: 13px; font-weight: 700; color: var(--acc); }
+
+    /* 수시공시 피드 */
+    .feed-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 6px 12px; }
+    .feed-row {
+      display: flex; gap: 10px; align-items: center; padding: 8px 0;
+      border-bottom: 1px dashed var(--border); font-size: 12px;
+    }
+    .feed-row:last-child { border-bottom: none; }
+    .feed-time { color: var(--txt2); font-family: monospace; min-width: 80px; }
+    .feed-type {
+      font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+      letter-spacing: .3px;
+    }
+    .feed-MA       { background: rgba(220,38,38,.20); color: #dc2626; }
+    .feed-CONTRACT { background: rgba(59,130,246,.15); color: #3b82f6; }
+    .feed-CAPITAL  { background: rgba(245,158,11,.15); color: #f59e0b; }
+    .feed-INSIDER  { background: rgba(168,85,247,.15); color: #a855f7; }
+    .feed-GUIDANCE { background: rgba(34,197,94,.15); color: #22c55e; }
+    .feed-OTHER    { background: rgba(148,163,184,.15); color: #94a3b8; }
+
+    /* 교차 신호 카드 */
+    .cross-card {
+      background: linear-gradient(135deg, rgba(236,72,153,.05), rgba(168,85,247,.05));
+      border: 1px solid var(--border); border-left: 4px solid #ec4899;
+      border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: all .15s;
+    }
+    .cross-card:hover { border-color: #a855f7; transform: translateY(-1px); }
+    .cross-pattern {
+      font-size: 9px; font-weight: 800; padding: 2px 8px; border-radius: 999px;
+      letter-spacing: .5px;
+    }
+    .cp-CONCENTRATION_SHIFT       { background:rgba(239,68,68,.20); color:#dc2626; }
+    .cp-SUPPLY_CHAIN_RIPPLE       { background:rgba(220,38,38,.25); color:#dc2626; }
+    .cp-NEW_BUSINESS_FUNDING      { background:rgba(34,197,94,.20); color:#22c55e; }
+    .cp-INDUSTRY_WAVE             { background:rgba(20,184,166,.20); color:#14b8a6; }
+    .cp-HIDDEN_CHANGE             { background:rgba(245,158,11,.20); color:#f59e0b; }
+    .cp-GLOBAL_RISK_TRANSFER      { background:rgba(59,130,246,.20); color:#3b82f6; }
+    .cp-GROUP_RESTRUCTURING       { background:rgba(168,85,247,.20); color:#a855f7; }
+    .cp-OWNERSHIP_DECISION_SIGNAL { background:rgba(236,72,153,.20); color:#ec4899; }
+
+    .cross-title { font-size: 13px; font-weight: 700; color: var(--txt1); margin: 8px 0 6px 0; line-height: 1.4; }
+    .cross-interp { font-size: 11px; color: var(--txt2); line-height: 1.6; padding: 6px 10px;
+      background: rgba(255,255,255,.03); border-radius: 6px; border-left: 2px solid #ec4899; }
+    .signal-dots {
+      display: inline-flex; gap: 3px; margin-left: 8px;
+    }
+    .signal-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: #ec4899;
+    }
+    .feed-text { flex: 1; min-width: 0; color: var(--txt1); }
+
+    /* 최근 기사 */
+    .article-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    }
+    .article-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px; cursor: pointer; transition: all .15s;
+    }
+    .article-card:hover { border-color: var(--acc); }
+    .article-head { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+    .article-corp { font-size: 11px; color: var(--txt2); }
+    .article-title { font-size: 13px; font-weight: 700; color: var(--txt1); line-height: 1.4; margin: 4px 0; }
+    .article-meta { display: flex; gap: 8px; font-size: 10px; color: var(--txt2); margin-top: 6px; }
+    .v3-badge {
+      font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: 700;
+      background: rgba(168,85,247,.15); color: #a855f7;
+    }
+
+    /* 검증 배지 */
+    .verify-badge { display:inline-flex; align-items:center; gap:3px; padding:1px 6px; border-radius:999px; font-weight:600; font-size:9px; }
+    .verify-SAFE { background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.4); }
+    .verify-LOW  { background:rgba(251,146,60,.15); color:#fb923c; border:1px solid rgba(251,146,60,.4); }
+    .verify-MEDIUM { background:rgba(234,179,8,.15); color:#eab308; border:1px solid rgba(234,179,8,.4); }
+    .verify-HIGH { background:rgba(239,68,68,.15); color:#ef4444; border:1px solid rgba(239,68,68,.4); }
+
+    /* severity 배지 */
+    .sev-5 { background:rgba(239,68,68,.20); color:#ef4444; }
+    .sev-4 { background:rgba(251,146,60,.15); color:#fb923c; }
+    .sev-3 { background:rgba(234,179,8,.15); color:#eab308; }
+    .sev-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; }
+
+    /* novelty 배지 */
+    .nov-pat-NEW       { background: rgba(34,197,94,.15); color: #22c55e; }
+    .nov-pat-EXPANDING { background: rgba(20,184,166,.15); color: #14b8a6; }
+    .nov-pat-REMOVED   { background: rgba(220,38,38,.15); color: #dc2626; }
+    .nov-pat-EXISTING  { background: rgba(148,163,184,.15); color: #94a3b8; }
+    .nov-badge { font-size: 9px; padding: 1px 6px; border-radius: 4px; font-weight: 700; }
+
+    /* 정보격차 배지 */
+    .ig-grade { font-size: 13px; }
+
+    /* 반응형 */
+    @media (max-width: 900px) {
+      .kpi-grid, .concept-grid { grid-template-columns: repeat(2, 1fr); }
+      .hot-grid, .article-grid { grid-template-columns: 1fr; }
+    }
+    .loading-card { padding: 20px; text-align: center; color: var(--txt2); font-size: 12px; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="dash-wrap">
+  <div class="dash-header" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px">
+    <div>
+      <h1 class="dash-h1">📰 Company Catcher 종합 대시보드</h1>
+      <p class="dash-sub">정보 격차를 줄이는 산업·증권 기사 자동 발굴 — 변화 인지부터 기사 출고까지</p>
+    </div>
+    <div style="display:flex;gap:6px">
+      <a href="/dart_viewer.html" class="toolbar-btn" style="font-size:11px;padding:6px 12px">
+        📊 DART 뷰어 (기존)
+      </a>
+      <a href="/articles" class="toolbar-btn" style="font-size:11px;padding:6px 12px">
+        📰 기사 목록
+      </a>
+      <a href="/leads" class="toolbar-btn" style="font-size:11px;padding:6px 12px">
+        🚨 단서 목록
+      </a>
+    </div>
+  </div>
+
+  <!-- KPI 4개 -->
+  <div class="kpi-grid" id="kpi-grid">
+    <div class="loading-card">로딩 중...</div>
+  </div>
+
+  <!-- ★ Section 0: 교차 신호 (Phase Cross) — 사용자 사명 직결 -->
+  <div class="sec-header" style="border-bottom-color:#ec4899">
+    <h2 class="sec-title" style="background:linear-gradient(135deg,#ec4899,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
+      🔀 교차 신호 — 여러 정보 조합으로 발견된 진짜 가치
+    </h2>
+    <span class="sec-count" id="cross-count">-</span>
+  </div>
+  <div id="cross-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:24px">
+    <div class="loading-card">로딩 중...</div>
+  </div>
+
+  <!-- Section 1: 오늘의 핫 단서 -->
+  <div class="sec-header">
+    <h2 class="sec-title">🔥 오늘의 핫 단서 (severity 4+ 새로움 우선)</h2>
+    <span class="sec-count" id="hot-count">-</span>
+    <div style="margin-left:auto"><a href="/leads" style="font-size:11px;color:var(--acc)">전체 단서 →</a></div>
+  </div>
+  <div class="hot-grid" id="hot-grid">
+    <div class="loading-card">로딩 중...</div>
+  </div>
+
+  <!-- Section 2: 콘셉별 진입 -->
+  <div class="sec-header">
+    <h2 class="sec-title">📚 콘셉별 빠른 진입</h2>
+  </div>
+  <div class="concept-grid" id="concept-grid"></div>
+
+  <!-- Section 3: 수시공시 피드 + 최근 기사 — 2열 -->
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
+    <div>
+      <div class="sec-header">
+        <h2 class="sec-title">⚡ 최근 주요 수시공시 (severity 4+)</h2>
+        <span class="sec-count" id="disc-count">-</span>
+      </div>
+      <div class="feed-card" id="disc-feed">
+        <div class="loading-card">로딩 중...</div>
+      </div>
+    </div>
+    <div>
+      <div class="sec-header">
+        <h2 class="sec-title">📰 최근 출고 기사</h2>
+        <div style="margin-left:auto"><a href="/articles" style="font-size:11px;color:var(--acc)">전체 →</a></div>
+      </div>
+      <div class="article-grid" id="article-grid">
+        <div class="loading-card">로딩 중...</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+
+// 안전한 escHtml (common.js 의존 제거)
+function escHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+const NOV_LABEL = {
+  NEW: '🆕 신규',
+  EXPANDING: '📈 확장',
+  REMOVED: '🗑 제거',
+  EXISTING: '📂 기존',
+  CHANGED: '🔄 변경',
+};
+
+async function loadDashboard() {
+  let data = null;
+  try {
+    const r = await fetch(`${API}/api/dashboard`);
+    data = await r.json();
+    if (!r.ok && data && data.error) throw new Error(data.error);
+  } catch (e) {
+    console.error('[dashboard fetch]', e);
+    document.getElementById('kpi-grid').innerHTML =
+      `<div class="loading-card" style="grid-column: 1/-1;color:#ef4444">대시보드 API 오류: ${e.message}</div>`;
+    return;
+  }
+  // 각 렌더 함수 독립 try-catch
+  try { renderKPI(data.kpi || {}); }
+  catch(e){ console.error('renderKPI', e); document.getElementById('kpi-grid').innerHTML = '<div class="loading-card">KPI 렌더 실패</div>'; }
+  try { renderCrossSignals(data.cross_signals || {}); }
+  catch(e){ console.error('renderCrossSignals', e); document.getElementById('cross-grid').innerHTML = '<div class="loading-card">교차신호 렌더 실패</div>'; }
+  try { renderHot(data.hot_leads || []); }
+  catch(e){ console.error('renderHot', e); document.getElementById('hot-grid').innerHTML = '<div class="loading-card">핫단서 렌더 실패</div>'; }
+  try { renderConcepts(data.concepts || {}); }
+  catch(e){ console.error('renderConcepts', e); document.getElementById('concept-grid').innerHTML = '<div class="loading-card">콘셉 렌더 실패</div>'; }
+  try { renderDisclosures(data.recent_disclosures || []); }
+  catch(e){ console.error('renderDisclosures', e); document.getElementById('disc-feed').innerHTML = '<div class="loading-card">공시 렌더 실패</div>'; }
+  try { renderArticles(data.latest_articles || []); }
+  catch(e){ console.error('renderArticles', e); document.getElementById('article-grid').innerHTML = '<div class="loading-card">기사 렌더 실패</div>'; }
+}
+
+function renderKPI(kpi) {
+  document.getElementById('kpi-grid').innerHTML = `
+    <div class="kpi-card" onclick="location.href='/leads'">
+      <div class="kpi-icon">🆕</div>
+      <div class="kpi-value">${kpi.new_leads_24h ?? 0}</div>
+      <div class="kpi-label">최근 24시간 신규 단서</div>
+    </div>
+    <div class="kpi-card" onclick="location.href='/articles'">
+      <div class="kpi-icon">📰</div>
+      <div class="kpi-value">${kpi.drafted_total ?? 0}</div>
+      <div class="kpi-label">생성된 기사 초안</div>
+    </div>
+    <div class="kpi-card" onclick="location.href='/articles?sort=verify_high'">
+      <div class="kpi-icon">✅</div>
+      <div class="kpi-value">${kpi.safe_articles ?? 0}</div>
+      <div class="kpi-label">검증 통과 기사 (SAFE/LOW)</div>
+    </div>
+    <div class="kpi-card" onclick="location.href='/leads'">
+      <div class="kpi-icon">🚨</div>
+      <div class="kpi-value">${kpi.info_gap_high ?? 0}</div>
+      <div class="kpi-label">정보 격차 큰 회사 (🚨급)</div>
+    </div>
+  `;
+}
+
+const CROSS_LABEL = {
+  CONCENTRATION_SHIFT:       '🎯 의존도 변동',
+  SUPPLY_CHAIN_RIPPLE:       '💥 충격 전파',
+  NEW_BUSINESS_FUNDING:      '💰 신사업+자본',
+  INDUSTRY_WAVE:             '🌊 산업 트렌드',
+  HIDDEN_CHANGE:             '🔍 소외 발견',
+  GLOBAL_RISK_TRANSFER:      '🌍 글로벌 충격',
+  GROUP_RESTRUCTURING:       '🏢 그룹 재편',
+  OWNERSHIP_DECISION_SIGNAL: '👤 결정 동기',
+};
+
+function renderCrossSignals(cs) {
+  document.getElementById('cross-count').textContent = `${cs.total || 0}건`;
+  const el = document.getElementById('cross-grid');
+  const top = cs.top || [];
+  if (!top.length) {
+    el.innerHTML = '<div class="loading-card">교차 신호가 없습니다 (cross_signals.py --build-all 실행 필요)</div>';
+    return;
+  }
+  el.innerHTML = top.map(s => {
+    const dots = Array(Math.min(s.signal_count || 2, 8)).fill(0).map(() => '<span class="signal-dot"></span>').join('');
+    return `
+      <div class="cross-card">
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="cross-pattern cp-${s.pattern}">${CROSS_LABEL[s.pattern] || s.pattern}</span>
+          <span class="sev-badge sev-${s.severity}">⚠${s.severity}</span>
+          <span class="signal-dots" title="결합된 신호 수">${dots}</span>
+          <span style="font-size:10px;color:var(--txt2);margin-left:auto">신호 ${s.signal_count}개</span>
+        </div>
+        <div class="cross-title">${escHtml(s.title || '')}</div>
+        ${s.interpretation ? `<div class="cross-interp">${escHtml(s.interpretation)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+}
+
+function renderHot(items) {
+  document.getElementById('hot-count').textContent = `${items.length}건`;
+  const el = document.getElementById('hot-grid');
+  if (!items.length) { el.innerHTML = '<div class="loading-card">단서가 없습니다</div>'; return; }
+  el.innerHTML = items.map(it => {
+    const sev = `<span class="sev-badge sev-${it.severity}">⚠${it.severity}</span>`;
+    const nov = it.novelty != null
+      ? `<span class="nov-badge nov-pat-${it.novelty_pattern || 'NEW'}">✨${it.novelty} ${NOV_LABEL[it.novelty_pattern]||''}</span>`
+      : '';
+    const ig  = it.info_gap != null
+      ? `<span class="ig-grade" title="정보격차 ${it.info_gap}점">${it.info_gap_grade || ''}</span>`
+      : '';
+    const article = it.has_article ? `<a href="/articles?q=${encodeURIComponent(it.corp_name||'')}" style="font-size:10px;color:var(--acc);margin-left:auto">📰 기사 보기</a>` : '';
+    const news = {exclusive:'🔴독점', partial:'🟡일부', covered:'🟢기보도'}[it.news_status] || '';
+    return `
+      <div class="hot-card" onclick="location.href='/lead_detail?id=${it.id}'">
+        <div class="hot-head">
+          ${sev} ${nov} ${ig}
+          <span class="hot-corp">${escHtml(it.corp_name||'')}</span>
+          ${article}
+        </div>
+        <div class="hot-title">${escHtml(it.title || '(제목 없음)')}</div>
+        ${it.summary ? `<div class="hot-summary">${escHtml(it.summary)}</div>` : ''}
+        <div class="hot-meta">
+          <span>${it.lead_type || ''}</span>
+          ${news ? `<span>${news}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderConcepts(c) {
+  const cards = [
+    { icon:'⚡', name:'즉시 단신', desc:'STRAIGHT 5단락, 회사 통화 없이 출고 가능',
+      count: c.story_leads_active || 0, link:'/articles' },
+    { icon:'🎯', name:'심층 기획', desc:'REPORTER 8단계 + 취재 가이드 동시',
+      count: c.story_leads_active || 0, link:'/articles?sort=verify_high' },
+    { icon:'🚨', name:'리스크 경보', desc:'재무·공급망 위기 단서',
+      count: c.risk_alerts || 0, link:'/leads' },
+    { icon:'🕸', name:'공급망', desc:'8 시나리오 — 허브·의존도·클러스터',
+      count: c.supply_chain_total || 0, link:'/supply_chain_leads' },
+    { icon:'✨', name:'진짜 새로움', desc:'novelty 70+ 진짜 변화 발굴',
+      count: c.new_strong || 0, link:'/leads' },
+    { icon:'📋', name:'수시공시', desc:'M&A·자본금·임원 변동 (참고용)',
+      count: c.disclosures_total || 0, link:'/leads' },
+    { icon:'🌍', name:'글로벌 거래처', desc:'Apple·TSMC·Bloomberg 등',
+      count: (c.supply_chain && c.supply_chain.GLOBAL) || 0, link:'/supply_chain_leads' },
+    { icon:'📊', name:'산업종합', desc:'반도체·바이오·IT 등 업종 분석',
+      count: (c.supply_chain && c.supply_chain.INDUSTRY) || 0, link:'/supply_chain_leads' },
+  ];
+  document.getElementById('concept-grid').innerHTML = cards.map(c => `
+    <a class="concept-card" href="${c.link}">
+      <div class="concept-icon">${c.icon}</div>
+      <div class="concept-name">${c.name}</div>
+      <div class="concept-desc">${c.desc}</div>
+      <div class="concept-count">${c.count.toLocaleString()}건</div>
+    </a>
+  `).join('');
+}
+
+function renderDisclosures(items) {
+  document.getElementById('disc-count').textContent = `${items.length}건`;
+  const el = document.getElementById('disc-feed');
+  if (!items.length) { el.innerHTML = '<div class="loading-card">최근 공시가 없습니다</div>'; return; }
+  el.innerHTML = items.map(it => {
+    const dt = (it.rcept_dt || '').replace(/(\d{4})(\d{2})(\d{2})/, '$1.$2.$3');
+    return `
+      <a href="${escHtml(it.raw_url || '#')}" target="_blank" rel="noopener" class="feed-row" style="text-decoration:none;display:flex">
+        <span class="feed-time">${dt}</span>
+        <span class="feed-type feed-${it.event_type}">${it.event_type}</span>
+        <span class="feed-text">${escHtml(it.corp_name||'')} — ${escHtml((it.report_nm||'').slice(0,50))}</span>
+      </a>
+    `;
+  }).join('');
+}
+
+function renderArticles(items) {
+  const el = document.getElementById('article-grid');
+  if (!items.length) { el.innerHTML = '<div class="loading-card">기사가 없습니다</div>'; return; }
+  el.innerHTML = items.slice(0, 6).map(a => {
+    const verify = a.verify_flag
+      ? `<span class="verify-badge verify-${a.verify_flag}">${a.verify_flag} ${a.verify_score}</span>`
+      : '';
+    const v3 = a.is_v3 ? '<span class="v3-badge">v3</span>' : '';
+    return `
+      <div class="article-card" onclick="location.href='/article_detail?id=${a.id}'">
+        <div class="article-head">${verify} ${v3}<span class="article-corp">${escHtml(a.corp_name||'')}</span></div>
+        <div class="article-title">${escHtml((a.headline||'').slice(0,40))}</div>
+        <div class="article-meta">
+          <span>${a.char_count}자</span>
+          <span>${(a.created_at||'').slice(5,16)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  try { if (typeof renderNav === 'function') renderNav(); } catch(e) {}
+  loadDashboard();
+});
+</script>
+
+</body>
+</html>
