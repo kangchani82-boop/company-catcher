@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📨 질문지 검토 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .qr-wrap { max-width:1300px; margin:0 auto; padding:16px; }
+    .qr-h1 { font-size:22px; font-weight:700; margin:0 0 6px 0;
+             background:linear-gradient(135deg,#ec4899,#a855f7);
+             -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .qr-sub { font-size:12px; color:var(--txt2); margin-bottom:16px; }
+    .stat-grid { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin:12px 0; }
+    .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+                 padding:10px; text-align:center; cursor:pointer; }
+    .stat-card.active { border-color:var(--acc); }
+    .stat-num { font-size:18px; font-weight:800; color:var(--acc); }
+    .stat-label { font-size:10px; color:var(--txt2); margin-top:2px; }
+
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar input, .toolbar select {
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      border-radius:6px; padding:6px 10px; font-size:12px;
+    }
+    .toolbar input[type=text] { flex:1; min-width:200px; }
+    .btn-toolbar {
+      font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg2); color:var(--txt1);
+    }
+    .btn-toolbar:hover { border-color:var(--acc); }
+
+    .qst-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:14px 16px; margin-bottom:10px; transition:all .2s;
+    }
+    .qst-card.approved { border-left:4px solid #22c55e; }
+    .qst-card.hold { border-left:4px solid #f59e0b; opacity:0.85; }
+    .qst-card.discard { border-left:4px solid #ef4444; opacity:0.5; }
+    .qst-card.sent { border-left:4px solid #3b82f6; }
+    .qst-card.no-contact { background:repeating-linear-gradient(45deg,
+        var(--bg2), var(--bg2) 8px, rgba(239,68,68,0.04) 8px, rgba(239,68,68,0.04) 16px); }
+
+    .badge {
+      display:inline-block; font-size:9px; padding:2px 6px; border-radius:10px;
+      margin-left:6px; font-weight:600; vertical-align:middle;
+    }
+    .badge-no-contact { background:rgba(239,68,68,0.15); color:#ef4444;
+                        border:1px solid rgba(239,68,68,0.4); }
+    .badge-recent     { background:rgba(245,158,11,0.15); color:#f59e0b;
+                        border:1px solid rgba(245,158,11,0.4); }
+    .badge-sent       { background:rgba(59,130,246,0.15); color:#3b82f6;
+                        border:1px solid rgba(59,130,246,0.4); }
+
+    .quota-pill {
+      display:inline-flex; gap:4px; align-items:center; font-size:11px;
+      padding:4px 10px; border-radius:12px; background:var(--bg2);
+      border:1px solid var(--border);
+    }
+    .quota-pill.warn { border-color:#f59e0b; color:#f59e0b; }
+    .quota-pill.danger { border-color:#ef4444; color:#ef4444; }
+
+    .qst-head { display:flex; justify-content:space-between; align-items:flex-start;
+                gap:12px; margin-bottom:10px; }
+    .qst-corp { font-size:14px; font-weight:700; color:var(--txt1); }
+    .qst-meta { font-size:10px; color:var(--txt2); }
+    .qst-headline { font-size:12px; color:var(--txt2); margin:4px 0 10px;
+                    padding:6px 10px; background:var(--bg1); border-radius:6px; border-left:2px solid var(--acc); }
+
+    .questions-list { font-size:12px; line-height:1.6; }
+    .q-row {
+      display:flex; gap:8px; align-items:flex-start; padding:6px 0;
+      border-bottom:1px dashed rgba(148,163,184,0.15);
+    }
+    .q-row:last-child { border-bottom:none; }
+    .q-num { color:#ec4899; font-weight:700; min-width:18px; }
+    .q-text {
+      flex:1; padding:2px 6px; border-radius:4px; cursor:text;
+      min-height:18px; outline:none;
+    }
+    .q-text:hover { background:var(--bg1); }
+    .q-text:focus { background:var(--bg1); outline:1px solid var(--acc); }
+    .q-actions { font-size:10px; display:flex; gap:6px; }
+    .q-icon { cursor:pointer; opacity:0.5; }
+    .q-icon:hover { opacity:1; }
+
+    .qst-body { display:grid; grid-template-columns: 1fr 320px; gap:14px; }
+    @media (max-width: 1100px) { .qst-body { grid-template-columns: 1fr; } }
+
+    .news-side {
+      background:var(--bg1); border:1px solid var(--border); border-radius:8px;
+      padding:10px 12px; max-height:340px; overflow-y:auto;
+    }
+    .news-side h4 { margin:0 0 8px; font-size:11px; color:var(--txt2);
+                    display:flex; justify-content:space-between; align-items:center; }
+    .news-item { padding:6px 0; border-bottom:1px dashed rgba(148,163,184,0.12); }
+    .news-item:last-child { border-bottom:none; }
+    .news-title { font-size:11px; line-height:1.4; color:var(--txt1); text-decoration:none; }
+    .news-title:hover { color:var(--acc); text-decoration:underline; }
+    .news-meta { font-size:9px; color:var(--txt2); margin-top:3px; }
+    .news-tier-T1 { color:#22c55e; font-weight:600; }
+    .news-tier-T2 { color:#94a3b8; }
+    .news-empty { font-size:10px; color:var(--txt2); padding:8px 0; text-align:center; }
+    .news-actions { margin-top:4px; display:flex; gap:6px; flex-wrap:wrap; }
+    .news-q-btn {
+      font-size:9px; padding:2px 6px; border-radius:10px; cursor:pointer;
+      background:var(--bg2); border:1px solid var(--border); color:var(--txt2);
+    }
+    .news-q-btn:hover { border-color:#ef4444; color:#ef4444; }
+
+    /* 키보드 탐색: 현재 포커스 카드 */
+    .qst-card.kb-focus {
+      box-shadow:0 0 0 2px var(--acc), 0 6px 24px rgba(168,85,247,.18);
+      scroll-margin-top:80px;
+    }
+
+    /* 단축키 헬프 토스트 */
+    .kb-help {
+      position:fixed; right:14px; bottom:14px; background:var(--bg2);
+      border:1px solid var(--border); border-radius:8px; padding:10px 14px;
+      font-size:11px; color:var(--txt2); z-index:50; max-width:240px;
+      box-shadow:0 6px 24px rgba(0,0,0,.25);
+    }
+    .kb-help b { color:var(--txt1); }
+    .kb-help kbd {
+      display:inline-block; padding:1px 5px; border-radius:3px;
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      font-family:monospace; font-size:10px; margin:0 2px;
+    }
+    .kb-help-close {
+      position:absolute; top:4px; right:6px; cursor:pointer;
+      color:var(--txt2); font-size:14px;
+    }
+
+    .qst-actions { display:flex; gap:6px; justify-content:flex-end; margin-top:10px;
+                   padding-top:10px; border-top:1px dashed rgba(148,163,184,0.15); }
+    .btn-action {
+      font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg1); color:var(--txt1);
+      transition:all .15s;
+    }
+    .btn-approve:hover, .btn-approve.on { background:#22c55e; color:#fff; border-color:#22c55e; }
+    .btn-hold:hover, .btn-hold.on { background:#f59e0b; color:#fff; border-color:#f59e0b; }
+    .btn-discard:hover, .btn-discard.on { background:#ef4444; color:#fff; border-color:#ef4444; }
+    .btn-add-q:hover { border-color:var(--acc); color:var(--acc); }
+
+    .pagination { display:flex; gap:4px; justify-content:center; padding:16px; }
+    .pg-btn { font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;
+              background:var(--bg2); border:1px solid var(--border); color:var(--txt2); }
+    .pg-btn.active { background:var(--acc); color:#fff; border-color:var(--acc); }
+    .pg-btn:disabled { opacity:0.4; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="qr-wrap">
+  <h1 class="qr-h1">📨 질문지 일괄 검토</h1>
+  <p class="qr-sub">
+    발송 전 모든 질문지 1차 검수. 잘못된 질문 수정·추가·삭제·승인.
+    <b style="color:#22c55e">승인</b>된 것만 발송 가능.
+  </p>
+
+  <!-- 상태별 통계 (클릭으로 필터) -->
+  <div class="stat-grid">
+    <div class="stat-card" onclick="filterStatus('')" id="st-all">
+      <div class="stat-num" id="n-all">-</div><div class="stat-label">전체</div>
+    </div>
+    <div class="stat-card" onclick="filterStatus('pending')" id="st-pending">
+      <div class="stat-num" id="n-pending">-</div><div class="stat-label">⏳ 미검토</div>
+    </div>
+    <div class="stat-card" onclick="filterStatus('approved')" id="st-approved">
+      <div class="stat-num" id="n-approved">-</div><div class="stat-label">✓ 승인</div>
+    </div>
+    <div class="stat-card" onclick="filterStatus('hold')" id="st-hold">
+      <div class="stat-num" id="n-hold">-</div><div class="stat-label">⏸ 보류</div>
+    </div>
+    <div class="stat-card" onclick="filterStatus('discard')" id="st-discard">
+      <div class="stat-num" id="n-discard">-</div><div class="stat-label">✕ 폐기</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="f-q" placeholder="회사명·헤드라인 검색" oninput="debounceLoad()">
+    <button class="btn-toolbar" onclick="bulkApprove()">✓ 페이지 일괄 승인 (상태만 변경)</button>
+    <button class="btn-toolbar" onclick="bulkSendApproved()"
+            style="border-color:#22c55e;color:#22c55e">📤 승인된 것 IR 메일 발송</button>
+    <span class="quota-pill" id="quota-pill" title="오늘 발송한 IR 메일 수 / 일일 한도">📮 -/-</span>
+    <span style="margin-left:auto;font-size:11px;color:var(--txt2)" id="meta">로딩 중...</span>
+  </div>
+
+  <!-- 발송 진행 표시 패널 -->
+  <div id="send-progress" style="display:none; background:var(--bg2); border:1px solid var(--border);
+                                  border-radius:8px; padding:12px; margin-bottom:12px;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+      <b style="font-size:13px">📤 IR 메일 발송 진행</b>
+      <button class="btn-toolbar" onclick="cancelSend()" id="btn-cancel-send"
+              style="font-size:10px;border-color:#ef4444;color:#ef4444">⏹ 중단</button>
+    </div>
+    <div id="send-status" style="font-size:11px; color:var(--txt2); margin-bottom:6px;"></div>
+    <div style="background:var(--bg1); border-radius:4px; height:6px; overflow:hidden;">
+      <div id="send-bar" style="background:#22c55e; height:100%; width:0%; transition:width .3s"></div>
+    </div>
+    <div id="send-log" style="font-size:10px; color:var(--txt2); margin-top:8px; max-height:160px;
+                              overflow-y:auto; background:var(--bg1); padding:6px 10px; border-radius:4px;
+                              font-family:monospace; white-space:pre-wrap;"></div>
+  </div>
+
+  <div id="list">로딩 중...</div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- 키보드 단축키 헬프 (한 번 보고 끄면 localStorage 기록) -->
+<div class="kb-help" id="kb-help">
+  <span class="kb-help-close" onclick="dismissKbHelp()">✕</span>
+  <b>⌨ 키보드 단축키</b><br>
+  <kbd>J</kbd>/<kbd>↓</kbd> 다음 카드 &nbsp;
+  <kbd>K</kbd>/<kbd>↑</kbd> 이전 카드<br>
+  <kbd>A</kbd> 승인 &nbsp; <kbd>H</kbd> 보류 &nbsp; <kbd>D</kbd> 폐기<br>
+  <kbd>N</kbd> 뉴스에 포커스(스크롤) &nbsp; <kbd>?</kbd> 도움말 토글<br>
+  <span style="color:var(--txt2)">편집창에 포커스 있을 땐 비활성</span>
+</div>
+
+<script>
+let state = { page:1, perPage:20, total:0, status:'pending', q:'' };
+let debTimer;
+
+function debounceLoad() {
+  clearTimeout(debTimer);
+  debTimer = setTimeout(() => { state.page=1; loadList(); }, 350);
+}
+
+function filterStatus(s) {
+  state.status = s;
+  state.page = 1;
+  document.querySelectorAll('.stat-card').forEach(c => c.classList.remove('active'));
+  document.getElementById(s ? 'st-'+s : 'st-all').classList.add('active');
+  loadList();
+}
+
+async function loadList() {
+  state.q = document.getElementById('f-q').value;
+  const params = new URLSearchParams({
+    page: state.page, per_page: state.perPage, q: state.q, status: state.status,
+  });
+  document.getElementById('list').innerHTML = '<div style="padding:20px;text-align:center;color:var(--txt2)">로딩...</div>';
+  try {
+    const r = await fetch(`${API}/api/questionnaires?${params}`);
+    const data = await r.json();
+    state.total = data.total || 0;
+    // 통계
+    const s = data.stats || {};
+    document.getElementById('n-all').textContent = (s.total||0).toLocaleString();
+    document.getElementById('n-pending').textContent = (s.pending||0);
+    document.getElementById('n-approved').textContent = (s.approved||0);
+    document.getElementById('n-hold').textContent = (s.hold||0);
+    document.getElementById('n-discard').textContent = (s.discard||0);
+    // 메타
+    document.getElementById('meta').textContent = `${state.total}건 (페이지 ${state.page})`;
+    // 리스트
+    if (!data.items.length) {
+      document.getElementById('list').innerHTML = '<div style="padding:40px;text-align:center;color:var(--txt2)">결과 없음</div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+    document.getElementById('list').innerHTML = data.items.map(renderQst).join('');
+    renderPg();
+    setupNewsLazyLoad();
+    loadQuota();
+    kbFocusIdx = -1;   // 페이지 갱신 시 키보드 포커스 초기화
+  } catch(e) {
+    document.getElementById('list').innerHTML = `<div style="color:#ef4444">오류: ${e.message}</div>`;
+  }
+}
+
+function renderQst(it) {
+  const status = it.status || 'pending';
+  const noContact = !it.has_ir_contact;
+  const recentlySent = !!it.recently_sent;
+  const cardClasses = [status];
+  if (noContact && status !== 'sent' && status !== 'replied') cardClasses.push('no-contact');
+  const questions = parseQuestions(it.questions);
+  const qHtml = questions.map((q,i) => `
+    <div class="q-row" data-qst-id="${it.id}" data-q-idx="${i}">
+      <span class="q-num">${i+1}.</span>
+      <div class="q-text" contenteditable="true"
+           onblur="saveQuestion(${it.id}, ${i}, this.textContent)">${escHtml(q.q || '')}</div>
+      <span class="q-icon" onclick="deleteQuestion(${it.id}, ${i})" title="삭제">🗑</span>
+    </div>
+  `).join('');
+  const badges = [];
+  if (noContact) badges.push(`<span class="badge badge-no-contact" title="유효한 IR 담당자 없음 — 발송 불가">⚠ IR연락처 없음</span>`);
+  if (recentlySent) badges.push(`<span class="badge badge-recent" title="최근 24시간 내 같은 회사로 발송됨">↻ 24h내 발송</span>`);
+  if (status === 'sent') badges.push(`<span class="badge badge-sent">📤 발송됨</span>`);
+
+  return `
+    <div class="qst-card ${cardClasses.join(' ')}" id="qst-${it.id}"
+         data-has-contact="${noContact?'0':'1'}" data-recent="${recentlySent?'1':'0'}">
+      <div class="qst-head">
+        <div>
+          <div class="qst-corp">${escHtml(it.corp_name||'')}
+            <span style="font-size:9px;color:var(--txt2);font-weight:400">#${it.id}</span>
+            ${badges.join('')}
+          </div>
+          <div class="qst-meta">${escHtml(it.corp_code||'')} | 기사 #${it.article_id||'-'}
+            ${it.sent_at ? `| 📤 ${escHtml(it.sent_at.substring(0,10))}` : ''}
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--txt2)">${escHtml(it.created_at||'')}</div>
+      </div>
+      <div class="qst-headline">📰 ${escHtml(it.headline||'(헤드라인 없음)')}</div>
+      <div class="qst-body">
+        <div>
+          <div class="questions-list" id="qs-${it.id}">${qHtml}</div>
+          <button class="btn-toolbar btn-add-q" style="font-size:10px;margin-top:6px"
+                  onclick="addQuestion(${it.id})">+ 질문 추가</button>
+        </div>
+        <div class="news-side" id="news-${it.id}" data-corp="${escHtml(it.corp_code||'')}">
+          <h4>📰 최근 30일 뉴스
+            <button class="btn-toolbar" style="font-size:9px;padding:2px 6px"
+                    onclick="loadNews('${escHtml(it.corp_code||'')}', ${it.id}, true)">↻</button>
+          </h4>
+          <div class="news-empty">로딩 중...</div>
+        </div>
+      </div>
+      <div class="qst-actions">
+        <button class="btn-action btn-approve ${status==='approved'?'on':''}"
+                onclick="setStatus(${it.id}, 'approved')">✓ 승인</button>
+        <button class="btn-action btn-hold ${status==='hold'?'on':''}"
+                onclick="setStatus(${it.id}, 'hold')">⏸ 보류</button>
+        <button class="btn-action btn-discard ${status==='discard'?'on':''}"
+                onclick="setStatus(${it.id}, 'discard')">✕ 폐기</button>
+      </div>
+    </div>`;
+}
+
+function parseQuestions(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch { return []; }
+  }
+  return [];
+}
+
+async function saveQuestion(qstId, idx, newText) {
+  const card = document.getElementById('qst-'+qstId);
+  if (!card) return;
+  const inputs = card.querySelectorAll('.q-text');
+  const questions = Array.from(inputs).map(el => ({ q: el.textContent.trim() }));
+  await fetch(`${API}/api/questionnaires/${qstId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ questions: questions })
+  });
+}
+
+async function deleteQuestion(qstId, idx) {
+  const card = document.getElementById('qst-'+qstId);
+  const rows = card.querySelectorAll('.q-row');
+  const questions = Array.from(rows).map(el => ({ q: el.querySelector('.q-text').textContent.trim() }));
+  questions.splice(idx, 1);
+  await fetch(`${API}/api/questionnaires/${qstId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ questions: questions })
+  });
+  loadList();
+}
+
+async function addQuestion(qstId) {
+  const card = document.getElementById('qst-'+qstId);
+  const rows = card.querySelectorAll('.q-row');
+  const questions = Array.from(rows).map(el => ({ q: el.querySelector('.q-text').textContent.trim() }));
+  questions.push({ q: '(새 질문 입력)' });
+  await fetch(`${API}/api/questionnaires/${qstId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ questions: questions })
+  });
+  loadList();
+}
+
+async function setStatus(qstId, status) {
+  await fetch(`${API}/api/questionnaires/${qstId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ status: status })
+  });
+  loadList();
+}
+
+async function bulkApprove() {
+  if (!confirm('현재 페이지의 모든 질문지를 승인하시겠습니까?')) return;
+  const cards = document.querySelectorAll('.qst-card');
+  for (const c of cards) {
+    const id = c.id.replace('qst-', '');
+    await fetch(`${API}/api/questionnaires/${id}`, {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ status: 'approved' })
+    });
+  }
+  loadList();
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 회사별 최근 뉴스 사이드바 (IntersectionObserver 로 lazy load)
+// ────────────────────────────────────────────────────────────────────────
+const newsLoaded = new Set();   // qstId 중복 호출 방지
+
+function setupNewsLazyLoad() {
+  newsLoaded.clear();
+  const sides = document.querySelectorAll('.news-side');
+  if (!('IntersectionObserver' in window)) {
+    // fallback: 즉시 전부
+    sides.forEach(el => {
+      const corp = el.dataset.corp;
+      const qstId = el.id.replace('news-', '');
+      if (corp) loadNews(corp, qstId);
+    });
+    return;
+  }
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(en => {
+      if (en.isIntersecting) {
+        const el = en.target;
+        const corp = el.dataset.corp;
+        const qstId = el.id.replace('news-', '');
+        if (corp && !newsLoaded.has(qstId)) {
+          loadNews(corp, qstId);
+          io.unobserve(el);
+        }
+      }
+    });
+  }, { rootMargin: '200px' });
+  sides.forEach(el => io.observe(el));
+}
+
+async function loadNews(corpCode, qstId, force=false) {
+  const box = document.getElementById('news-' + qstId);
+  if (!box) return;
+  if (newsLoaded.has(String(qstId)) && !force) return;
+  newsLoaded.add(String(qstId));
+
+  const list = box.querySelector('.news-empty') || box;
+  // 헤더 외 모두 비우고 로딩 표시
+  box.querySelectorAll('.news-item, .news-empty').forEach(n => n.remove());
+  const loading = document.createElement('div');
+  loading.className = 'news-empty';
+  loading.textContent = '로딩 중...';
+  box.appendChild(loading);
+
+  if (!corpCode) {
+    loading.textContent = '(corp_code 없음)';
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/api/companies/${corpCode}/recent_news?limit=8&days=30`);
+    const data = await r.json();
+    loading.remove();
+    if (!data.items || !data.items.length) {
+      const empty = document.createElement('div');
+      empty.className = 'news-empty';
+      empty.textContent = '최근 30일 뉴스 없음';
+      box.appendChild(empty);
+      return;
+    }
+    // 카드 위 질문 목록(현재 텍스트) — "이 뉴스가 Q번 답해줌" 버튼 라벨용
+    const card = document.getElementById('qst-' + qstId);
+    const qTexts = card ? Array.from(card.querySelectorAll('.q-text')).map(el => el.textContent.trim()) : [];
+
+    data.items.forEach(it => {
+      const item = document.createElement('div');
+      item.className = 'news-item';
+      const date = (it.published_at || '').substring(0, 10);
+      const tierClass = `news-tier-${it.outlet_tier || ''}`;
+      // 질문별 1-클릭 삭제 버튼
+      const qBtns = qTexts.map((qt, i) => {
+        const short = qt.length > 16 ? qt.substring(0, 16) + '…' : qt;
+        return `<span class="news-q-btn" title="이 뉴스가 답해줌 → Q${i+1} 삭제 (${escHtml(qt)})"
+                       onclick="markAnswered(${qstId}, ${i})">Q${i+1}✗</span>`;
+      }).join('');
+      item.innerHTML = `
+        <a class="news-title" href="${escHtml(it.url)}" target="_blank" rel="noopener">
+          ${escHtml(it.title || '')}
+        </a>
+        <div class="news-meta">
+          <span class="${tierClass}">${escHtml(it.outlet_name || '')}</span>
+          ${date ? ' · ' + escHtml(date) : ''}
+        </div>
+        ${qBtns ? `<div class="news-actions">${qBtns}</div>` : ''}`;
+      box.appendChild(item);
+    });
+  } catch (e) {
+    loading.textContent = '로드 실패: ' + e.message;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// IR 메일 발송 (승인된 것 일괄)
+// ────────────────────────────────────────────────────────────────────────
+let sendCancelled = false;
+
+async function bulkSendApproved() {
+  // 1. 현재 페이지에서 status='approved' 인 카드만 추출
+  const allApproved = Array.from(document.querySelectorAll('.qst-card.approved'));
+  if (!allApproved.length) {
+    alert('현재 페이지에 "승인" 상태 질문지가 없습니다.\n먼저 [✓ 승인] 버튼을 눌러 검수 완료 후 다시 시도하세요.');
+    return;
+  }
+
+  // 2. 안전망 — IR연락처 없음 / 24h내 발송 사전 제외
+  const skippedNoContact = [];
+  const skippedRecent = [];
+  const sendable = [];
+  for (const c of allApproved) {
+    const id = parseInt(c.id.replace('qst-', ''));
+    const corp = c.querySelector('.qst-corp')?.textContent.trim().split('#')[0].trim() || '';
+    const articleMatch = c.querySelector('.qst-meta')?.textContent.match(/기사 #(\d+)/);
+    const articleId = articleMatch ? parseInt(articleMatch[1]) : null;
+    if (!articleId) continue;
+    if (c.dataset.hasContact === '0') {
+      skippedNoContact.push(corp);
+      continue;
+    }
+    if (c.dataset.recent === '1') {
+      skippedRecent.push(corp);
+      continue;
+    }
+    sendable.push({ id, corp, articleId });
+  }
+
+  if (!sendable.length) {
+    alert(`발송 가능한 카드가 없습니다.\n` +
+          `IR연락처 없음: ${skippedNoContact.length}건\n` +
+          `24h내 발송: ${skippedRecent.length}건`);
+    return;
+  }
+
+  // 3. 일일 한도 체크
+  let quota;
+  try {
+    const r = await fetch(`${API}/api/send_quota`);
+    quota = await r.json();
+  } catch (e) { quota = null; }
+
+  const targets = sendable;
+
+  // 4. 확인 다이얼로그
+  const preview = targets.slice(0, 5).map(t => `• ${t.corp}`).join('\n');
+  const more = targets.length > 5 ? `\n... 외 ${targets.length - 5}개` : '';
+  const skipMsg = (skippedNoContact.length || skippedRecent.length)
+    ? `\n\n⚠ 자동 제외: IR연락처없음 ${skippedNoContact.length}건, 24h내발송 ${skippedRecent.length}건` : '';
+  const quotaMsg = quota
+    ? `\n\n📮 오늘 발송: ${quota.sent_today}/${quota.limit} (남은 한도 ${quota.remaining}건)`
+    : '';
+  const willHit = quota && (quota.sent_today + targets.length > quota.limit);
+  const limitWarn = willHit
+    ? `\n\n🚨 일일 한도 초과 예상 — 일부만 발송되고 나머지는 차단됩니다.` : '';
+
+  const ok = confirm(
+    `📤 IR 메일 일괄 발송\n\n` +
+    `대상: ${targets.length}건 (status=approved)\n\n` +
+    `${preview}${more}` +
+    skipMsg + quotaMsg + limitWarn +
+    `\n\n진행하시겠습니까?`
+  );
+  if (!ok) return;
+
+  // 4. 진행 패널 표시
+  sendCancelled = false;
+  const panel = document.getElementById('send-progress');
+  const status = document.getElementById('send-status');
+  const bar = document.getElementById('send-bar');
+  const log = document.getElementById('send-log');
+  panel.style.display = 'block';
+  log.textContent = '';
+  bar.style.width = '0%';
+
+  let success = 0, failed = 0;
+  const errors = [];
+
+  // 5. 1건씩 순차 발송 (서버/Gmail 부하 + 사용자 모니터링 가능)
+  for (let i = 0; i < targets.length; i++) {
+    if (sendCancelled) {
+      log.textContent += `\n⏹ 사용자 중단 (${i}/${targets.length})\n`;
+      break;
+    }
+    const t = targets[i];
+    status.textContent = `[${i+1}/${targets.length}] ${t.corp} 발송 중...`;
+    bar.style.width = `${((i)/targets.length)*100}%`;
+
+    try {
+      const r = await fetch(`${API}/api/ir/send`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ article_id: t.articleId })
+      });
+      const data = await r.json();
+      if (data.ok) {
+        success++;
+        log.textContent += `✓ ${t.corp} → ${data.to || ''}\n`;
+        // 카드 즉시 sent 상태 반영 (페이지 새로고침 없이)
+        const card = document.getElementById('qst-' + t.id);
+        if (card) {
+          card.classList.remove('approved', 'pending', 'hold', 'no-contact');
+          card.classList.add('sent');
+          card.dataset.recent = '1';
+          // 배지 추가
+          const corpEl = card.querySelector('.qst-corp');
+          if (corpEl && !corpEl.querySelector('.badge-sent')) {
+            corpEl.insertAdjacentHTML('beforeend',
+              ' <span class="badge badge-sent">📤 발송됨</span>');
+          }
+        }
+      } else {
+        failed++;
+        const reason = data.error || '실패';
+        errors.push(`${t.corp}: ${reason}`);
+        log.textContent += `✕ ${t.corp}: ${reason}\n`;
+        // 일일 한도 도달 시 즉시 중단
+        if (data.limit_hit) {
+          log.textContent += `\n🚨 일일 한도 도달 — 발송 중단\n`;
+          sendCancelled = true;
+        }
+      }
+    } catch (e) {
+      failed++;
+      errors.push(`${t.corp}: ${e.message}`);
+      log.textContent += `✕ ${t.corp}: ${e.message}\n`;
+    }
+    log.scrollTop = log.scrollHeight;
+
+    // Gmail rate limit 완화 (초당 1건 미만)
+    await new Promise(r => setTimeout(r, 1200));
+  }
+  // 발송 후 quota 갱신
+  loadQuota();
+
+  bar.style.width = '100%';
+  status.innerHTML = `✅ 완료 — <b style="color:#22c55e">성공 ${success}건</b> / ` +
+                     `<b style="color:#ef4444">실패 ${failed}건</b>`;
+  document.getElementById('btn-cancel-send').textContent = '닫기';
+  document.getElementById('btn-cancel-send').onclick = () => {
+    panel.style.display = 'none';
+    document.getElementById('btn-cancel-send').textContent = '⏹ 중단';
+    document.getElementById('btn-cancel-send').onclick = cancelSend;
+    // 카드는 이미 즉시 paint 됐으므로 list reload 생략 — stats만 갱신
+    fetch(`${API}/api/questionnaires?page=1&per_page=1&status=${state.status}`)
+      .then(r => r.json())
+      .then(d => {
+        const s = d.stats || {};
+        const set = (id, v) => { const el = document.getElementById(id);
+          if (el) el.textContent = (v || 0).toLocaleString(); };
+        set('n-all', s.total); set('n-pending', s.pending);
+        set('n-approved', s.approved); set('n-hold', s.hold); set('n-discard', s.discard);
+      }).catch(() => {});
+  };
+}
+
+function cancelSend() {
+  sendCancelled = true;
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 1-클릭: 뉴스가 답한 질문 즉시 삭제
+// ────────────────────────────────────────────────────────────────────────
+async function markAnswered(qstId, qIdx) {
+  const card = document.getElementById('qst-' + qstId);
+  if (!card) return;
+  const rows = card.querySelectorAll('.q-row');
+  const qText = rows[qIdx]?.querySelector('.q-text')?.textContent.trim() || '';
+  // 짧은 확인 (실수 방지)
+  if (!confirm(`이 뉴스가 답해줍니다. Q${qIdx+1} 삭제할까요?\n\n"${qText}"`)) return;
+  const questions = Array.from(rows).map(el => ({
+    q: el.querySelector('.q-text').textContent.trim()
+  }));
+  questions.splice(qIdx, 1);
+  await fetch(`${API}/api/questionnaires/${qstId}`, {
+    method:'PATCH', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ questions: questions })
+  });
+  // 카드만 부분 갱신 — 페이지 리로드 X
+  const qsList = document.getElementById('qs-' + qstId);
+  qsList.innerHTML = questions.map((q, i) => `
+    <div class="q-row" data-qst-id="${qstId}" data-q-idx="${i}">
+      <span class="q-num">${i+1}.</span>
+      <div class="q-text" contenteditable="true"
+           onblur="saveQuestion(${qstId}, ${i}, this.textContent)">${escHtml(q.q || '')}</div>
+      <span class="q-icon" onclick="deleteQuestion(${qstId}, ${i})" title="삭제">🗑</span>
+    </div>`).join('');
+  // 뉴스 사이드바의 Q버튼도 갱신 (남은 질문 수에 맞춰)
+  newsLoaded.delete(String(qstId));
+  loadNews(card.querySelector('.news-side')?.dataset.corp || '', qstId, true);
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 키보드 단축키
+// ────────────────────────────────────────────────────────────────────────
+let kbFocusIdx = -1;
+
+function setKbFocus(idx) {
+  const cards = document.querySelectorAll('.qst-card');
+  if (!cards.length) return;
+  cards.forEach(c => c.classList.remove('kb-focus'));
+  kbFocusIdx = Math.max(0, Math.min(idx, cards.length - 1));
+  const target = cards[kbFocusIdx];
+  target.classList.add('kb-focus');
+  target.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function getFocusedCardId() {
+  const cards = document.querySelectorAll('.qst-card');
+  if (kbFocusIdx < 0 || kbFocusIdx >= cards.length) {
+    // viewport 중앙에 가장 가까운 카드를 자동 선택
+    const cy = window.innerHeight / 2;
+    let best = 0, bestD = Infinity;
+    cards.forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      const d = Math.abs(r.top + r.height/2 - cy);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    kbFocusIdx = best;
+  }
+  const card = cards[kbFocusIdx];
+  return card ? parseInt(card.id.replace('qst-', '')) : null;
+}
+
+function isEditable(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (isEditable(document.activeElement)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+
+  switch (key) {
+    case 'j': case 'arrowdown': setKbFocus(kbFocusIdx + 1); e.preventDefault(); break;
+    case 'k': case 'arrowup':   setKbFocus(kbFocusIdx - 1); e.preventDefault(); break;
+    case 'a': { const id = getFocusedCardId(); if (id) { setStatus(id, 'approved'); e.preventDefault(); } break; }
+    case 'h': { const id = getFocusedCardId(); if (id) { setStatus(id, 'hold'); e.preventDefault(); } break; }
+    case 'd': { const id = getFocusedCardId(); if (id) { setStatus(id, 'discard'); e.preventDefault(); } break; }
+    case 'n': {
+      const id = getFocusedCardId();
+      const side = id ? document.getElementById('news-' + id) : null;
+      if (side) { side.scrollIntoView({ behavior:'smooth', block:'center' }); e.preventDefault(); }
+      break;
+    }
+    case '?': {
+      const help = document.getElementById('kb-help');
+      help.style.display = (help.style.display === 'none') ? 'block' : 'none';
+      e.preventDefault();
+      break;
+    }
+  }
+});
+
+function dismissKbHelp() {
+  document.getElementById('kb-help').style.display = 'none';
+  try { localStorage.setItem('qrv_kb_help_dismissed', '1'); } catch(e){}
+}
+// 페이지 로드 시 한 번 본 사용자에겐 숨김
+if (typeof localStorage !== 'undefined' && localStorage.getItem('qrv_kb_help_dismissed') === '1') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const h = document.getElementById('kb-help'); if (h) h.style.display = 'none';
+  });
+}
+
+async function loadQuota() {
+  const pill = document.getElementById('quota-pill');
+  if (!pill) return;
+  try {
+    const r = await fetch(`${API}/api/send_quota`);
+    const d = await r.json();
+    pill.textContent = `📮 ${d.sent_today}/${d.limit}`;
+    pill.title = `오늘 발송 ${d.sent_today}건 / 한도 ${d.limit}건 (남은 ${d.remaining}건)`;
+    pill.classList.remove('warn', 'danger');
+    if (d.exhausted) pill.classList.add('danger');
+    else if (d.sent_today / d.limit >= 0.8) pill.classList.add('warn');
+  } catch (e) {
+    pill.textContent = '📮 ?/?';
+  }
+}
+
+function renderPg() {
+  const pages = Math.ceil(state.total / state.perPage);
+  if (pages <= 1) { document.getElementById('pagination').innerHTML = ''; return; }
+  const cur = state.page;
+  const start = Math.max(1, cur-2), end = Math.min(pages, cur+2);
+  let html = `<button class="pg-btn" ${cur<=1?'disabled':''} onclick="goPage(${cur-1})">◀</button>`;
+  if (start > 1) html += `<button class="pg-btn" onclick="goPage(1)">1</button>`;
+  for (let i=start;i<=end;i++) html += `<button class="pg-btn ${i===cur?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  if (end < pages) html += `<button class="pg-btn" onclick="goPage(${pages})">${pages}</button>`;
+  html += `<button class="pg-btn" ${cur>=pages?'disabled':''} onclick="goPage(${cur+1})">▶</button>`;
+  document.getElementById('pagination').innerHTML = html;
+}
+
+function goPage(n) { state.page = n; loadList(); window.scrollTo(0,0); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('questionnaire_review');
+  document.getElementById('st-pending').classList.add('active');
+  loadList();
+});
+</script>
+</body>
+</html>

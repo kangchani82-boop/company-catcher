@@ -172,30 +172,8 @@ def increment_usage(model: str):
 
 
 # ── AI 호출 함수 ────────────────────────────────────────────────────────────
-# 무료 API 일일 한도 (2026 기준)
-GEMINI_LIMITS = {
-    "flash":      {"rpm": 10, "rpd": 500},
-    "flash-lite": {"rpm": 15, "rpd": 1000},
-    "pro":        {"rpm":  5, "rpd": 100},
-    "article":    {"rpm": 10, "rpd": 100},   # Gemini 3.1 Pro Preview (기사 초안 전용)
-}
-
-# 모델별 fallback 순서 (404 시 자동 시도)
-GEMINI_FALLBACKS = {
-    "flash":      ["gemini-2.5-flash-preview-05-20",
-                   "gemini-2.5-flash",
-                   "gemini-2.0-flash"],
-    "flash-lite": ["gemini-2.5-flash-lite-preview-06-17",
-                   "gemini-2.5-flash-lite",
-                   "gemini-2.5-flash-8b",
-                   "gemini-2.0-flash-lite"],
-    "pro":        ["gemini-2.5-pro-preview-05-06",
-                   "gemini-2.5-pro",
-                   "gemini-2.0-pro-exp"],
-    "article":    ["gemini-3.1-pro-preview",
-                   "gemini-2.5-pro-preview-05-06",
-                   "gemini-2.5-pro"],
-}
+# Gemini 모델 정책은 config/gemini_models.py 한 곳에서 관리 (SSOT)
+from config.gemini_models import GEMINI_LIMITS, GEMINI_FALLBACKS
 
 
 def _get_gemini_keys() -> list:
@@ -349,12 +327,8 @@ MIME = {
 }
 
 # ── 기사 초안 생성 헬퍼 (인라인) ──────────────────────────────────────────────
-_ARTICLE_MODELS = [
-    "gemini-3.1-pro-preview",
-    "gemini-2.5-pro-preview-05-06",
-    "gemini-2.5-pro-preview-06-05",
-    "gemini-2.5-pro",
-]
+# article 카테고리는 SSOT(config/gemini_models.py)에서 관리
+_ARTICLE_MODELS = GEMINI_FALLBACKS["article"]
 _LEAD_TYPE_KO = {
     "strategy_change": "경영전략 변화",
     "market_shift":    "시장 변화",
@@ -517,9 +491,40 @@ class DartHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(200)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Api-Key")
         self.end_headers()
+
+    def do_DELETE(self):
+        from urllib.parse import urlparse
+        parsed = urlparse(self.path)
+        path = parsed.path
+        # ── DELETE /api/ir_contacts_2/{id} ────────────────────────────────
+        m2 = re.match(r"^/api/ir_contacts_2/(\d+)$", path)
+        if m2:
+            try:
+                cid = int(m2.group(1))
+                db = get_db()
+                db.execute("UPDATE ir_contacts_2 SET is_active=0 WHERE id=?", [cid])
+                db.commit()
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── DELETE /api/ir_contacts/{id} ─────────────────────────────────
+        m = re.match(r"^/api/ir_contacts/(\d+)$", path)
+        if m:
+            cid = int(m.group(1))
+            try:
+                db = get_db()
+                db.execute("DELETE FROM ir_contacts WHERE id=?", [cid])
+                db.commit()
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+        self._send(404, b"Not Found", "text/plain")
 
     def _check_api_key(self) -> bool:
         expected = os.environ.get("API_SECRET_KEY", "")
@@ -545,6 +550,14 @@ class DartHandler(BaseHTTPRequestHandler):
             "/alert_rules":        "alert_rules.html",
             "/home_v2":            "home_v2.html",
             "/dashboard":          "home_v2.html",
+            "/ir_contacts":        "ir_contacts.html",
+            "/ir_contacts_2":      "ir_contacts_2.html",
+            "/inbox":              "inbox.html",
+            "/sector_analysis":    "sector_analysis.html",
+            "/questionnaire_review": "questionnaire_review.html",
+            "/report_work":        "report_work.html",
+            "/corp_work":          "corp_work.html",
+            "/quality_review":     "quality_review.html",
         }
         if path in _spa:
             f = WEB_ROOT / _spa[path]
@@ -1139,6 +1152,918 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        # ── /api/nav_counts (네비 카운트 — 모든 페이지 통합) ──────────────────
+        if path == "/api/nav_counts":
+            try:
+                db = get_db()
+                def safe_count(sql):
+                    try: return db.execute(sql).fetchone()[0]
+                    except: return 0
+                self._json({
+                    "home":         safe_count("SELECT COUNT(*) FROM companies"),
+                    "comparisons":  safe_count("SELECT COUNT(*) FROM ai_comparisons WHERE status='ok'"),
+                    "leads":        safe_count("SELECT COUNT(*) FROM story_leads WHERE status='new'") or safe_count("SELECT COUNT(*) FROM story_leads"),
+                    "articles":     safe_count("SELECT COUNT(*) FROM article_drafts"),
+                    "ir_contacts":  safe_count("SELECT COUNT(*) FROM ir_contacts"),
+                    "inbox":        safe_count("SELECT COUNT(*) FROM ir_questionnaires"),
+                    "questionnaire_review": safe_count("SELECT COUNT(*) FROM ir_questionnaires WHERE status='pending'"),
+                    "sector_analysis": safe_count("SELECT COUNT(DISTINCT sector) FROM biz_sections WHERE sector != ''"),
+                    "supply_chain": safe_count("SELECT COUNT(*) FROM supply_chain"),
+                    "alert_rules":  safe_count("SELECT COUNT(*) FROM alert_rules"),
+                    "home_v2":      safe_count("SELECT COUNT(*) FROM cross_signals"),  # 교차신호
+                })
+            except Exception as e:
+                self._json({"error": str(e)})
+            return
+
+        # ── /api/companies/{corp_code}/recent_news (질문지 사이드바용) ────────
+        m_news = re.match(r"^/api/companies/([\w]+)/recent_news$", path)
+        if m_news:
+            corp_code = m_news.group(1)
+            try:
+                limit = min(int(qs.get("limit", ["10"])[0]), 30)
+                days = min(int(qs.get("days", ["30"])[0]), 365)
+                db = get_db()
+                rows = db.execute("""
+                    SELECT id, outlet_name, outlet_tier, title, summary, url,
+                           published_at, fetched_at
+                    FROM external_sources
+                    WHERE source_type='news'
+                      AND related_corp_code = ?
+                      AND (published_at IS NULL OR published_at >= date('now', ?))
+                    ORDER BY COALESCE(published_at, fetched_at) DESC
+                    LIMIT ?
+                """, [corp_code, f"-{days} days", limit]).fetchall()
+                items = [dict(r) for r in rows]
+                self._json({"items": items, "count": len(items)})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/report_work/{report_id} (보고서 단위 작업 카드) ─────────────
+        m_rw = re.match(r"^/api/report_work/(\d+)$", path)
+        if m_rw:
+            rid = int(m_rw.group(1))
+            try:
+                db = get_db()
+                rep = db.execute("""
+                    SELECT id, corp_code, corp_name, report_type, report_name,
+                           rcept_no, rcept_dt, flr_nm, updated_at,
+                           length(COALESCE(biz_content,'')) AS biz_len
+                    FROM reports WHERE id=?
+                """, [rid]).fetchone()
+                if not rep:
+                    self._json({"error": "보고서 없음"}, 404); return
+                rep = dict(rep)
+
+                # 이 보고서를 한쪽으로 포함하는 비교 (a 또는 b)
+                comparisons = [dict(r) for r in db.execute("""
+                    SELECT c.id, c.report_id_a, c.report_id_b,
+                           c.report_type_a, c.report_type_b, c.model,
+                           c.status, c.analyzed_at,
+                           c.char_count_a, c.char_count_b,
+                           length(COALESCE(c.result,'')) AS result_len,
+                           ra.report_type AS a_type, ra.rcept_dt AS a_dt,
+                           rb.report_type AS b_type, rb.rcept_dt AS b_dt
+                    FROM ai_comparisons c
+                    LEFT JOIN reports ra ON ra.id = c.report_id_a
+                    LEFT JOIN reports rb ON rb.id = c.report_id_b
+                    WHERE c.report_id_a=? OR c.report_id_b=?
+                    ORDER BY c.analyzed_at DESC
+                """, [rid, rid])]
+
+                # 이 비교들에 연결된 단서
+                cmp_ids = [c["id"] for c in comparisons]
+                leads = []
+                if cmp_ids:
+                    qmarks = ",".join("?" * len(cmp_ids))
+                    leads = [dict(r) for r in db.execute(f"""
+                        SELECT id, lead_type, severity, title, summary,
+                               keywords, status, comparison_id,
+                               report_type_a, report_type_b, created_at
+                        FROM story_leads
+                        WHERE comparison_id IN ({qmarks})
+                        ORDER BY severity DESC, id DESC
+                    """, cmp_ids)]
+
+                # 단서에 연결된 기사 초안
+                lead_ids = [l["id"] for l in leads]
+                drafts = []
+                if lead_ids:
+                    qmarks = ",".join("?" * len(lead_ids))
+                    drafts = [dict(r) for r in db.execute(f"""
+                        SELECT id, lead_id, headline, subheadline,
+                               length(content) AS content_len,
+                               model, status, created_at
+                        FROM article_drafts
+                        WHERE lead_id IN ({qmarks})
+                        ORDER BY id DESC
+                    """, lead_ids)]
+
+                # 기사에 연결된 질문지
+                draft_ids = [d["id"] for d in drafts]
+                qsts = []
+                if draft_ids:
+                    qmarks = ",".join("?" * len(draft_ids))
+                    qst_rows = db.execute(f"""
+                        SELECT id, article_id, lead_id, corp_code, corp_name,
+                               questions, status, created_at, sent_at, replied_at
+                        FROM ir_questionnaires
+                        WHERE article_id IN ({qmarks})
+                        ORDER BY id DESC
+                    """, draft_ids).fetchall()
+                    for r in qst_rows:
+                        d = dict(r)
+                        try: d["questions"] = json.loads(d["questions"] or "[]")
+                        except: d["questions"] = []
+                        qsts.append(d)
+
+                # 질문지에 연결된 답장
+                qst_ids = [q["id"] for q in qsts]
+                emails = []
+                if qst_ids:
+                    qmarks = ",".join("?" * len(qst_ids))
+                    try:
+                        emails = [dict(r) for r in db.execute(f"""
+                            SELECT id, questionnaire_id, direction,
+                                   from_addr, to_addr, subject,
+                                   sent_at, received_at
+                            FROM ir_emails
+                            WHERE questionnaire_id IN ({qmarks})
+                            ORDER BY COALESCE(received_at, sent_at) DESC
+                        """, qst_ids)]
+                    except Exception:
+                        emails = []
+
+                self._json({
+                    "report":       rep,
+                    "comparisons":  comparisons,
+                    "leads":        leads,
+                    "drafts":       drafts,
+                    "questionnaires": qsts,
+                    "emails":       emails,
+                    "counts": {
+                        "comparisons":    len(comparisons),
+                        "leads":          len(leads),
+                        "drafts":         len(drafts),
+                        "questionnaires": len(qsts),
+                        "emails":         len(emails),
+                    },
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/corp_work/{corp_code} (회사 단위 보고서 타임라인) ────────────
+        m_cw = re.match(r"^/api/corp_work/([\w]+)$", path)
+        if m_cw:
+            cc = m_cw.group(1)
+            try:
+                db = get_db()
+                # 시간 순 (오래된 → 최신)
+                rows = db.execute("""
+                    SELECT r.id, r.report_type, r.report_name, r.rcept_dt,
+                           length(COALESCE(r.biz_content,'')) AS biz_len,
+                           (SELECT MIN(corp_name) FROM reports WHERE corp_code=?) AS corp_name,
+                           (SELECT COUNT(*) FROM ai_comparisons c
+                            WHERE c.report_id_a=r.id OR c.report_id_b=r.id) AS cmp_n,
+                           (SELECT COUNT(*) FROM story_leads sl
+                            WHERE sl.comparison_id IN (
+                              SELECT id FROM ai_comparisons c
+                              WHERE c.report_id_a=r.id OR c.report_id_b=r.id
+                            )) AS lead_n,
+                           (SELECT COUNT(*) FROM article_drafts ad
+                            WHERE ad.lead_id IN (
+                              SELECT sl.id FROM story_leads sl
+                              WHERE sl.comparison_id IN (
+                                SELECT c.id FROM ai_comparisons c
+                                WHERE c.report_id_a=r.id OR c.report_id_b=r.id
+                              )
+                            )) AS draft_n,
+                           (SELECT COUNT(*) FROM ir_questionnaires q
+                            WHERE q.article_id IN (
+                              SELECT ad.id FROM article_drafts ad
+                              WHERE ad.lead_id IN (
+                                SELECT sl.id FROM story_leads sl
+                                WHERE sl.comparison_id IN (
+                                  SELECT c.id FROM ai_comparisons c
+                                  WHERE c.report_id_a=r.id OR c.report_id_b=r.id
+                                )
+                              )
+                            )) AS qst_n
+                    FROM reports r
+                    WHERE r.corp_code = ?
+                    ORDER BY r.rcept_dt ASC
+                """, [cc, cc]).fetchall()
+                self._json({
+                    "corp_code": cc,
+                    "corp_name": rows[0]["corp_name"] if rows else None,
+                    "items": [dict(r) for r in rows],
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/quality_review (목록 + 통계) ────────────────────────────────
+        if path == "/api/quality_review":
+            try:
+                db = get_db()
+                verdict = (qs.get("verdict", [""])[0] or "").strip()
+                score = qs.get("score", [""])[0]
+                q_str = (qs.get("q", [""])[0] or "").strip()
+                applied = qs.get("applied", [""])[0]
+                page = int(qs.get("page", ["1"])[0])
+                per = min(int(qs.get("per_page", ["20"])[0]), 100)
+                where = ["qr.error IS NULL"]
+                params = []
+                if verdict:
+                    where.append("qr.verdict=?"); params.append(verdict)
+                if score:
+                    where.append("qr.score=?"); params.append(int(score))
+                if q_str:
+                    where.append("(qr.corp_name LIKE ? OR a.headline LIKE ?)")
+                    like = f"%{q_str}%"
+                    params.extend([like, like])
+                if applied in ("0", "1"):
+                    where.append("qr.applied=?"); params.append(int(applied))
+                ws = "WHERE " + " AND ".join(where) if where else ""
+
+                total = db.execute(
+                    f"SELECT COUNT(*) FROM article_quality_reviews qr "
+                    f"LEFT JOIN article_drafts a ON a.id=qr.article_id {ws}", params
+                ).fetchone()[0]
+
+                offset = (page - 1) * per
+                rows = db.execute(f"""
+                    SELECT qr.*, a.headline AS orig_headline,
+                           a.content AS orig_content
+                    FROM article_quality_reviews qr
+                    LEFT JOIN article_drafts a ON a.id=qr.article_id
+                    {ws}
+                    ORDER BY qr.score DESC, qr.id DESC
+                    LIMIT ? OFFSET ?
+                """, params + [per, offset]).fetchall()
+                items = []
+                for r in rows:
+                    d = dict(r)
+                    if d.get("suggested_questions"):
+                        try: d["suggested_questions"] = json.loads(d["suggested_questions"])
+                        except: d["suggested_questions"] = []
+                    # 원본 질문지 함께
+                    qst = db.execute(
+                        "SELECT id, questions, status FROM ir_questionnaires WHERE article_id=?",
+                        [d["article_id"]]
+                    ).fetchone()
+                    if qst:
+                        try: d["orig_questions"] = json.loads(qst["questions"] or "[]")
+                        except: d["orig_questions"] = []
+                        d["qst_status"] = qst["status"]
+                    items.append(d)
+
+                # 통계
+                stats = {"total": 0, "by_score": {}, "by_verdict": {}, "applied": 0}
+                for r in db.execute(
+                    "SELECT COUNT(*) c, SUM(applied) a FROM article_quality_reviews WHERE error IS NULL"
+                ).fetchall():
+                    stats["total"] = r["c"]
+                    stats["applied"] = r["a"] or 0
+                for r in db.execute(
+                    "SELECT score, COUNT(*) c FROM article_quality_reviews "
+                    "WHERE error IS NULL GROUP BY score"
+                ).fetchall():
+                    stats["by_score"][str(r["score"])] = r["c"]
+                for r in db.execute(
+                    "SELECT verdict, COUNT(*) c FROM article_quality_reviews "
+                    "WHERE error IS NULL GROUP BY verdict"
+                ).fetchall():
+                    stats["by_verdict"][r["verdict"]] = r["c"]
+                self._json({"items": items, "total": total, "stats": stats, "page": page})
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)}, 500)
+            return
+
+        # ── /api/dashboard/q1_progress (Q1 마감 카운트다운용 일일 진척) ──────
+        if path == "/api/dashboard/q1_progress":
+            try:
+                db = get_db()
+                def _c(sql, params=()):
+                    try: return db.execute(sql, params).fetchone()[0]
+                    except Exception: return 0
+
+                today = "date('now', 'localtime')"
+                yday = "date('now', '-1 day', 'localtime')"
+
+                out = {
+                    # 2026 Q1 보고서 — updated_at 일자 기준 (DB 적재 시각)
+                    "new_reports_today": _c(f"""
+                        SELECT COUNT(*) FROM reports
+                        WHERE report_type='2026_q1' AND date(updated_at)={today}
+                    """),
+                    "new_reports_yday": _c(f"""
+                        SELECT COUNT(*) FROM reports
+                        WHERE report_type='2026_q1' AND date(updated_at)={yday}
+                    """),
+
+                    "new_comparisons_today": _c(f"""
+                        SELECT COUNT(*) FROM ai_comparisons
+                        WHERE report_type_b='2026_q1' AND date(analyzed_at)={today}
+                    """),
+                    "new_comparisons_yday": _c(f"""
+                        SELECT COUNT(*) FROM ai_comparisons
+                        WHERE report_type_b='2026_q1' AND date(analyzed_at)={yday}
+                    """),
+
+                    "new_leads_today": _c(f"""
+                        SELECT COUNT(*) FROM story_leads
+                        WHERE report_type_b='2026_q1' AND date(created_at)={today}
+                    """),
+                    "new_leads_yday": _c(f"""
+                        SELECT COUNT(*) FROM story_leads
+                        WHERE report_type_b='2026_q1' AND date(created_at)={yday}
+                    """),
+
+                    "new_drafts_today": _c(f"""
+                        SELECT COUNT(*) FROM article_drafts ad
+                        JOIN story_leads sl ON sl.id = ad.lead_id
+                        WHERE sl.report_type_b='2026_q1' AND date(ad.created_at)={today}
+                    """),
+                    "new_drafts_yday": _c(f"""
+                        SELECT COUNT(*) FROM article_drafts ad
+                        JOIN story_leads sl ON sl.id = ad.lead_id
+                        WHERE sl.report_type_b='2026_q1' AND date(ad.created_at)={yday}
+                    """),
+
+                    "new_questionnaires_today": _c(f"""
+                        SELECT COUNT(*) FROM ir_questionnaires
+                        WHERE date(created_at)={today}
+                    """),
+                    "new_questionnaires_yday": _c(f"""
+                        SELECT COUNT(*) FROM ir_questionnaires
+                        WHERE date(created_at)={yday}
+                    """),
+
+                    "sent_today": _c(f"""
+                        SELECT COUNT(*) FROM ir_emails
+                        WHERE direction='out' AND date(sent_at)={today}
+                    """),
+                    "sent_yday": _c(f"""
+                        SELECT COUNT(*) FROM ir_emails
+                        WHERE direction='out' AND date(sent_at)={yday}
+                    """),
+
+                    "replies_today": _c(f"""
+                        SELECT COUNT(*) FROM ir_emails
+                        WHERE direction='in' AND date(received_at)={today}
+                    """),
+                    "replies_yday": _c(f"""
+                        SELECT COUNT(*) FROM ir_emails
+                        WHERE direction='in' AND date(received_at)={yday}
+                    """),
+
+                    # 검토 페이지 진척 스냅샷
+                    "pending_questionnaires":  _c("SELECT COUNT(*) FROM ir_questionnaires WHERE status='pending'"),
+                    "approved_questionnaires": _c("SELECT COUNT(*) FROM ir_questionnaires WHERE status='approved'"),
+                    "no_contact_questionnaires": _c("""
+                        SELECT COUNT(*) FROM ir_questionnaires q
+                        WHERE q.status='pending' AND NOT EXISTS(
+                          SELECT 1 FROM ir_contacts c
+                          WHERE c.corp_code = q.corp_code
+                            AND c.ir_email IS NOT NULL AND c.ir_email != ''
+                            AND substr(c.ir_email,1,1) != '_'
+                            AND c.is_active = 1
+                            AND COALESCE(c.bounced_count, 0) < 3
+                        )
+                    """),
+                }
+                self._json(out)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/send_quota (오늘 발송 카운트 + 한도) ────────────────────────
+        if path == "/api/send_quota":
+            try:
+                db = get_db()
+                # ir_emails 없을 수도 있으니 안전 카운트
+                try:
+                    sent_today = db.execute("""
+                        SELECT COUNT(*) FROM ir_emails
+                        WHERE direction='out'
+                          AND date(sent_at) = date('now', 'localtime')
+                    """).fetchone()[0]
+                except Exception:
+                    sent_today = 0
+                limit = int(os.environ.get("GMAIL_DAILY_LIMIT", "400"))
+                self._json({
+                    "sent_today": sent_today,
+                    "limit": limit,
+                    "remaining": max(0, limit - sent_today),
+                    "exhausted": sent_today >= limit,
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/questionnaires (검토용 목록) ────────────────────────────────
+        if path == "/api/questionnaires":
+            try:
+                page = int(qs.get("page", ["1"])[0])
+                per_page = min(int(qs.get("per_page", ["20"])[0]), 100)
+                q = (qs.get("q", [""])[0] or "").strip()
+                status = (qs.get("status", [""])[0] or "").strip()
+                db = get_db()
+                where = []
+                params = []
+                if q:
+                    where.append("(q.corp_name LIKE ? OR a.headline LIKE ?)")
+                    like = f"%{q}%"
+                    params.extend([like, like])
+                if status:
+                    where.append("q.status = ?")
+                    params.append(status)
+                where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+                total = db.execute(f"""
+                    SELECT COUNT(*) FROM ir_questionnaires q
+                    LEFT JOIN article_drafts a ON q.article_id = a.id
+                    {where_sql}
+                """, params).fetchone()[0]
+                offset = (page - 1) * per_page
+                rows = db.execute(f"""
+                    SELECT q.*, a.headline,
+                      EXISTS(
+                        SELECT 1 FROM ir_contacts c
+                        WHERE c.corp_code = q.corp_code
+                          AND c.ir_email IS NOT NULL AND c.ir_email != ''
+                          AND substr(c.ir_email,1,1) != '_'
+                          AND c.is_active = 1
+                          AND COALESCE(c.bounced_count, 0) < 3
+                      ) AS has_ir_contact,
+                      EXISTS(
+                        SELECT 1 FROM ir_emails e
+                        LEFT JOIN ir_questionnaires q2 ON q2.id = e.questionnaire_id
+                        WHERE e.direction='out'
+                          AND e.sent_at >= datetime('now','-24 hours','localtime')
+                          AND q2.corp_code = q.corp_code
+                      ) AS recently_sent
+                    FROM ir_questionnaires q
+                    LEFT JOIN article_drafts a ON q.article_id = a.id
+                    {where_sql}
+                    ORDER BY q.created_at DESC
+                    LIMIT ? OFFSET ?
+                """, params + [per_page, offset]).fetchall()
+                items = []
+                for r in rows:
+                    d = dict(r)
+                    if d.get("questions"):
+                        try: d["questions"] = json.loads(d["questions"])
+                        except: pass
+                    d["has_ir_contact"] = bool(d.get("has_ir_contact"))
+                    d["recently_sent"] = bool(d.get("recently_sent"))
+                    items.append(d)
+                # 상태별 통계
+                stats = {"total": 0, "pending":0, "approved":0, "hold":0, "discard":0, "sent":0, "replied":0}
+                for r in db.execute("SELECT status, COUNT(*) c FROM ir_questionnaires GROUP BY status").fetchall():
+                    s = r['status'] or 'pending'
+                    stats[s] = r['c']
+                    stats['total'] += r['c']
+                self._json({"items": items, "total": total, "page": page, "stats": stats})
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)})
+            return
+
+        # ── /api/sector_taxonomy (업종 → 분류축 → 카테고리 → 회사 트리) ───────
+        if path == "/api/sector_taxonomy":
+            try:
+                sector = qs.get("sector", [""])[0]
+                db = get_db()
+                if not sector:
+                    # 모든 sector 통계
+                    rows = db.execute("""
+                        SELECT sector, axis, category, confidence, COUNT(*) c
+                        FROM corp_taxonomy
+                        GROUP BY sector, axis, category, confidence
+                        ORDER BY sector, axis, category
+                    """).fetchall()
+                    tree = {}
+                    for r in rows:
+                        s = r['sector']; ax = r['axis']; ct = r['category']
+                        tree.setdefault(s, {}).setdefault(ax, {}).setdefault(ct, {})
+                        tree[s][ax][ct][r['confidence']] = r['c']
+                    self._json({"tree": tree})
+                else:
+                    # 특정 sector — 카테고리별 회사 목록
+                    rows = db.execute("""
+                        SELECT axis, category, confidence, corp_code, corp_name, keyword_count
+                        FROM corp_taxonomy WHERE sector = ?
+                        ORDER BY axis, category,
+                                 CASE confidence WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END,
+                                 keyword_count DESC
+                    """, [sector]).fetchall()
+                    out = {}
+                    for r in rows:
+                        out.setdefault(r['axis'], {}).setdefault(r['category'], []).append({
+                            'corp_code': r['corp_code'], 'corp_name': r['corp_name'],
+                            'confidence': r['confidence'], 'keyword_count': r['keyword_count'],
+                        })
+                    self._json({"sector": sector, "axes": out})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/companies/{corp_code}/taxonomy (한 회사의 모든 태그) ─────────
+        m_ct = re.match(r"^/api/companies/([\w]+)/taxonomy$", path)
+        if m_ct:
+            try:
+                cc = m_ct.group(1)
+                db = get_db()
+                rows = db.execute("""
+                    SELECT * FROM corp_taxonomy WHERE corp_code=?
+                    ORDER BY axis, category
+                """, [cc]).fetchall()
+                self._json({"items": [dict(r) for r in rows]})
+            except Exception as e:
+                self._json({"error": str(e)})
+            return
+
+        # ── /api/sector_analysis (업종별 섹션 분석) ──────────────────────────
+        if path == "/api/sector_analysis":
+            try:
+                section = qs.get("section", ["materials"])[0]
+                # 우선 사전 계산된 JSON 확인
+                json_file = WEB_ROOT.parent / "data" / "sector_analysis.json"
+                if json_file.exists():
+                    data = json.loads(json_file.read_text(encoding='utf-8'))
+                    section_data = data.get('sections', {}).get(section, {})
+                    section_labels = {
+                        'overview': '사업의 개요',
+                        'products': '주요 제품 및 서비스',
+                        'materials': '원재료 및 생산설비',
+                        'revenue': '매출 및 수주현황',
+                        'risk': '위험관리',
+                        'contracts': '주요계약·연구개발',
+                        'etc': '기타 참고사항',
+                    }
+                    self._json({
+                        'section': section,
+                        'section_label': section_labels.get(section, section),
+                        'sectors': section_data,
+                        'generated_at': data.get('generated_at'),
+                    })
+                else:
+                    self._json({'sectors': {}, 'error': 'Run sector_keyword_analysis.py first'})
+            except Exception as e:
+                self._json({'sectors': {}, 'error': str(e)})
+            return
+
+        # ── /api/inbox/stats (답장·학습 진행 통계) ───────────────────────────
+        if path == "/api/inbox/stats":
+            try:
+                db = get_db()
+                def _safe(sql, params=()):
+                    try:
+                        return db.execute(sql, params).fetchone()[0]
+                    except Exception:
+                        return 0
+                stats = {
+                    "sent":        _safe("SELECT COUNT(*) FROM ir_emails WHERE direction='out'"),
+                    "received":    _safe("SELECT COUNT(*) FROM ir_emails WHERE direction='in'"),
+                    "matched":     _safe("SELECT COUNT(*) FROM ir_emails WHERE direction='in' AND questionnaire_id IS NOT NULL"),
+                    "qst_replied": _safe("SELECT COUNT(*) FROM ir_questionnaires WHERE status='replied'"),
+                    "contacts_learned": _safe("SELECT COUNT(*) FROM ir_contacts WHERE source='REPLY_LEARNED'"),
+                    "contacts_user_verified": _safe("SELECT COUNT(*) FROM ir_contacts WHERE user_verified >= 1"),
+                    "corp_response_stats": _safe("SELECT COUNT(*) FROM corp_response_stats"),
+                    "response_rate": None,
+                }
+                # 응답률 (sent 대비 replied)
+                if stats["sent"] > 0:
+                    stats["response_rate"] = round(stats["matched"] * 100.0 / stats["sent"], 1)
+                self._json(stats)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/inbox (메일 + 질문지 통합) ──────────────────────────────────
+        if path == "/api/inbox":
+            try:
+                db = get_db()
+                # ir_emails 테이블 없으면 빈 결과
+                ex = db.execute("SELECT COUNT(*) FROM sqlite_master WHERE name='ir_emails'").fetchone()[0]
+                items = []
+                stats = {"sent": 0, "replied": 0, "pending": 0}
+                if ex:
+                    # 발송한 메일 + 받은 답장
+                    for r in db.execute("""
+                        SELECT e.*, q.corp_name, q.article_id,
+                               substr(e.body_text, 1, 200) AS body_preview
+                        FROM ir_emails e
+                        LEFT JOIN ir_questionnaires q ON e.questionnaire_id = q.id
+                        ORDER BY COALESCE(e.received_at, e.sent_at) DESC
+                        LIMIT 200
+                    """):
+                        items.append(dict(r))
+                    stats["sent"] = db.execute("SELECT COUNT(*) FROM ir_emails WHERE direction='out'").fetchone()[0]
+                    stats["replied"] = db.execute("SELECT COUNT(*) FROM ir_emails WHERE direction='in'").fetchone()[0]
+
+                # 미발송 질문지
+                stats["pending"] = db.execute("SELECT COUNT(*) FROM ir_questionnaires WHERE status='pending'").fetchone()[0]
+                # pending도 items에 추가
+                for r in db.execute("""
+                    SELECT q.id AS qid, q.article_id, q.corp_name, q.created_at,
+                           a.headline AS subject
+                    FROM ir_questionnaires q
+                    LEFT JOIN article_drafts a ON q.article_id = a.id
+                    WHERE q.status = 'pending'
+                    ORDER BY q.created_at DESC
+                    LIMIT 100
+                """):
+                    items.append({
+                        "id": 0, "questionnaire_id": r["qid"], "article_id": r["article_id"],
+                        "corp_name": r["corp_name"], "direction": None,
+                        "subject": r["subject"], "created_at": r["created_at"],
+                        "status": "pending", "headline": r["subject"],
+                    })
+                self._json({"items": items, "stats": stats})
+            except Exception as e:
+                self._json({"items": [], "stats": {}, "error": str(e)})
+            return
+
+        # ── /api/articles/{id}/questionnaire ─────────────────────────────────
+        m_qst = re.match(r"^/api/articles/(\d+)/questionnaire$", path)
+        if m_qst:
+            try:
+                art_id = int(m_qst.group(1))
+                db = get_db()
+                row = db.execute(
+                    "SELECT * FROM ir_questionnaires WHERE article_id=?", [art_id]
+                ).fetchone()
+                if not row:
+                    self._json({"error": "질문지 없음", "article_id": art_id}, 404); return
+                d = dict(row)
+                # questions JSON 파싱
+                try:
+                    d['questions'] = json.loads(d['questions']) if d.get('questions') else []
+                except: d['questions'] = []
+                # IR 담당자 contact 같이 반환
+                contacts = db.execute("""
+                    SELECT id, ir_email, ir_name, ir_title, ir_dept, ir_phone, ir_mobile,
+                           confidence, user_verified
+                    FROM ir_contacts
+                    WHERE corp_code=?
+                      AND ir_email IS NOT NULL AND ir_email != ''
+                      AND substr(ir_email,1,1) != '_'
+                    ORDER BY user_verified DESC, confidence
+                    LIMIT 5
+                """, [d['corp_code']]).fetchall()
+                d['available_contacts'] = [dict(c) for c in contacts]
+                self._json(d)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/ir_contacts/export (CSV 다운로드) ──────────────────────────
+        if path == "/api/ir_contacts/export":
+            try:
+                only_verified = qs.get("verified", [""])[0] == "1"
+                db = get_db()
+                where = "WHERE substr(COALESCE(ir_email,''),1,1) != '_' "
+                if only_verified:
+                    where += " AND user_verified=1"
+                rows = db.execute(f"""
+                    SELECT corp_code, corp_name, ir_email, ir_email_secondary,
+                           ir_name, ir_title, ir_dept, ir_phone, ir_mobile,
+                           source, confidence, user_verified, notes
+                    FROM ir_contacts {where}
+                    ORDER BY user_verified DESC, corp_name
+                """).fetchall()
+                import csv as _csv
+                from io import StringIO
+                buf = StringIO()
+                w = _csv.writer(buf)
+                w.writerow(['corp_code','corp_name','ir_email','ir_email_secondary',
+                           'ir_name','ir_title','ir_dept','ir_phone','ir_mobile',
+                           'source','confidence','user_verified','notes'])
+                for r in rows:
+                    w.writerow([r[k] or '' for k in r.keys()])
+                csv_bytes = ('﻿' + buf.getvalue()).encode('utf-8')  # BOM for Excel
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/csv; charset=utf-8')
+                self.send_header('Content-Disposition', 'attachment; filename="ir_contacts.csv"')
+                self.send_header('Content-Length', str(len(csv_bytes)))
+                self.end_headers()
+                self.wfile.write(csv_bytes)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── /api/companies/search (회사 검색) ───────────────────────────────
+        if path == "/api/companies/search":
+            try:
+                q = (qs.get("q", [""])[0] or "").strip()
+                limit = min(int(qs.get("limit", ["20"])[0]), 50)
+                if not q or len(q) < 2:
+                    self._json({"items": []}); return
+                db = get_db()
+                like = f"%{q}%"
+                rows = db.execute("""
+                    SELECT corp_code, corp_name, stock_code FROM companies
+                    WHERE corp_name LIKE ? OR stock_code = ?
+                    ORDER BY length(corp_name) LIMIT ?
+                """, [like, q, limit]).fetchall()
+                self._json({"items": [dict(r) for r in rows]})
+            except Exception as e:
+                self._json({"items": [], "error": str(e)})
+            return
+
+        # ── /api/ir_contacts (목록) ────────────────────────────────────────
+        if path == "/api/ir_contacts":
+            try:
+                page = int(qs.get("page", ["1"])[0])
+                per_page = min(int(qs.get("per_page", ["50"])[0]), 200)
+                q = (qs.get("q", [""])[0] or "").strip()
+                source = qs.get("source", [""])[0]
+                conf = qs.get("confidence", [""])[0]
+                only_verified = qs.get("verified", [""])[0] == "1"
+                only_priority = qs.get("priority", [""])[0] == "1"
+                only_with_email = qs.get("with_email", [""])[0] == "1"
+                sort = qs.get("sort", ["confidence"])[0]
+                db = get_db()
+
+                where = []
+                params = []
+                if q:
+                    where.append("(c.corp_name LIKE ? OR c.ir_email LIKE ? OR c.ir_name LIKE ?)")
+                    like = f"%{q}%"
+                    params.extend([like, like, like])
+                if source:
+                    where.append("c.source = ?")
+                    params.append(source)
+                if conf:
+                    where.append("c.confidence = ?")
+                    params.append(conf)
+                if only_verified:
+                    where.append("c.user_verified = 1")
+                if only_with_email:
+                    where.append("c.ir_email IS NOT NULL AND c.ir_email != '' AND c.ir_email NOT LIKE '_phone:%' AND c.ir_email NOT LIKE '_irbook:%'")
+                if only_priority:
+                    where.append("c.corp_code IN (SELECT DISTINCT corp_code FROM story_leads)")
+
+                where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+
+                # 정렬
+                CONF_ORDER = {
+                    "A_complete": 1, "A_verified": 2, "A_email_only": 3,
+                    "found": 4, "B_extracted": 5, "B_phone_only": 6,
+                    "C_homepage": 7, "C_guessed": 8, "guessed": 9,
+                    "D_manual": 10, "none": 11,
+                }
+                order_clause = (
+                    "ORDER BY c.user_verified DESC, "
+                    "CASE c.confidence "
+                    + " ".join(f"WHEN '{k}' THEN {v}" for k, v in CONF_ORDER.items())
+                    + " ELSE 99 END, c.corp_name"
+                ) if sort == "confidence" else "ORDER BY c.updated_at DESC, c.created_at DESC"
+
+                total = db.execute(
+                    f"SELECT COUNT(*) FROM ir_contacts c {where_sql}", params
+                ).fetchone()[0]
+                offset = (page - 1) * per_page
+                rows = db.execute(f"""
+                    SELECT c.*,
+                           (SELECT 1 FROM story_leads s WHERE s.corp_code=c.corp_code LIMIT 1) AS is_priority
+                    FROM ir_contacts c {where_sql} {order_clause}
+                    LIMIT ? OFFSET ?
+                """, params + [per_page, offset]).fetchall()
+
+                items = []
+                for r in rows:
+                    d = dict(r)
+                    # 임시 키 (이메일 NULL 대신 사용된 placeholder) 숨김
+                    em = d.get("ir_email") or ""
+                    if em.startswith("_phone:") or em.startswith("_irbook:"):
+                        d["ir_email"] = ""
+                    items.append(d)
+
+                # 통계
+                stats = db.execute("""
+                    SELECT source, COUNT(*) c FROM ir_contacts GROUP BY source
+                """).fetchall()
+                conf_stats = db.execute("""
+                    SELECT confidence, COUNT(*) c FROM ir_contacts GROUP BY confidence
+                """).fetchall()
+                self._json({
+                    "items": items, "total": total, "page": page, "per_page": per_page,
+                    "stats": {
+                        "by_source": {r["source"]: r["c"] for r in stats},
+                        "by_confidence": {r["confidence"]: r["c"] for r in conf_stats},
+                        "total_contacts": total,
+                    }
+                })
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)})
+            return
+
+        # ── /api/ir_contacts/{id} (상세) ───────────────────────────────────
+        m_irc = re.match(r"^/api/ir_contacts/(\d+)$", path)
+        if m_irc:
+            try:
+                cid = int(m_irc.group(1))
+                db = get_db()
+                row = db.execute("SELECT * FROM ir_contacts WHERE id=?", [cid]).fetchone()
+                if row:
+                    d = dict(row)
+                    em = d.get("ir_email") or ""
+                    if em.startswith("_phone:") or em.startswith("_irbook:"):
+                        d["ir_email"] = ""
+                    self._json(d)
+                else:
+                    self._send(404, b'{"error":"Not found"}', "application/json")
+            except Exception as e:
+                self._json({"error": str(e)})
+            return
+
+        # ── /api/ir_contacts/by_corp/{corp_code} ────────────────────────────
+        m_irc_corp = re.match(r"^/api/ir_contacts/by_corp/([\w]+)$", path)
+        if m_irc_corp:
+            try:
+                cc = m_irc_corp.group(1)
+                db = get_db()
+                rows = db.execute(
+                    "SELECT * FROM ir_contacts WHERE corp_code=? ORDER BY user_verified DESC, confidence",
+                    [cc]
+                ).fetchall()
+                items = []
+                for r in rows:
+                    d = dict(r)
+                    em = d.get("ir_email") or ""
+                    if em.startswith("_phone:") or em.startswith("_irbook:"):
+                        d["ir_email"] = ""
+                    items.append(d)
+                self._json({"items": items})
+            except Exception as e:
+                self._json({"error": str(e)})
+            return
+
+        # ── /api/ir_contacts_2 (목록) ─────────────────────────────────────
+        if path == "/api/ir_contacts_2":
+            try:
+                page = int(qs.get("page", ["1"])[0])
+                per_page = min(int(qs.get("per_page", ["50"])[0]), 200)
+                q = (qs.get("q", [""])[0] or "").strip()
+                conf = qs.get("confidence", [""])[0]
+                only_verified = qs.get("verified", [""])[0] == "1"
+                pending_only = qs.get("pending_only", [""])[0] == "1"
+                db = get_db()
+
+                where = ["c.is_active = 1"]
+                params = []
+                if q:
+                    where.append("(c.corp_name LIKE ? OR c.ir_email LIKE ?)")
+                    like = f"%{q}%"
+                    params.extend([like, like])
+                if conf:
+                    where.append("c.confidence = ?")
+                    params.append(conf)
+                if only_verified:
+                    where.append("c.user_verified = 1")
+                if pending_only:
+                    where.append("c.corp_code IN (SELECT DISTINCT corp_code FROM ir_questionnaires WHERE status='pending')")
+                where_sql = "WHERE " + " AND ".join(where)
+
+                total = db.execute(
+                    f"SELECT COUNT(*) FROM ir_contacts_2 c {where_sql}", params
+                ).fetchone()[0]
+                offset = (page - 1) * per_page
+                rows = db.execute(f"""
+                    SELECT c.*,
+                           (SELECT 1 FROM ir_questionnaires q WHERE q.corp_code=c.corp_code AND q.status='pending' LIMIT 1) AS is_pending,
+                           (SELECT 1 FROM ir_contacts ic WHERE ic.corp_code=c.corp_code AND ic.ir_email=c.ir_email LIMIT 1) AS in_main
+                    FROM ir_contacts_2 c
+                    {where_sql}
+                    ORDER BY c.user_verified DESC, c.confidence, c.updated_at DESC
+                    LIMIT ? OFFSET ?
+                """, params + [per_page, offset]).fetchall()
+                items = [dict(r) for r in rows]
+
+                stats = {
+                    "total": db.execute("SELECT COUNT(*) FROM ir_contacts_2 WHERE is_active=1").fetchone()[0],
+                    "verified": db.execute("SELECT COUNT(*) FROM ir_contacts_2 WHERE is_active=1 AND user_verified=1").fetchone()[0],
+                    "pending_corp_covered": db.execute("""
+                        SELECT COUNT(DISTINCT c.corp_code) FROM ir_contacts_2 c
+                        WHERE c.is_active=1 AND c.corp_code IN (
+                          SELECT corp_code FROM ir_questionnaires WHERE status='pending'
+                        )
+                    """).fetchone()[0],
+                }
+                stats["by_confidence"] = {
+                    r["confidence"]: r["c"] for r in db.execute(
+                        "SELECT confidence, COUNT(*) c FROM ir_contacts_2 WHERE is_active=1 GROUP BY confidence"
+                    ).fetchall()
+                }
+                self._json({"items": items, "total": total, "page": page, "per_page": per_page, "stats": stats})
+            except Exception as e:
+                self._json({"items": [], "total": 0, "error": str(e)}, 500)
+            return
+
         # ── /api/cross-signals (교차 신호) ────────────────────────────────
         if path == "/api/cross-signals":
             try:
@@ -1280,8 +2205,9 @@ class DartHandler(BaseHTTPRequestHandler):
                         """).fetchall()
                         cs_total = sum(r["cnt"] for r in cs)
                         cs_top = db.execute("""
-                            SELECT pattern, title, interpretation, primary_corp_name,
-                                   severity, signal_count
+                            SELECT id, pattern, title, interpretation,
+                                   primary_corp_code, primary_corp_name,
+                                   severity, signal_count, article_id
                             FROM cross_signals
                             ORDER BY severity DESC, signal_count DESC LIMIT 6
                         """).fetchall()
@@ -2067,6 +2993,440 @@ class DartHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # ── POST /api/quality_review/bulk_apply (필터 일괄 적용) ──────────────
+        if path == "/api/quality_review/bulk_apply":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8")) if content_length else {}
+            except Exception:
+                body = {}
+            try:
+                db = get_db()
+                min_score = int(body.get("min_score", 4))
+                verdict = (body.get("verdict") or "").strip()
+                apply_questions = bool(body.get("apply_questions", True))
+                apply_headline = bool(body.get("apply_headline", True))
+                replace_all_q = bool(body.get("replace_all_questions", False))
+                only_unapplied = bool(body.get("only_unapplied", True))
+
+                where = ["qr.error IS NULL"]
+                params = []
+                if min_score:
+                    where.append("qr.score >= ?"); params.append(min_score)
+                if verdict:
+                    where.append("qr.verdict = ?"); params.append(verdict)
+                if only_unapplied:
+                    where.append("qr.applied = 0")
+                ws = " AND ".join(where)
+                rows = db.execute(
+                    f"SELECT qr.* FROM article_quality_reviews qr WHERE {ws}",
+                    params
+                ).fetchall()
+
+                applied_ids = []
+                total_q_added = 0
+                total_h_changed = 0
+                for r in rows:
+                    qr = dict(r)
+                    if apply_questions and qr.get("questionnaire_id"):
+                        try:
+                            suggested = json.loads(qr.get("suggested_questions") or "[]")
+                        except Exception:
+                            suggested = []
+                        if suggested:
+                            cur_qst = db.execute(
+                                "SELECT questions FROM ir_questionnaires WHERE id=?",
+                                [qr["questionnaire_id"]]
+                            ).fetchone()
+                            try:
+                                cur_q = json.loads(cur_qst["questions"] or "[]") if cur_qst else []
+                            except Exception:
+                                cur_q = []
+                            new_qs = ([] if replace_all_q else cur_q) + \
+                                     [{"q": s.get("q", "")} for s in suggested if s.get("q")]
+                            seen = set(); deduped = []
+                            for q in new_qs:
+                                key = (q.get("q") if isinstance(q, dict) else str(q)).strip()
+                                if key and key not in seen:
+                                    seen.add(key); deduped.append(q)
+                            db.execute(
+                                "UPDATE ir_questionnaires SET questions=? WHERE id=?",
+                                [json.dumps(deduped, ensure_ascii=False), qr["questionnaire_id"]]
+                            )
+                            total_q_added += max(0, len(deduped) - (len(cur_q) if not replace_all_q else 0))
+                    if apply_headline and qr.get("suggested_angle"):
+                        db.execute(
+                            "UPDATE article_drafts SET headline=? WHERE id=?",
+                            [qr["suggested_angle"], qr["article_id"]]
+                        )
+                        total_h_changed += 1
+                    db.execute(
+                        "UPDATE article_quality_reviews SET applied=1, applied_at=datetime('now','localtime') WHERE id=?",
+                        [qr["id"]]
+                    )
+                    applied_ids.append(qr["id"])
+                db.commit()
+                self._json({
+                    "ok": True,
+                    "applied_count": len(applied_ids),
+                    "applied_ids": applied_ids,
+                    "questions_added": total_q_added,
+                    "headlines_changed": total_h_changed,
+                })
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/quality_review/{id}/apply (제안 반영) ───────────────────
+        m_qa = re.match(r"^/api/quality_review/(\d+)/apply$", path)
+        if m_qa:
+            qr_id = int(m_qa.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8")) if content_length else {}
+            except Exception:
+                body = {}
+            try:
+                db = get_db()
+                qr = db.execute(
+                    "SELECT * FROM article_quality_reviews WHERE id=?", [qr_id]
+                ).fetchone()
+                if not qr:
+                    self._json({"error": "review 없음"}, 404); return
+                qr = dict(qr)
+
+                apply_questions = bool(body.get("apply_questions", True))
+                apply_headline  = bool(body.get("apply_headline", False))
+                replace_all_q   = bool(body.get("replace_all_questions", False))
+
+                actions = {"questions_added": 0, "headline_changed": False}
+
+                # 1) 질문지에 제안 질문 추가/병합
+                if apply_questions and qr.get("questionnaire_id"):
+                    try:
+                        suggested = json.loads(qr.get("suggested_questions") or "[]")
+                    except Exception:
+                        suggested = []
+                    if suggested:
+                        cur_qst = db.execute(
+                            "SELECT questions FROM ir_questionnaires WHERE id=?",
+                            [qr["questionnaire_id"]]
+                        ).fetchone()
+                        try:
+                            cur_q = json.loads(cur_qst["questions"] or "[]") if cur_qst else []
+                        except Exception:
+                            cur_q = []
+                        new_qs = ([] if replace_all_q else cur_q) + \
+                                 [{"q": s.get("q", "")} for s in suggested if s.get("q")]
+                        # 중복(같은 문자열) 제거
+                        seen = set(); deduped = []
+                        for q in new_qs:
+                            key = (q.get("q") if isinstance(q, dict) else str(q)).strip()
+                            if key and key not in seen:
+                                seen.add(key); deduped.append(q)
+                        db.execute(
+                            "UPDATE ir_questionnaires SET questions=? WHERE id=?",
+                            [json.dumps(deduped, ensure_ascii=False), qr["questionnaire_id"]]
+                        )
+                        actions["questions_added"] = len(deduped) - len(cur_q if not replace_all_q else [])
+
+                # 2) 헤드라인 교체
+                if apply_headline and qr.get("suggested_angle"):
+                    db.execute(
+                        "UPDATE article_drafts SET headline=? WHERE id=?",
+                        [qr["suggested_angle"], qr["article_id"]]
+                    )
+                    actions["headline_changed"] = True
+
+                # 3) applied 플래그
+                db.execute(
+                    "UPDATE article_quality_reviews SET applied=1, applied_at=datetime('now','localtime') WHERE id=?",
+                    [qr_id]
+                )
+                db.commit()
+                self._json({"ok": True, "actions": actions})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/ir_contacts_2/scrape (웹 스크래핑 트리거) ──────────────
+        if path == "/api/ir_contacts_2/scrape":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8")) if content_length else {}
+            except Exception:
+                body = {}
+            try:
+                # 비동기 실행 (스레드)
+                import subprocess as _sp
+                scope = body.get("scope", "pending")    # pending | listed
+                workers = int(body.get("workers", 4))
+                limit = int(body.get("limit", 0))
+                script = WEB_ROOT.parent / "scripts" / "scrape_ir_emails.py"
+                args = [sys.executable, str(script), "--workers", str(workers)]
+                if scope == "pending":
+                    args.append("--pending-only")
+                elif scope == "listed":
+                    args.append("--listed-only")
+                if limit:
+                    args += ["--limit", str(limit)]
+                log_path = WEB_ROOT.parent / "logs" / f"scrape_ir_emails_{int(__import__('time').time())}.log"
+                env = os.environ.copy()
+                env["PYTHONIOENCODING"] = "utf-8"
+                with open(log_path, "w", encoding="utf-8") as f:
+                    proc = _sp.Popen(args, stdout=f, stderr=_sp.STDOUT,
+                                     cwd=str(WEB_ROOT.parent), env=env,
+                                     creationflags=getattr(_sp, 'CREATE_NO_WINDOW', 0))
+                self._json({"ok": True, "pid": proc.pid, "log": str(log_path),
+                            "scope": scope, "workers": workers, "limit": limit})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/ir_contacts_2/{id}/verify (사용자 검증 토글) ──────────
+        m_v = re.match(r"^/api/ir_contacts_2/(\d+)/verify$", path)
+        if m_v:
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8")) if content_length else {}
+            except Exception:
+                body = {}
+            try:
+                v = 1 if body.get("verified", True) else 0
+                db = get_db()
+                db.execute("UPDATE ir_contacts_2 SET user_verified=?, updated_at=datetime('now','localtime') WHERE id=?",
+                           [v, int(m_v.group(1))])
+                db.commit()
+                self._json({"ok": True, "user_verified": v})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/ir_contacts_2/{id}/promote (ir_contacts 로 승급 복사) ──
+        m_p = re.match(r"^/api/ir_contacts_2/(\d+)/promote$", path)
+        if m_p:
+            try:
+                db = get_db()
+                r = db.execute("SELECT * FROM ir_contacts_2 WHERE id=?",
+                               [int(m_p.group(1))]).fetchone()
+                if not r:
+                    self._json({"error": "not found"}, 404); return
+                d = dict(r)
+                now = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                db.execute("""
+                    INSERT INTO ir_contacts
+                      (corp_code, corp_name, ir_email, homepage, source, source_url,
+                       confidence, user_verified, is_active, notes, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?)
+                    ON CONFLICT(corp_code, ir_email) DO UPDATE SET
+                      user_verified=1, is_active=1, source_url=excluded.source_url,
+                      updated_at=excluded.updated_at
+                """, [d["corp_code"], d["corp_name"], d["ir_email"], d["homepage"],
+                      "PROMOTED_FROM_SCRAPED", d["source_url"], d["confidence"],
+                      f"promoted from ir_contacts_2.id={d['id']}", now, now])
+                # 원본도 user_verified=1
+                db.execute("UPDATE ir_contacts_2 SET user_verified=1, updated_at=? WHERE id=?",
+                           [now, d["id"]])
+                db.commit()
+                self._json({"ok": True, "corp_code": d["corp_code"], "email": d["ir_email"]})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/inbox/sync (Gmail 답장 동기화) ─────────────────────────
+        if path == "/api/inbox/sync":
+            try:
+                sys.path.insert(0, str(WEB_ROOT.parent / "scripts"))
+                from gmail_sync_inbox import sync_once
+                result = sync_once()
+                self._json(result)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/inbox/relearn (모든 답장 재학습) ───────────────────────
+        if path == "/api/inbox/relearn":
+            try:
+                sys.path.insert(0, str(WEB_ROOT.parent / "scripts"))
+                from learn_from_replies import learn_one_reply, update_sent_stats
+                db = get_db()
+                update_sent_stats(db)
+                rows = db.execute("""
+                    SELECT * FROM ir_emails
+                    WHERE direction='in' AND questionnaire_id IS NOT NULL
+                """).fetchall()
+                stats = {'total': len(rows), 'updated': 0, 'inserted': 0,
+                         'duplicate_skip': 0, 'skipped': 0}
+                for r in rows:
+                    res = learn_one_reply(db, dict(r))
+                    if res.get('ok'):
+                        a = res.get('action', 'skipped')
+                        stats[a] = stats.get(a, 0) + 1
+                    else:
+                        stats['skipped'] += 1
+                self._json(stats)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/ir/send (질문지 IR 발송) ───────────────────────────────
+        if path == "/api/ir/send":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except Exception:
+                self._json({"error": "요청 파싱 오류"}, 400); return
+
+            article_id = body.get("article_id")
+            to_addr = body.get("to") or None
+            dry_run = bool(body.get("dry_run"))
+            if not article_id:
+                self._json({"error": "article_id 필수"}, 400); return
+
+            try:
+                # gmail_send 모듈 import
+                sys.path.insert(0, str(WEB_ROOT.parent / "scripts"))
+                from gmail_send import send_email
+                result = send_email(article_id, to_addr, dry_run)
+                self._json(result, 200 if result.get("ok") else 500)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── POST /api/ir_contacts/import (CSV 일괄 import) ──────────────────
+        if path == "/api/ir_contacts/import":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(content_length).decode("utf-8")
+            except Exception:
+                self._json({"error": "요청 파싱 오류"}, 400); return
+
+            import csv as _csv
+            from io import StringIO
+            try:
+                reader = _csv.DictReader(StringIO(body))
+                db = get_db()
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                stats = {"inserted": 0, "matched_corp": 0, "skipped": 0, "errors": []}
+
+                # 회사명 → corp_code 매칭 인덱스
+                name_index = {}
+                for r in db.execute("SELECT corp_code, corp_name, stock_code FROM companies"):
+                    cn = (r["corp_name"] or "").strip()
+                    if not cn: continue
+                    norm = re.sub(r'\(주\)|주식회사|㈜', '', cn).replace(' ','').strip()
+                    name_index[norm] = (r["corp_code"], cn)
+                    if r["stock_code"]:
+                        name_index[r["stock_code"]] = (r["corp_code"], cn)
+
+                for i, row in enumerate(reader, 1):
+                    try:
+                        corp_code = (row.get("corp_code") or "").strip()
+                        corp_name = (row.get("corp_name") or "").strip()
+                        # corp_code 없으면 corp_name으로 매칭 시도
+                        if not corp_code and corp_name:
+                            norm = re.sub(r'\(주\)|주식회사|㈜', '', corp_name).replace(' ','').strip()
+                            if norm in name_index:
+                                corp_code, corp_name = name_index[norm]
+                                stats["matched_corp"] += 1
+                            else:
+                                corp_code = "UNKNOWN"
+                        elif not corp_code:
+                            corp_code = "UNKNOWN"
+
+                        ir_email = (row.get("ir_email") or "").strip()
+                        ir_name = (row.get("ir_name") or "").strip()
+                        ir_phone = (row.get("ir_phone") or "").strip()
+                        ir_mobile = (row.get("ir_mobile") or "").strip()
+                        ir_title = (row.get("ir_title") or "").strip()
+                        ir_dept = (row.get("ir_dept") or "").strip()
+                        notes = (row.get("notes") or "").strip()
+
+                        if not (ir_email or ir_name or ir_phone or ir_mobile):
+                            stats["skipped"] += 1; continue
+
+                        conf = "A_complete" if (ir_email and ir_name and (ir_phone or ir_mobile)) else \
+                               "A_email_only" if ir_email else "B_phone_only"
+
+                        db.execute("""
+                            INSERT INTO ir_contacts
+                                (corp_code, corp_name, ir_email, ir_phone, ir_mobile,
+                                 ir_name, ir_dept, ir_title, source, confidence,
+                                 user_verified, is_active, notes, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'CSV_IMPORT', ?, 1, 1, ?, ?, ?)
+                            ON CONFLICT(corp_code, ir_email) DO UPDATE SET
+                                ir_phone=COALESCE(NULLIF(excluded.ir_phone,''), ir_contacts.ir_phone),
+                                ir_mobile=COALESCE(NULLIF(excluded.ir_mobile,''), ir_contacts.ir_mobile),
+                                ir_name=COALESCE(NULLIF(excluded.ir_name,''), ir_contacts.ir_name),
+                                ir_title=COALESCE(NULLIF(excluded.ir_title,''), ir_contacts.ir_title),
+                                ir_dept=COALESCE(NULLIF(excluded.ir_dept,''), ir_contacts.ir_dept),
+                                user_verified=1, source='CSV_IMPORT',
+                                notes=COALESCE(NULLIF(excluded.notes,''), ir_contacts.notes),
+                                updated_at=excluded.updated_at
+                        """, [corp_code, corp_name, ir_email or None, ir_phone, ir_mobile,
+                              ir_name, ir_dept, ir_title, conf, notes, now, now])
+                        stats["inserted"] += 1
+                    except Exception as e:
+                        if len(stats["errors"]) < 5:
+                            stats["errors"].append(f"row {i}: {str(e)[:100]}")
+                db.commit()
+                self._json(stats)
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── GET /api/ir_contacts/export (CSV 출력) — 위 GET에서 처리 ─────────
+
+        # ── POST /api/ir_contacts (신규 등록) ──────────────────────────────
+        if path == "/api/ir_contacts":
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except Exception:
+                self._json({"error": "요청 파싱 오류"}, 400); return
+
+            corp_code = (body.get("corp_code") or "").strip()
+            corp_name = (body.get("corp_name") or "").strip()
+            ir_email = (body.get("ir_email") or "").strip()
+            ir_phone = (body.get("ir_phone") or "").strip()
+            ir_mobile = (body.get("ir_mobile") or "").strip()
+            ir_name = (body.get("ir_name") or "").strip()
+            ir_dept = (body.get("ir_dept") or "").strip()
+            ir_title = (body.get("ir_title") or "").strip()
+            notes = (body.get("notes") or "").strip()
+
+            if not corp_code:
+                self._json({"error": "corp_code 필수"}, 400); return
+            if not (ir_email or (ir_name and (ir_phone or ir_mobile))):
+                self._json({"error": "이메일 OR (이름+전화) 필수"}, 400); return
+
+            try:
+                db = get_db()
+                now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                # corp_name 자동 보강
+                if not corp_name:
+                    r = db.execute("SELECT corp_name FROM companies WHERE corp_code=?", [corp_code]).fetchone()
+                    if r: corp_name = r["corp_name"]
+                # 신뢰도 결정
+                if ir_email:
+                    conf = "A_complete" if (ir_name and (ir_phone or ir_mobile)) else "A_email_only"
+                else:
+                    conf = "B_phone_only"
+                cur = db.execute("""
+                    INSERT INTO ir_contacts
+                        (corp_code, corp_name, ir_email, ir_phone, ir_mobile,
+                         ir_name, ir_dept, ir_title, source, confidence,
+                         user_verified, mx_verified, is_active, notes,
+                         created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'MANUAL', ?, 1, 0, 1, ?, ?, ?)
+                """, [corp_code, corp_name, ir_email or None, ir_phone, ir_mobile,
+                      ir_name, ir_dept, ir_title, conf, notes, now, now])
+                db.commit()
+                self._json({"id": cur.lastrowid, "ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         # ── POST /api/ai/analyze ──────────────────────────────────────────
         if path == "/api/ai/analyze":
             # API 키 인증
@@ -2232,7 +3592,8 @@ class DartHandler(BaseHTTPRequestHandler):
                 script = str(Path(__file__).parent / "scripts" / "check_news_coverage.py")
                 result = subprocess.run(
                     [_sys.executable, script, "--id", str(lead_id)],
-                    capture_output=True, text=True, timeout=60, encoding="utf-8"
+                    capture_output=True, text=True, timeout=60, encoding="utf-8",
+                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)
                 )
                 db = get_db()
                 row = db.execute(
@@ -2390,24 +3751,7 @@ class DartHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # ── POST /api/news/related-stocks  (뉴스 → 관련주 탐색) ─────────────
-        if path == "/api/news/related-stocks":
-            try:
-                from dart.news_analyzer import find_related_stocks
-                content_length = int(self.headers.get("Content-Length", 0))
-                body = self.rfile.read(content_length).decode("utf-8", errors="replace")
-                payload = json.loads(body) if body else {}
-                news_text = payload.get("news_text", "").strip()
-                top_n = int(payload.get("top_n", 30))
-                if not news_text:
-                    self._json({"error": "news_text 필수"}, 400)
-                    return
-                result = find_related_stocks(news_text, top_n=top_n)
-                self._json(result)
-            except Exception as e:
-                import traceback
-                self._json({"error": str(e), "trace": traceback.format_exc()}, 500)
-            return
+        # /api/news/related-stocks 는 GET handler(라인 2837)에서 처리 — 중복 제거됨
 
         self._json({"error": "Not found"}, 404)
 
@@ -2415,6 +3759,77 @@ class DartHandler(BaseHTTPRequestHandler):
     def do_PATCH(self):
         parsed = urlparse(self.path)
         path = parsed.path
+
+        # ── PATCH /api/questionnaires/{id} (검토 — 수정/상태) ─────────────────
+        m_qst_p = re.match(r"^/api/questionnaires/(\d+)$", path)
+        if m_qst_p:
+            qid = int(m_qst_p.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except Exception:
+                self._json({"error": "요청 파싱 오류"}, 400); return
+
+            sets, vals = [], []
+            if 'questions' in data:
+                sets.append("questions = ?")
+                vals.append(json.dumps(data['questions'], ensure_ascii=False))
+            if 'status' in data:
+                if data['status'] not in ['pending','approved','hold','discard','sent','replied']:
+                    self._json({"error": "유효하지 않은 status"}, 400); return
+                sets.append("status = ?")
+                vals.append(data['status'])
+            if 'cover_letter' in data:
+                sets.append("cover_letter = ?")
+                vals.append(data['cover_letter'])
+            if not sets:
+                self._json({"error": "수정 필드 없음"}, 400); return
+            try:
+                db = get_db()
+                db.execute(f"UPDATE ir_questionnaires SET {', '.join(sets)} WHERE id=?", vals + [qid])
+                db.commit()
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
+        # ── PATCH /api/ir_contacts/{id} (인라인 편집) ─────────────────────
+        m_irc = re.match(r"^/api/ir_contacts/(\d+)$", path)
+        if m_irc:
+            cid = int(m_irc.group(1))
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(content_length).decode("utf-8"))
+            except Exception:
+                self._json({"error": "요청 파싱 오류"}, 400); return
+            ALLOWED = {"corp_code", "corp_name",
+                       "ir_email", "ir_email_secondary", "ir_phone", "ir_mobile",
+                       "ir_name", "ir_dept", "ir_title", "homepage", "notes",
+                       "user_verified", "is_active", "confidence"}
+            sets, vals = [], []
+            for k, v in data.items():
+                if k in ALLOWED:
+                    sets.append(f"{k}=?")
+                    vals.append(v)
+            if not sets:
+                self._json({"error": "유효한 필드 없음"}, 400); return
+            sets.append("updated_at=?")
+            vals.append(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            try:
+                db = get_db()
+                db.execute(f"UPDATE ir_contacts SET {', '.join(sets)} WHERE id=?", vals + [cid])
+                db.commit()
+                # 사용자 검증 시 confidence 자동 격상
+                if data.get("user_verified") == 1:
+                    db.execute("""
+                        UPDATE ir_contacts SET confidence='A_complete'
+                        WHERE id=? AND confidence IN ('guessed','C_guessed','C_homepage','B_phone_only','B_extracted')
+                    """, [cid])
+                    db.commit()
+                self._json({"ok": True})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
 
         # ── PATCH /api/alert_rules/:id ───────────────────────────────────
         m = re.match(r"^/api/alert_rules/(\d+)$", path)

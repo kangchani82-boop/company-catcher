@@ -274,17 +274,27 @@ const COMMON_CSS = `
 // ── 공통 네비게이션 HTML 생성 ─────────────────────────────────────────────────
 function buildNav(activePage) {
   const items = [
+    { href: '/home_v2',           key: 'home_v2',      label: '🎯 종합대시보드' },
     { href: '/',                  key: 'home',         label: '🏠 기업분석' },
     { href: '/comparisons.html',  key: 'comparisons',  label: '📊 비교분석' },
     { href: '/leads.html',        key: 'leads',        label: '🚨 취재단서' },
     { href: '/articles.html',     key: 'articles',     label: '✍ 기사초안' },
+    { href: '/ir_contacts',       key: 'ir_contacts',  label: '📨 IR담당자' },
+    { href: '/ir_contacts_2',     key: 'ir_contacts_2', label: '🌐 IR담당자2' },
+    { href: '/questionnaire_review', key: 'questionnaire_review', label: '📨 질문지검토' },
+    { href: '/quality_review',    key: 'quality_review', label: '🔍 품질재검토' },
+    { href: '/inbox',             key: 'inbox',        label: '📬 인박스' },
+    { href: '/sector_analysis',   key: 'sector_analysis', label: '📊 업종분석' },
     { href: '/supply_chain.html', key: 'supply_chain', label: '🔗 공급망' },
     { href: '/alert_rules',      key: 'alert_rules',  label: '⚙️ 규칙관리' },
   ];
   return `<nav class="top-nav">
     <a href="/" class="brand">CompanyCatcher</a>
     ${items.map(it => `
-      <a href="${it.href}" class="${activePage===it.key?'active':''}">${it.label}</a>
+      <a href="${it.href}" class="${activePage===it.key?'active':''}" style="display:inline-flex;flex-direction:column;align-items:center;gap:1px;line-height:1.1;padding:6px 10px">
+        <span>${it.label}</span>
+        <span class="nav-count" data-key="${it.key}" style="font-size:9px;color:var(--txt2);font-weight:400;letter-spacing:.3px">·</span>
+      </a>
     `).join('')}
     <button onclick="openSettingsModal()" title="API 키 설정"
       style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;
@@ -292,6 +302,24 @@ function buildNav(activePage) {
       onmouseover="this.style.borderColor='var(--acc)';this.style.color='var(--acc)'"
       onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--txt2)'">⚙ 설정</button>
   </nav>`;
+}
+
+// ── nav 카운트 자동 로드 (페이지 로드 시) ─────────────────────────────────────
+async function loadNavCounts() {
+  try {
+    const r = await fetch(`${API}/api/nav_counts`);
+    const data = await r.json();
+    document.querySelectorAll('.nav-count').forEach(el => {
+      const k = el.dataset.key;
+      const v = data[k];
+      if (v != null) {
+        el.textContent = v >= 1000 ? (v/1000).toFixed(1) + 'k' : v;
+        el.title = v.toLocaleString() + '건';
+      } else {
+        el.textContent = '';
+      }
+    });
+  } catch(e){}
 }
 
 // ── 페이지 초기화 헬퍼 ────────────────────────────────────────────────────────
@@ -304,6 +332,40 @@ function initPage(activePage) {
   const nav = document.createElement('div');
   nav.innerHTML = buildNav(activePage);
   document.body.insertBefore(nav.firstElementChild, document.body.firstChild);
+  // 카운트 자동 로드
+  setTimeout(loadNavCounts, 100);
+}
+
+// ── 기존 <nav id="main-nav"> 엘리먼트를 채우는 헬퍼 (home_v2 등) ──────────────
+function renderNav(activePage) {
+  // CSS 1회만 주입
+  if (!document.getElementById('cc-common-css')) {
+    const style = document.createElement('style');
+    style.id = 'cc-common-css';
+    style.textContent = COMMON_CSS;
+    document.head.appendChild(style);
+  }
+  const target = document.getElementById('main-nav');
+  if (!target) return;
+  // body 경로에서 페이지 추론 (활성 페이지 미지정 시)
+  if (!activePage) {
+    const p = location.pathname;
+    if (p.startsWith('/home_v2') || p.startsWith('/dashboard')) activePage = 'home_v2';
+    else if (p.startsWith('/leads')) activePage = 'leads';
+    else if (p.startsWith('/articles')) activePage = 'articles';
+    else if (p.startsWith('/comparisons')) activePage = 'comparisons';
+    else if (p.startsWith('/supply_chain')) activePage = 'supply_chain';
+    else if (p.startsWith('/alert_rules')) activePage = 'alert_rules';
+    else activePage = 'home';
+  }
+  // buildNav 결과에서 <nav> 내부 컨텐츠만 추출하여 기존 main-nav에 삽입
+  const wrap = document.createElement('div');
+  wrap.innerHTML = buildNav(activePage);
+  const built = wrap.firstElementChild;
+  target.className = built.className;
+  target.innerHTML = built.innerHTML;
+  // 카운트 자동 로드
+  setTimeout(loadNavCounts, 100);
 }
 
 // ── 마크다운 경량 렌더러 (강조/링크/헤딩만) ─────────────────────────────────

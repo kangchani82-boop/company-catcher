@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🌐 IR담당자2 (웹 발굴) — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .wrap { max-width:1280px; margin:0 auto; padding:16px; }
+    .h1 { font-size:22px; font-weight:700; margin:0 0 6px 0;
+          background:linear-gradient(135deg,#ec4899,#a855f7);
+          -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .sub { font-size:12px; color:var(--txt2); margin-bottom:14px; }
+
+    .stat-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr));
+                gap:8px; margin-bottom:12px; }
+    .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+                 padding:10px 12px; text-align:center; }
+    .stat-num { font-size:20px; font-weight:800; color:var(--acc); }
+    .stat-label { font-size:10px; color:var(--txt2); margin-top:2px; }
+
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar input, .toolbar select {
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      border-radius:6px; padding:6px 10px; font-size:12px;
+    }
+    .toolbar input[type=text] { flex:1; min-width:200px; }
+    .btn {
+      font-size:12px; padding:6px 14px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg2); color:var(--txt1);
+    }
+    .btn:hover { border-color:var(--acc); }
+    .btn-primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+    .btn-primary:hover { background:#a855f7; }
+
+    table { width:100%; border-collapse:collapse; font-size:12px;
+            background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+            overflow:hidden; }
+    th, td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; }
+    th { background:var(--bg1); color:var(--txt2); font-size:11px;
+         font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+    tr:hover { background:rgba(168,85,247,.04); }
+    .corp { font-weight:600; color:var(--txt1); }
+    .email { font-family:monospace; color:#3b82f6; }
+    .email a { color:#3b82f6; text-decoration:none; }
+    .email a:hover { text-decoration:underline; }
+    .src { font-size:10px; color:var(--txt2); }
+    .src a { color:var(--txt2); text-decoration:none; }
+    .src a:hover { color:var(--acc); text-decoration:underline; }
+    .badge {
+      display:inline-block; font-size:9px; padding:2px 6px; border-radius:10px;
+      font-weight:600; border:1px solid var(--border); margin-right:3px;
+    }
+    .b-pending  { background:rgba(245,158,11,.12); color:#f59e0b; border-color:#f59e0b; }
+    .b-verified { background:rgba(34,197,94,.15); color:#22c55e; border-color:#22c55e; }
+    .b-in-main  { background:rgba(59,130,246,.15); color:#3b82f6; border-color:#3b82f6; }
+    .b-A_complete { background:rgba(34,197,94,.12); color:#22c55e; }
+    .b-B_scraped { background:rgba(168,85,247,.12); color:#a855f7; }
+    .actions button {
+      font-size:11px; padding:4px 10px; border-radius:5px; margin:0 2px;
+      border:1px solid var(--border); background:var(--bg1); color:var(--txt1);
+      cursor:pointer;
+    }
+    .actions button:hover { border-color:var(--acc); }
+    .actions .btn-promote { background:rgba(34,197,94,.12); color:#22c55e; border-color:#22c55e; }
+    .actions .btn-delete  { background:rgba(239,68,68,.06); color:#ef4444; border-color:rgba(239,68,68,.3); }
+
+    .scrape-panel {
+      background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+      padding:12px 16px; margin-bottom:12px;
+    }
+
+    .empty { padding:40px; text-align:center; color:var(--txt2); }
+    .err { color:#ef4444; padding:14px; }
+    .pagination { display:flex; gap:4px; justify-content:center; padding:16px; }
+    .pg-btn { font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;
+              background:var(--bg2); border:1px solid var(--border); color:var(--txt2); }
+    .pg-btn.active { background:var(--acc); color:#fff; border-color:var(--acc); }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="wrap">
+  <h1 class="h1">🌐 IR담당자2 — 웹 자동 발굴</h1>
+  <p class="sub">
+    DART의 IR URL과 회사 홈페이지를 자동 스캐닝해 발굴한 IR 이메일. <b>기존 IR담당자와 분리된 작업 풀</b>이며,
+    검증 후 「⤴ 승급」 클릭 시 원본 IR담당자 테이블로 이관됩니다.
+  </p>
+
+  <!-- 스크래핑 트리거 패널 -->
+  <div class="scrape-panel">
+    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+      <b style="font-size:13px;color:var(--txt1)">🌐 자동 발굴 실행:</b>
+      <button class="btn btn-primary" onclick="runScrape('pending')">📌 pending 회사 (IR없는 곳 우선)</button>
+      <button class="btn" onclick="runScrape('listed')" title="전체 상장사 3,919개">📊 전체 상장사 (대용량)</button>
+      <span id="scrape-status" style="font-size:11px;color:var(--txt2);margin-left:auto"></span>
+    </div>
+    <div style="margin-top:8px;font-size:11px;color:var(--txt2);line-height:1.5">
+      • DART ir_url → 홈페이지 /ir/, /investor/, /contact/ 등 자동 탐색<br>
+      • 정규식 + 키워드 점수화 (회사 도메인, ir@/invest@ prefix, "IR" 주변 텍스트 등)<br>
+      • 60점 이상만 저장. 도메인당 1초 간격 (예의 있는 크롤링)
+    </div>
+  </div>
+
+  <!-- 통계 -->
+  <div class="stat-row">
+    <div class="stat-card"><div class="stat-num" id="n-total">-</div><div class="stat-label">전체 발굴</div></div>
+    <div class="stat-card"><div class="stat-num" id="n-verified" style="color:#22c55e">-</div><div class="stat-label">✓ 사용자 검증</div></div>
+    <div class="stat-card"><div class="stat-num" id="n-pending" style="color:#f59e0b">-</div><div class="stat-label">pending 회사 커버</div></div>
+    <div class="stat-card"><div class="stat-num" id="n-a" style="color:#22c55e">-</div><div class="stat-label">A_complete (80+)</div></div>
+    <div class="stat-card"><div class="stat-num" id="n-b" style="color:#a855f7">-</div><div class="stat-label">B_scraped (60-79)</div></div>
+  </div>
+
+  <!-- 툴바 -->
+  <div class="toolbar">
+    <input type="text" id="f-q" placeholder="회사명·이메일 검색" oninput="debounceLoad()">
+    <select id="f-conf" onchange="loadList()">
+      <option value="">전체 신뢰도</option>
+      <option value="A_complete">A_complete</option>
+      <option value="B_scraped">B_scraped</option>
+    </select>
+    <label style="font-size:11px;color:var(--txt2)">
+      <input type="checkbox" id="f-pending" onchange="loadList()"> pending 회사만
+    </label>
+    <label style="font-size:11px;color:var(--txt2)">
+      <input type="checkbox" id="f-verified" onchange="loadList()"> 검증된 것만
+    </label>
+    <span style="margin-left:auto;font-size:11px;color:var(--txt2)" id="meta">로딩 중...</span>
+  </div>
+
+  <div id="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:30%">회사</th>
+          <th style="width:25%">IR 이메일</th>
+          <th>신뢰도</th>
+          <th>출처</th>
+          <th style="width:160px">액션</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="5" class="empty">로딩 중...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<script>
+let state = { page:1, per:50, total:0, q:'', conf:'', pending_only:false, verified:false };
+let dt;
+function debounceLoad() {
+  clearTimeout(dt);
+  dt = setTimeout(() => { state.page=1; loadList(); }, 300);
+}
+
+async function loadList() {
+  state.q = document.getElementById('f-q').value.trim();
+  state.conf = document.getElementById('f-conf').value;
+  state.pending_only = document.getElementById('f-pending').checked;
+  state.verified = document.getElementById('f-verified').checked;
+
+  const p = new URLSearchParams({
+    page: state.page, per_page: state.per,
+    q: state.q, confidence: state.conf,
+    pending_only: state.pending_only ? '1' : '',
+    verified: state.verified ? '1' : '',
+  });
+  try {
+    const r = await fetch(`${API}/api/ir_contacts_2?${p}`);
+    const d = await r.json();
+    state.total = d.total || 0;
+    renderStats(d.stats);
+    document.getElementById('meta').textContent = `${state.total}건 (페이지 ${state.page})`;
+    renderTable(d.items || []);
+    renderPg();
+  } catch(e) {
+    document.getElementById('tbody').innerHTML = `<tr><td colspan="5" class="err">오류: ${e.message}</td></tr>`;
+  }
+}
+
+function renderStats(s) {
+  if (!s) return;
+  document.getElementById('n-total').textContent = s.total || 0;
+  document.getElementById('n-verified').textContent = s.verified || 0;
+  document.getElementById('n-pending').textContent = s.pending_corp_covered || 0;
+  document.getElementById('n-a').textContent = s.by_confidence?.A_complete || 0;
+  document.getElementById('n-b').textContent = s.by_confidence?.B_scraped || 0;
+}
+
+function renderTable(items) {
+  if (!items.length) {
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="5" class="empty">결과 없음</td></tr>';
+    return;
+  }
+  document.getElementById('tbody').innerHTML = items.map(it => {
+    const badges = [];
+    if (it.is_pending) badges.push('<span class="badge b-pending">📌 pending</span>');
+    if (it.user_verified) badges.push('<span class="badge b-verified">✓ verified</span>');
+    if (it.in_main) badges.push('<span class="badge b-in-main">↗ 본 테이블에 있음</span>');
+    const confBadge = `<span class="badge b-${escHtml(it.confidence||'')}">${escHtml(it.confidence||'-')}</span>`;
+    const note = it.notes || '';
+    const srcUrl = it.source_url || '';
+    const corp = escHtml(it.corp_name||'-');
+    const email = escHtml(it.ir_email||'');
+    return `
+      <tr id="row-${it.id}">
+        <td>
+          <div class="corp">${corp}</div>
+          <div style="font-size:9px;color:var(--txt2);font-family:monospace">${escHtml(it.corp_code||'')}</div>
+          ${badges.join(' ')}
+        </td>
+        <td class="email">
+          <a href="mailto:${email}">${email}</a>
+        </td>
+        <td>${confBadge}<div style="font-size:9px;color:var(--txt2);margin-top:2px">${escHtml(note)}</div></td>
+        <td class="src">
+          ${srcUrl ? `<a href="${escHtml(srcUrl)}" target="_blank" rel="noopener" title="${escHtml(srcUrl)}">${escHtml(srcUrl.substring(0,40))}${srcUrl.length>40?'…':''}</a>` : '-'}
+        </td>
+        <td class="actions">
+          ${!it.user_verified ? `<button onclick="verifyOne(${it.id})">✓ 검증</button>` : ''}
+          ${!it.in_main ? `<button class="btn-promote" onclick="promoteOne(${it.id})" title="ir_contacts(본 테이블)로 승급 복사">⤴ 승급</button>` : ''}
+          <button class="btn-delete" onclick="deleteOne(${it.id})">🗑</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+async function verifyOne(id) {
+  try {
+    const r = await fetch(`${API}/api/ir_contacts_2/${id}/verify`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({verified: true})
+    });
+    const d = await r.json();
+    if (d.ok) loadList();
+    else alert('실패: ' + d.error);
+  } catch(e) { alert('오류: ' + e.message); }
+}
+
+async function promoteOne(id) {
+  if (!confirm('이 항목을 본 IR담당자 테이블로 승급 복사합니다. 진행할까요?')) return;
+  try {
+    const r = await fetch(`${API}/api/ir_contacts_2/${id}/promote`, {method:'POST'});
+    const d = await r.json();
+    if (d.ok) {
+      alert(`✓ 승급 완료\n${d.corp_code} → ${d.email}`);
+      loadList();
+    } else { alert('실패: ' + d.error); }
+  } catch(e) { alert('오류: ' + e.message); }
+}
+
+async function deleteOne(id) {
+  if (!confirm('이 항목을 비활성화(삭제)할까요?')) return;
+  try {
+    const r = await fetch(`${API}/api/ir_contacts_2/${id}`, {method:'DELETE'});
+    const d = await r.json();
+    if (d.ok) {
+      document.getElementById('row-' + id)?.remove();
+    } else { alert('실패: ' + d.error); }
+  } catch(e) { alert('오류: ' + e.message); }
+}
+
+async function runScrape(scope) {
+  const labels = { pending: 'pending 회사 (IR없는 곳)', listed: '전체 상장사' };
+  if (!confirm(`🌐 ${labels[scope]} 자동 발굴을 시작합니다.\n\n` +
+               `백그라운드 실행. 결과는 자동으로 이 목록에 누적됩니다.\n` +
+               `${scope === 'listed' ? '전체 상장사는 1~2시간 소요됩니다.\n' : '약 5~15분 소요.\n'}` +
+               `진행할까요?`)) return;
+  document.getElementById('scrape-status').textContent = '⏳ 발굴 시작 중...';
+  try {
+    const r = await fetch(`${API}/api/ir_contacts_2/scrape`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({scope, workers: 4})
+    });
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('scrape-status').textContent = '❌ ' + d.error;
+      return;
+    }
+    document.getElementById('scrape-status').innerHTML =
+      `🟢 실행 중 (PID ${d.pid}) — 로그: <code>${d.log.split(/[\\/]/).pop()}</code> &nbsp; ` +
+      `<button class="btn" onclick="loadList()">🔄 새로고침</button>`;
+    // 30초마다 자동 새로고침 (5분 동안)
+    let ticks = 0;
+    const iv = setInterval(() => {
+      loadList();
+      if (++ticks >= 10) clearInterval(iv);
+    }, 30000);
+  } catch(e) {
+    document.getElementById('scrape-status').textContent = '❌ ' + e.message;
+  }
+}
+
+function renderPg() {
+  const pages = Math.ceil(state.total / state.per);
+  if (pages <= 1) { document.getElementById('pagination').innerHTML=''; return; }
+  const cur = state.page;
+  const start = Math.max(1, cur-2), end = Math.min(pages, cur+2);
+  let html = `<button class="pg-btn" ${cur<=1?'disabled':''} onclick="goPage(${cur-1})">◀</button>`;
+  if (start>1) html += `<button class="pg-btn" onclick="goPage(1)">1</button>`;
+  for (let i=start;i<=end;i++) html += `<button class="pg-btn ${i===cur?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  if (end<pages) html += `<button class="pg-btn" onclick="goPage(${pages})">${pages}</button>`;
+  html += `<button class="pg-btn" ${cur>=pages?'disabled':''} onclick="goPage(${cur+1})">▶</button>`;
+  document.getElementById('pagination').innerHTML = html;
+}
+function goPage(n){ state.page = n; loadList(); window.scrollTo(0,0); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('ir_contacts_2');
+  loadList();
+});
+</script>
+</body>
+</html>

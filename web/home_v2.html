@@ -197,23 +197,21 @@
     </div>
   </div>
 
+  <!-- Q1 마감 카운트다운 + 오늘 진척 (분기보고서 시즌만 노출) -->
+  <div id="q1-strip" style="display:none; margin-bottom:18px"></div>
+
   <!-- KPI 4개 -->
   <div class="kpi-grid" id="kpi-grid">
     <div class="loading-card">로딩 중...</div>
   </div>
 
-  <!-- ★ Section 0: 교차 신호 (Phase Cross) — 사용자 사명 직결 -->
-  <div class="sec-header" style="border-bottom-color:#ec4899">
-    <h2 class="sec-title" style="background:linear-gradient(135deg,#ec4899,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
-      🔀 교차 신호 — 여러 정보 조합으로 발견된 진짜 가치
-    </h2>
-    <span class="sec-count" id="cross-count">-</span>
+  <!-- Section 1: 콘셉별 빠른 진입 -->
+  <div class="sec-header">
+    <h2 class="sec-title">📚 콘셉별 빠른 진입</h2>
   </div>
-  <div id="cross-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:24px">
-    <div class="loading-card">로딩 중...</div>
-  </div>
+  <div class="concept-grid" id="concept-grid"></div>
 
-  <!-- Section 1: 오늘의 핫 단서 -->
+  <!-- Section 2: 오늘의 핫 단서 -->
   <div class="sec-header">
     <h2 class="sec-title">🔥 오늘의 핫 단서 (severity 4+ 새로움 우선)</h2>
     <span class="sec-count" id="hot-count">-</span>
@@ -223,32 +221,24 @@
     <div class="loading-card">로딩 중...</div>
   </div>
 
-  <!-- Section 2: 콘셉별 진입 -->
+  <!-- Section 3: 최근 출고 기사 (수시공시 피드 제거 — 본질 외) -->
   <div class="sec-header">
-    <h2 class="sec-title">📚 콘셉별 빠른 진입</h2>
+    <h2 class="sec-title">📰 최근 출고 기사</h2>
+    <div style="margin-left:auto"><a href="/articles" style="font-size:11px;color:var(--acc)">전체 →</a></div>
   </div>
-  <div class="concept-grid" id="concept-grid"></div>
+  <div class="article-grid" id="article-grid">
+    <div class="loading-card">로딩 중...</div>
+  </div>
 
-  <!-- Section 3: 수시공시 피드 + 최근 기사 — 2열 -->
-  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px;">
-    <div>
-      <div class="sec-header">
-        <h2 class="sec-title">⚡ 최근 주요 수시공시 (severity 4+)</h2>
-        <span class="sec-count" id="disc-count">-</span>
-      </div>
-      <div class="feed-card" id="disc-feed">
-        <div class="loading-card">로딩 중...</div>
-      </div>
-    </div>
-    <div>
-      <div class="sec-header">
-        <h2 class="sec-title">📰 최근 출고 기사</h2>
-        <div style="margin-left:auto"><a href="/articles" style="font-size:11px;color:var(--acc)">전체 →</a></div>
-      </div>
-      <div class="article-grid" id="article-grid">
-        <div class="loading-card">로딩 중...</div>
-      </div>
-    </div>
+  <!-- ★ Section 4 (맨 아래): 교차 신호 (Phase Cross) — 종합 결과 -->
+  <div class="sec-header" style="border-bottom-color:#ec4899;margin-top:32px">
+    <h2 class="sec-title" style="background:linear-gradient(135deg,#ec4899,#a855f7);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
+      🔀 교차 신호 — 여러 정보 조합으로 발견된 진짜 가치
+    </h2>
+    <span class="sec-count" id="cross-count">-</span>
+  </div>
+  <div id="cross-grid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:24px">
+    <div class="loading-card">로딩 중...</div>
   </div>
 
 </div>
@@ -295,8 +285,7 @@ async function loadDashboard() {
   catch(e){ console.error('renderHot', e); document.getElementById('hot-grid').innerHTML = '<div class="loading-card">핫단서 렌더 실패</div>'; }
   try { renderConcepts(data.concepts || {}); }
   catch(e){ console.error('renderConcepts', e); document.getElementById('concept-grid').innerHTML = '<div class="loading-card">콘셉 렌더 실패</div>'; }
-  try { renderDisclosures(data.recent_disclosures || []); }
-  catch(e){ console.error('renderDisclosures', e); document.getElementById('disc-feed').innerHTML = '<div class="loading-card">공시 렌더 실패</div>'; }
+  // 수시공시 피드 제거됨 (본질 외 — 정기보고서 비교 분석에 집중)
   try { renderArticles(data.latest_articles || []); }
   catch(e){ console.error('renderArticles', e); document.getElementById('article-grid').innerHTML = '<div class="loading-card">기사 렌더 실패</div>'; }
 }
@@ -347,8 +336,12 @@ function renderCrossSignals(cs) {
   }
   el.innerHTML = top.map(s => {
     const dots = Array(Math.min(s.signal_count || 2, 8)).fill(0).map(() => '<span class="signal-dot"></span>').join('');
+    // 클릭 우선순위: article_id > corp_name 검색 > 단서 목록
+    let href = '/leads';
+    if (s.article_id) href = `/article_detail?id=${s.article_id}`;
+    else if (s.primary_corp_name) href = `/leads?q=${encodeURIComponent(s.primary_corp_name)}`;
     return `
-      <div class="cross-card">
+      <a class="cross-card" href="${href}" style="text-decoration:none;color:inherit;display:block">
         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="cross-pattern cp-${s.pattern}">${CROSS_LABEL[s.pattern] || s.pattern}</span>
           <span class="sev-badge sev-${s.severity}">⚠${s.severity}</span>
@@ -357,7 +350,8 @@ function renderCrossSignals(cs) {
         </div>
         <div class="cross-title">${escHtml(s.title || '')}</div>
         ${s.interpretation ? `<div class="cross-interp">${escHtml(s.interpretation)}</div>` : ''}
-      </div>
+        ${s.primary_corp_name ? `<div style="margin-top:6px;font-size:10px;color:var(--acc)">→ ${escHtml(s.primary_corp_name)} 단서 보기</div>` : ''}
+      </a>
     `;
   }).join('');
 }
@@ -397,21 +391,21 @@ function renderHot(items) {
 function renderConcepts(c) {
   const cards = [
     { icon:'⚡', name:'즉시 단신', desc:'STRAIGHT 5단락, 회사 통화 없이 출고 가능',
-      count: c.story_leads_active || 0, link:'/articles' },
+      count: c.story_leads_active || 0, link:'/articles?sort=recent' },
     { icon:'🎯', name:'심층 기획', desc:'REPORTER 8단계 + 취재 가이드 동시',
       count: c.story_leads_active || 0, link:'/articles?sort=verify_high' },
     { icon:'🚨', name:'리스크 경보', desc:'재무·공급망 위기 단서',
-      count: c.risk_alerts || 0, link:'/leads' },
+      count: c.risk_alerts || 0, link:'/leads?type=risk_alert' },
     { icon:'🕸', name:'공급망', desc:'8 시나리오 — 허브·의존도·클러스터',
       count: c.supply_chain_total || 0, link:'/supply_chain_leads' },
     { icon:'✨', name:'진짜 새로움', desc:'novelty 70+ 진짜 변화 발굴',
-      count: c.new_strong || 0, link:'/leads' },
-    { icon:'📋', name:'수시공시', desc:'M&A·자본금·임원 변동 (참고용)',
-      count: c.disclosures_total || 0, link:'/leads' },
+      count: c.new_strong || 0, link:'/leads?sev=4' },
     { icon:'🌍', name:'글로벌 거래처', desc:'Apple·TSMC·Bloomberg 등',
-      count: (c.supply_chain && c.supply_chain.GLOBAL) || 0, link:'/supply_chain_leads' },
+      count: (c.supply_chain && c.supply_chain.GLOBAL) || 0, link:'/supply_chain_leads?scenario=GLOBAL' },
     { icon:'📊', name:'산업종합', desc:'반도체·바이오·IT 등 업종 분석',
-      count: (c.supply_chain && c.supply_chain.INDUSTRY) || 0, link:'/supply_chain_leads' },
+      count: (c.supply_chain && c.supply_chain.INDUSTRY) || 0, link:'/supply_chain_leads?scenario=INDUSTRY' },
+    { icon:'📨', name:'IR 인박스', desc:'IR 발송 + 답장 통합',
+      count: c.questionnaires || 0, link:'/inbox' },
   ];
   document.getElementById('concept-grid').innerHTML = cards.map(c => `
     <a class="concept-card" href="${c.link}">
@@ -423,7 +417,8 @@ function renderConcepts(c) {
   `).join('');
 }
 
-function renderDisclosures(items) {
+function renderDisclosures_DEPRECATED(items) {
+  if (!document.getElementById('disc-count')) return;
   document.getElementById('disc-count').textContent = `${items.length}건`;
   const el = document.getElementById('disc-feed');
   if (!items.length) { el.innerHTML = '<div class="loading-card">최근 공시가 없습니다</div>'; return; }
@@ -460,8 +455,107 @@ function renderArticles(items) {
   }).join('');
 }
 
+// ════════════════════════════════════════════════════════════════════════
+// Q1 마감 카운트다운 + 오늘 진척 스트립
+// ════════════════════════════════════════════════════════════════════════
+async function renderQ1Strip() {
+  // 마감일 — 2026 Q1 분기보고서 마감
+  const DEADLINE = new Date('2026-05-15T23:59:59');
+  const today = new Date();
+  const daysLeft = Math.ceil((DEADLINE - today) / (1000 * 60 * 60 * 24));
+
+  // 시즌 외(D+30 지나면) 숨김
+  if (daysLeft < -30) return;
+
+  const strip = document.getElementById('q1-strip');
+  strip.style.display = 'block';
+
+  // 진척 데이터
+  let p = {};
+  try {
+    const r = await fetch(`${API}/api/dashboard/q1_progress`);
+    if (r.ok) p = await r.json();
+  } catch (e) {}
+
+  const ddayColor = daysLeft <= 0 ? '#22c55e'
+                  : daysLeft <= 2 ? '#ef4444'
+                  : daysLeft <= 5 ? '#f59e0b'
+                                  : '#a855f7';
+  const ddayLabel = daysLeft > 0 ? `D-${daysLeft}` : (daysLeft === 0 ? 'D-Day' : `D+${-daysLeft}`);
+
+  strip.innerHTML = `
+    <div style="display:grid; grid-template-columns: minmax(220px, auto) 1fr;
+                gap:12px; background:var(--bg2); border:1px solid var(--border);
+                border-radius:12px; padding:14px 18px;">
+      <div style="border-right:1px dashed var(--border); padding-right:16px;
+                  display:flex; flex-direction:column; justify-content:center">
+        <div style="font-size:10px; color:var(--txt2); letter-spacing:.5px">
+          📅 2026 1분기 보고서 마감
+        </div>
+        <div style="font-size:32px; font-weight:800; color:${ddayColor}; line-height:1;
+                    margin-top:4px">
+          ${ddayLabel}
+        </div>
+        <div style="font-size:11px; color:var(--txt2); margin-top:4px">
+          ${DEADLINE.toISOString().substring(0,10)}
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr));
+                  gap:8px; align-self:center">
+        ${q1Cell('📦 신규 공시 오늘', p.new_reports_today, p.new_reports_yday, '#a855f7')}
+        ${q1Cell('🔬 비교 오늘', p.new_comparisons_today, p.new_comparisons_yday, '#22c55e')}
+        ${q1Cell('📌 신규 단서', p.new_leads_today, p.new_leads_yday, '#ec4899')}
+        ${q1Cell('✍ 신규 기사', p.new_drafts_today, p.new_drafts_yday, '#3b82f6')}
+        ${q1Cell('📨 신규 질문지', p.new_questionnaires_today, p.new_questionnaires_yday, '#a855f7')}
+        ${q1Cell('📤 오늘 발송', p.sent_today, p.sent_yday, '#3b82f6')}
+        ${q1Cell('📬 오늘 답장', p.replies_today, p.replies_yday, '#22c55e')}
+        ${q1ProgressCell(p)}
+      </div>
+    </div>
+  `;
+}
+
+function q1Cell(label, today, yday, color) {
+  const t = today ?? 0, y = yday ?? 0;
+  const delta = t - y;
+  const arrow = delta > 0 ? `<span style="color:#22c55e">▲${delta}</span>`
+              : delta < 0 ? `<span style="color:#ef4444">▼${-delta}</span>`
+                          : '<span style="color:var(--txt2)">─</span>';
+  return `
+    <div style="background:var(--bg1); border-radius:8px; padding:8px 10px;
+                border-left:3px solid ${color}">
+      <div style="font-size:10px; color:var(--txt2)">${label}</div>
+      <div style="font-size:18px; font-weight:700; color:${color}; margin-top:2px">
+        ${t.toLocaleString()}
+        <span style="font-size:9px; font-weight:400; margin-left:4px">${arrow}</span>
+      </div>
+    </div>
+  `;
+}
+
+function q1ProgressCell(p) {
+  const pending = p.pending_questionnaires ?? 0;
+  const approved = p.approved_questionnaires ?? 0;
+  const noContact = p.no_contact_questionnaires ?? 0;
+  return `
+    <a href="/questionnaire_review" style="text-decoration:none; color:inherit">
+      <div style="background:linear-gradient(135deg, rgba(168,85,247,.12), rgba(236,72,153,.12));
+                  border:1px solid rgba(168,85,247,.3); border-radius:8px; padding:8px 10px">
+        <div style="font-size:10px; color:var(--txt2)">📨 검토 대기 / 승인 / 연락처 없음</div>
+        <div style="font-size:14px; font-weight:700; margin-top:2px">
+          <span style="color:#f59e0b">${pending}</span> /
+          <span style="color:#22c55e">${approved}</span> /
+          <span style="color:#ef4444">${noContact}</span>
+        </div>
+        <div style="font-size:9px; color:var(--acc); margin-top:2px">→ 검토 페이지</div>
+      </div>
+    </a>
+  `;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   try { if (typeof renderNav === 'function') renderNav(); } catch(e) {}
+  renderQ1Strip();
   loadDashboard();
 });
 </script>

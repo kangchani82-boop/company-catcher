@@ -3,7 +3,13 @@
     "allow": [
       "mcp__Claude_Preview__preview_start",
       "Bash(python -c ':*)",
-      "Bash(python scripts/batch_compare.py --model flash-lite --workers 2 --limit 2000)"
+      "Bash(python scripts/batch_compare.py --model flash-lite --workers 2 --limit 2000)",
+      "mcp__scheduled-tasks__list_scheduled_tasks",
+      "Bash(python -c ' *)",
+      "Bash(tasklist /FI \"IMAGENAME eq python.exe\" /V)",
+      "Bash(python scripts/batch_compare.py --resume 49 --limit 2700 --model flash)",
+      "Bash(python scripts/detect_leads.py --stats)",
+      "Bash(python scripts/pipeline.py --check)"
     ]
   }
 }

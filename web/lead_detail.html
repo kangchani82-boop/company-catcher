@@ -187,7 +187,8 @@ const leadId = params.get('id');
 const SEV_LABEL = { 5:'⭐⭐⭐ 즉시취재', 4:'⭐⭐ 당일검토', 3:'⭐ 주간검토', 2:'참고', 1:'낮음' };
 const SEV_BG    = { 5:'banner-sev5', 4:'banner-sev4', 3:'banner-sev3', 2:'banner-sev2', 1:'banner-sev1' };
 const TYPE_KO = {
-  '2025_annual':'2025 사업보고서','2025_q3':'2025 3분기','2025_h1':'2025 반기','2025_q1':'2025 1분기'
+  '2025_annual':'2025년 전체 사업보고서','2025_q3':'2025년 3분기 보고서','2025_h1':'2025년 반기 보고서','2025_q1':'2025년 1분기 보고서',
+  '2026_annual':'2026년 전체 사업보고서','2026_q3':'2026년 3분기 보고서','2026_h1':'2026년 반기 보고서','2026_q1':'2026년 1분기 보고서'
 };
 
 let currentLead = null;
@@ -243,6 +244,9 @@ function renderMain(l) {
     <div class="toolbar">
       <a href="/leads.html" class="toolbar-btn">← 취재단서 목록</a>
       ${l.comparison_id ? `<a href="/comparison_detail.html?id=${l.comparison_id}" class="toolbar-btn">📊 비교분석 보기</a>` : ''}
+      <a href="/corp_work?corp_code=${encodeURIComponent(l.corp_code||'')}" class="toolbar-btn"
+         style="background:rgba(168,85,247,.12);color:#a855f7;border-color:rgba(168,85,247,.4)"
+         title="이 회사의 보고서별 작업 타임라인">📄 작업 흐름</a>
       <span class="spacer"></span>
       <button class="toolbar-btn danger" onclick="excludeThisLead(${l.id})">🚫 제외</button>
     </div>
@@ -431,7 +435,8 @@ async function checkNewsCoverage(leadId) {
 function renderSide(l) {
   const side = document.getElementById('side-content');
   const TYPE_KO = {
-    '2025_annual':'사업보고서','2025_q3':'3분기','2025_h1':'반기','2025_q1':'1분기'
+    '2025_annual':'2025년 전체 사업보고서','2025_q3':'2025년 3분기 보고서','2025_h1':'2025년 반기 보고서','2025_q1':'2025년 1분기 보고서',
+    '2026_annual':'2026년 전체 사업보고서','2026_q3':'2026년 3분기 보고서','2026_h1':'2026년 반기 보고서','2026_q1':'2026년 1분기 보고서'
   };
 
   side.innerHTML = `

@@ -424,16 +424,132 @@ function renderSide(a) {
           href="/comparisons.html?q=${encodeURIComponent(a.corp_name||'')}">
           📊 비교분석 보기
         </a>
+        <a class="toolbar-btn" style="width:100%;justify-content:center;box-sizing:border-box;
+                                     background:rgba(168,85,247,.15);color:#a855f7;border-color:rgba(168,85,247,.4)"
+          href="/corp_work?corp_code=${encodeURIComponent(a.corp_code||'')}"
+          title="이 회사의 모든 보고서·단서·기사·질문지·답장 타임라인">
+          📄 작업 흐름
+        </a>
       </div>
     </div>
   `;
 
-  // 비동기로 검증 + 외부 인용 + v3(fact_card/reporter_brief) 데이터 로드
+  // 비동기로 검증 + 외부 인용 + v3(fact_card/reporter_brief) + IR 질문지 데이터 로드
   loadVerificationCard(a.id);
   loadExternalRefsCard(a.id);
   loadFactCard(a.id);
   loadReporterBrief(a.id);
+  loadIRQuestionnaire(a.id);
   if (a.lead_id) loadExtPoolCard(a.lead_id);
+}
+
+async function loadIRQuestionnaire(aid) {
+  try {
+    const r = await fetch(`${API_BASE}/api/articles/${aid}/questionnaire`);
+    if (!r.ok) return;
+    const q = await r.json();
+    if (!q || !q.questions || !q.questions.length) return;
+
+    // 질문지 박스 추가 (없으면 생성)
+    let box = document.getElementById('ir-qst-box');
+    if (!box) {
+      box = document.createElement('div');
+      box.id = 'ir-qst-box';
+      box.style.cssText = 'background:var(--bg2);border:1px solid #ec4899;border-radius:10px;padding:16px;margin-top:16px';
+      const sidebar = document.getElementById('article-sidebar') || document.querySelector('.sidebar') || document.querySelector('aside');
+      if (sidebar) sidebar.appendChild(box);
+      else document.body.appendChild(box);
+    }
+    const contacts = q.available_contacts || [];
+    const contactsHTML = contacts.length
+      ? contacts.map(c => `<div style="font-size:11px;color:var(--txt2);padding:4px 0;border-bottom:1px dashed var(--border)">
+            ${c.user_verified ? '✓' : '·'} <b style="color:var(--txt1)">${escHtml(c.ir_email||'')}</b>
+            ${c.ir_name ? ` (${escHtml(c.ir_name)} ${escHtml(c.ir_title||'')})` : ''}
+            <span style="float:right;font-size:9px;color:#a855f7">${c.confidence||''}</span>
+          </div>`).join('')
+      : '<div style="font-size:11px;color:#ef4444">⚠ IR 담당자 정보 없음 — IR 페이지에서 등록 필요</div>';
+
+    const qstHTML = q.questions.map((qq, i) => `
+      <div style="margin:8px 0;padding:8px 10px;background:var(--bg1);border-radius:6px;font-size:12px">
+        <span style="color:#ec4899;font-weight:600">${i+1}.</span> ${escHtml(qq.q || '')}
+      </div>
+    `).join('');
+
+    box.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span style="font-size:13px;font-weight:700;color:#ec4899">📨 IR 질문지</span>
+        <span style="font-size:10px;color:var(--txt2)">상태: ${q.status||'pending'}</span>
+      </div>
+      <div style="font-size:10px;color:var(--txt2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">전송 후보 contact</div>
+      ${contactsHTML}
+      <div style="font-size:10px;color:var(--txt2);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.5px">질문 ${q.questions.length}개</div>
+      ${qstHTML}
+      <div style="display:flex;gap:6px;margin-top:12px">
+        <button onclick="copyQstClipboard(${aid})" style="flex:1;background:var(--bg1);border:1px solid var(--border);color:var(--txt1);border-radius:6px;padding:6px;cursor:pointer;font-size:11px">📋 복사</button>
+        <button onclick="sendIRMail(${aid})" id="ir-send-btn-${aid}" style="flex:1;background:#ec4899;border:none;color:#fff;border-radius:6px;padding:6px;cursor:pointer;font-size:11px;font-weight:600">📤 IR에 발송</button>
+      </div>
+    `;
+    box.dataset.q = JSON.stringify(q);
+  } catch(e) { console.warn('IR 질문지 load err', e); }
+}
+
+function copyQstClipboard(aid) {
+  const box = document.getElementById('ir-qst-box');
+  if (!box || !box.dataset.q) return;
+  const q = JSON.parse(box.dataset.q);
+  let text = q.cover_letter || '';
+  q.questions.forEach((qq, i) => { text += `${i+1}. ${qq.q}\n`; });
+  text += `\n감사합니다.\nFinance Scope`;
+  navigator.clipboard.writeText(text).then(() => alert('클립보드에 복사되었습니다.'));
+}
+
+async function sendIRMail(aid) {
+  const box = document.getElementById('ir-qst-box');
+  if (!box || !box.dataset.q) return;
+  const q = JSON.parse(box.dataset.q);
+  const contacts = q.available_contacts || [];
+
+  // 발송 대상 선택
+  let to;
+  if (contacts.length === 0) {
+    alert('이 회사의 IR 담당자 이메일이 없습니다.\nIR 담당자 페이지에서 등록해주세요.');
+    return;
+  } else if (contacts.length === 1) {
+    to = contacts[0].ir_email;
+  } else {
+    const list = contacts.map((c,i) => `${i+1}. ${c.ir_email} (${c.ir_name||''} ${c.ir_title||''}) ${c.user_verified?'✓':''}`).join('\n');
+    const idx = prompt(`발송할 contact을 선택하세요:\n\n${list}\n\n번호 입력 (1~${contacts.length}):`);
+    if (!idx) return;
+    const n = parseInt(idx) - 1;
+    if (n < 0 || n >= contacts.length) { alert('잘못된 번호'); return; }
+    to = contacts[n].ir_email;
+  }
+
+  // 미리보기 + 확인
+  if (!confirm(`이메일을 다음 주소로 발송합니다:\n\n${to}\n\n제목: [Finance Scope] ${q.corp_name} 취재 문의\n질문 ${q.questions.length}개\n\n발송 진행하시겠습니까?`)) {
+    return;
+  }
+
+  const btn = document.getElementById(`ir-send-btn-${aid}`);
+  if (btn) { btn.textContent = '발송 중...'; btn.disabled = true; }
+
+  try {
+    const r = await fetch(`${API_BASE}/api/ir/send`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({article_id: aid, to: to})
+    });
+    const res = await r.json();
+    if (res.ok) {
+      alert(`✅ 발송 완료\n\n받는 사람: ${res.to}\n제목: ${res.subject}\n메시지 ID: ${res.msg_id}`);
+      loadIRQuestionnaire(aid);  // 상태 갱신
+    } else {
+      alert(`❌ 발송 실패: ${res.error || '알 수 없는 오류'}`);
+    }
+  } catch(e) {
+    alert(`발송 오류: ${e.message}`);
+  } finally {
+    if (btn) { btn.textContent = '📤 IR에 발송'; btn.disabled = false; }
+  }
 }
 
 async function loadFactCard(aid) {

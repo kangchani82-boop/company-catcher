@@ -76,6 +76,13 @@ REPORT_TYPES = {
         "month_range": ("202504", "202507"),  # Q1: 4~7월 제출 (조기 제출 포함)
         "description": "2025 1분기 분기보고서",
     },
+    "q1_2026": {
+        "db_type": "2026_q1",
+        "dart_type": "A",         # 정기공시
+        "year": "2026",
+        "month_range": ("202604", "202606"),  # 2026 Q1: 4월~6월 제출 (마감 5/15)
+        "description": "2026 1분기 분기보고서",
+    },
 }
 
 # ── 사업의 내용 섹션 패턴 ─────────────────────────────────────────────────────
@@ -797,10 +804,21 @@ def collect_new_reports(db: sqlite3.Connection, api_key: str, type_key: str,
             item = res["item"]
             rcept_no = item.get("rcept_no", "")
             corp_code = item.get("corp_code", "")
-            corp_name = item.get("corp_nm", "")
+            corp_name = (item.get("corp_nm") or "").strip()
             report_name = item.get("report_nm", "")
             rcept_dt = item.get("rcept_dt", "")
             biz_content = res["biz_content"]
+
+            # DART 목록 응답에 corp_nm 비어있을 때 fallback —
+            # 같은 corp_code의 다른 보고서에서 회사명 가져옴
+            if not corp_name and corp_code:
+                with db_lock:
+                    fb = db.execute(
+                        "SELECT corp_name FROM reports WHERE corp_code=? AND corp_name IS NOT NULL AND corp_name != '' LIMIT 1",
+                        (corp_code,)
+                    ).fetchone()
+                    if fb and fb[0]:
+                        corp_name = fb[0]
 
             if biz_content:
                 log.info(f"  ✓ {corp_name} ({len(biz_content):,}자)")
@@ -815,8 +833,10 @@ def collect_new_reports(db: sqlite3.Connection, api_key: str, type_key: str,
                 ).fetchone()
                 if existing:
                     db.execute(
-                        "UPDATE reports SET biz_content=?, report_name=?, updated_at=? WHERE rcept_no=?",
-                        (biz_content, report_name, now, rcept_no)
+                        """UPDATE reports SET biz_content=?, report_name=?, updated_at=?,
+                                  corp_name = CASE WHEN COALESCE(corp_name,'')='' THEN ? ELSE corp_name END
+                           WHERE rcept_no=?""",
+                        (biz_content, report_name, now, corp_name or '', rcept_no)
                     )
                     stats["updated"] += 1
                 else:
@@ -853,7 +873,7 @@ def collect_new_reports(db: sqlite3.Connection, api_key: str, type_key: str,
 def main():
     parser = argparse.ArgumentParser(description="DART 사업의 내용 섹션 수집")
     parser.add_argument(
-        "--types", nargs="+", choices=["annual", "q3", "h1", "q1"],
+        "--types", nargs="+", choices=["annual", "q3", "h1", "q1", "q1_2026"],
         default=["annual", "q3", "h1", "q1"],
         help="처리할 보고서 종류 (기본: 전체)"
     )

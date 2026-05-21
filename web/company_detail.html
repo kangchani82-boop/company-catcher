@@ -999,7 +999,13 @@ function renderComparisons(cmps, el) {
         <a class="list-item" href="/comparison_detail.html?id=${c.id}">
           <div class="list-item-top">
             <span style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:9px;color:var(--txt2)">
-              ${escHtml(c.report_type_a||'')} → ${escHtml(c.report_type_b||'')}
+              ${(() => {
+                const TKO = {'2025_annual':'2025년 전체 사업보고서','2025_q1':'2025년 1분기 보고서','2025_h1':'2025년 반기 보고서','2025_q3':'2025년 3분기 보고서','2026_annual':'2026년 전체 사업보고서','2026_q1':'2026년 1분기 보고서','2026_h1':'2026년 반기 보고서','2026_q3':'2026년 3분기 보고서'};
+                const ORD = {'2025_q1':1,'2025_h1':2,'2025_q3':3,'2025_annual':4,'2026_q1':5,'2026_h1':6,'2026_q3':7,'2026_annual':8};
+                const a = c.report_type_a||'', b = c.report_type_b||'';
+                const [past, latest] = (ORD[a]||0) < (ORD[b]||0) ? [a,b] : [b,a];
+                return `${escHtml(TKO[past]||past)} → ${escHtml(TKO[latest]||latest)}`;
+              })()}
             </span>
             <span style="font-size:9px;color:var(--txt2)">🤖 ${escHtml(c.model||'flash').toUpperCase()}</span>
           </div>

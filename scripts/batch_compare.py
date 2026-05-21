@@ -59,45 +59,37 @@ if ENV_PATH.exists():
             os.environ.setdefault(k.strip(), v.strip())
 
 # ── Gemini 모델 설정 ────────────────────────────────────────────────────────
-# 무료 API 한도 (2026 기준)
+# Gemini 모델 정책은 config/gemini_models.py 한 곳에서 관리 (SSOT)
+sys.path.insert(0, str(ROOT))
+from config.gemini_models import (
+    GEMINI_LIMITS as _BASE_LIMITS,
+    GEMINI_FALLBACKS,
+    GEMINI_DELAYS,
+    FALLBACK_ON_QUOTA,
+)
+
+# 본 스크립트는 limits dict에 'delay'도 함께 보관 (호출 간격 계산용)
 GEMINI_LIMITS = {
-    "flash":      {"rpm": 10, "rpd": 500,   "delay": 6.5},
-    "flash-lite": {"rpm": 15, "rpd": 1000,  "delay": 4.5},
-    "pro":        {"rpm":  5, "rpd": 100,   "delay": 12.5},
-    "article":    {"rpm": 10, "rpd": 100,   "delay": 6.5},  # 3.1 Pro Preview (기사 초안)
+    k: {**v, "delay": GEMINI_DELAYS.get(k, 6.5)}
+    for k, v in _BASE_LIMITS.items()
 }
 
-# fallback 순서 (404 시 자동 시도)
-GEMINI_FALLBACKS = {
-    "flash":      ["gemma-4-31b-it",                 # 현재 가용 (쿼터 무제한 오픈모델)
-                   "gemini-2.5-flash",               # 9AM 리셋 후 자동 활성
-                   "gemini-3-flash-preview",
-                   "gemini-flash-latest",
-                   "gemini-2.0-flash"],
-    "flash-lite": ["gemma-4-31b-it",
-                   "gemini-2.5-flash-lite",
-                   "gemini-3-flash-preview",
-                   "gemini-flash-latest",
-                   "gemini-2.0-flash-lite"],
-    "pro":        ["gemini-2.5-pro-preview-05-06",
-                   "gemini-2.5-pro",
-                   "gemini-2.0-pro-exp"],
-    "article":    ["gemini-3.1-pro-preview",
-                   "gemini-2.5-pro-preview-05-06",
-                   "gemini-2.5-pro"],
-}
-
-# flash → quota 초과 시 자동 전환할 모델
-FALLBACK_ON_QUOTA = {
-    "flash": "flash-lite",
-}
-
-# ── 보고서 유형 표시명 ────────────────────────────────────────────────────────
+# ── 보고서 유형 표시명 (연도+종류 명시 — 키워드 명확) ────────────────────
 TYPE_LABELS = {
-    "2025_annual": "2025 사업보고서",
-    "2025_q3":     "2025 3분기보고서",
-    "2025_h1":     "2025 반기보고서",
-    "2025_q1":     "2025 1분기보고서",
+    "2025_annual": "2025년 전체 사업보고서",
+    "2025_q3":     "2025년 3분기 보고서",
+    "2025_h1":     "2025년 반기 보고서",
+    "2025_q1":     "2025년 1분기 보고서",
+    "2026_annual": "2026년 전체 사업보고서",
+    "2026_q3":     "2026년 3분기 보고서",
+    "2026_h1":     "2026년 반기 보고서",
+    "2026_q1":     "2026년 1분기 보고서",
+}
+
+# 보고서 발간 시간 순서 (작을수록 과거) — 시간 흐름순 표시용
+TYPE_TIME_ORDER = {
+    "2025_q1": 1, "2025_h1": 2, "2025_q3": 3, "2025_annual": 4,
+    "2026_q1": 5, "2026_h1": 6, "2026_q3": 7, "2026_annual": 8,
 }
 
 
@@ -108,6 +100,12 @@ _counter_lock = threading.Lock()   # 진행 카운터 락
 
 # 워커별 마지막 호출 시각 (per-key rate limit)
 _last_call_time: dict[int, float] = {}  # key_index → timestamp
+
+# 키별 소진 플래그 (모든 워커 공유 — 소진된 키는 더 이상 시도 안 함)
+_exhausted_keys: set = set()
+# (key_idx, model_name) 페어별 소진 — 죽은 조합 재시도 방지
+_exhausted_pairs: set = set()
+_exhausted_lock = threading.Lock()
 
 
 def _tprint(*args, **kwargs):
@@ -219,14 +217,14 @@ def save_error(db: sqlite3.Connection, corp_code: str, corp_name: str,
 _key_index = 0  # 전역 키 인덱스 (라운드로빈, 단일워커 전용)
 
 def _get_api_keys() -> list:
-    """사용 가능한 Gemini API 키 목록 반환 (파싱1, 파싱2)"""
+    """사용 가능한 Gemini API 키 목록 반환 (최대 3개)"""
     keys = []
-    k1 = os.environ.get("GEMINI_API_KEY", "").strip()
-    k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
-    if k1: keys.append(k1)
-    if k2: keys.append(k2)
+    for var in ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+        k = os.environ.get(var, "").strip()
+        if k:
+            keys.append(k)
     if not keys:
-        raise ValueError("GEMINI_API_KEY 또는 GEMINI_API_KEY_2 가 .env에 없습니다")
+        raise ValueError("GEMINI_API_KEY 가 .env에 없습니다")
     return keys
 
 def _next_api_key(quota_exhausted_key: str | None = None) -> str:
@@ -246,8 +244,12 @@ def _next_api_key(quota_exhausted_key: str | None = None) -> str:
 
 # ─── 워커 전용 API 호출 (병렬 모드) ────────────────────────────────────────
 def call_gemini_with_key(model_type: str, prompt: str, api_key: str,
-                         key_label: str, timeout: int = 120):
-    """지정된 API 키로 Gemini 호출. (result_text, used_model_name, used_model_type) 반환."""
+                         key_label: str, timeout: int = 120,
+                         key_idx: int = None):
+    """지정된 API 키로 Gemini 호출. (result_text, used_model_name, used_model_type) 반환.
+
+    key_idx 가 주어지면 (key_idx, model_name) 페어별 소진 마킹으로 dead 조합 재시도 방지.
+    """
     types_to_try = [model_type]
     if model_type in FALLBACK_ON_QUOTA:
         types_to_try.append(FALLBACK_ON_QUOTA[model_type])
@@ -257,13 +259,18 @@ def call_gemini_with_key(model_type: str, prompt: str, api_key: str,
         last_err = None
 
         for model_name in candidates:
+            # 이미 소진 마킹된 (키, 모델) 페어는 스킵
+            if key_idx is not None:
+                with _exhausted_lock:
+                    if (key_idx, model_name) in _exhausted_pairs:
+                        continue
             url = (
                 f"https://generativelanguage.googleapis.com/v1beta/models/"
                 f"{model_name}:generateContent?key={api_key}"
             )
             payload = json.dumps({
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.1},
             }).encode("utf-8")
 
             req = urllib.request.Request(
@@ -281,12 +288,16 @@ def call_gemini_with_key(model_type: str, prompt: str, api_key: str,
                     last_err = f"모델 없음: {model_name}"
                     continue
                 if e.code == 429:
-                    _tprint(f"  ⚠ [{key_label}] 429 — {mtype}→{FALLBACK_ON_QUOTA.get(mtype,'없음')} 전환 시도")
-                    last_err = f"할당량 초과({mtype})"
-                    break  # 다음 mtype 시도
+                    # 페어 소진 마킹 (앞으로 이 키x모델은 시도 안 함)
+                    if key_idx is not None:
+                        with _exhausted_lock:
+                            _exhausted_pairs.add((key_idx, model_name))
+                    _tprint(f"  ⚠ [{key_label}] {model_name} 429 → 페어 소진 마킹")
+                    last_err = f"할당량 초과({model_name})"
+                    continue  # 같은 타입 내 다음 모델 시도
                 if e.code in (500, 503):
                     last_err = f"{model_name} {e.code} (서버 오류) — 다음 모델 시도"
-                    continue  # 다음 fallback 모델로
+                    continue
                 raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
             except urllib.error.URLError as e:
                 raise RuntimeError(f"네트워크 오류: {e.reason}")
@@ -302,8 +313,8 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
     """Gemini API 호출. (result_text, used_model_name, used_model_type) 반환.
     파싱1/파싱2 라운드로빈 + 429 시 다른 키 자동 전환 + fallback 모델 타입 전환."""
     keys = _get_api_keys()
-    key_labels = {keys[0]: "파싱1"}
-    if len(keys) > 1: key_labels[keys[1]] = "파싱2"
+    label_names = ["파싱1", "파싱2", "파싱3"]
+    key_labels = {k: label_names[i] for i, k in enumerate(keys)}
 
     types_to_try = [model_type]
     if model_type in FALLBACK_ON_QUOTA:
@@ -326,7 +337,7 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
             )
             payload = json.dumps({
                 "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.1},
             }).encode("utf-8")
 
             req = urllib.request.Request(
@@ -390,64 +401,92 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
 
 
 def build_prompt(reports: list) -> str:
-    """분석 프롬프트 생성 (biz_content 전용)
-    reports[0] = 2025 사업보고서(연간, 종합 레퍼런스) — 기준점
-    reports[1] = 분기보고서(1분기·반기·3분기) — 비교 대상
+    """분석 프롬프트 생성 (biz_content 전용) — v3 최신 기준 회고
+
+    ★ 핵심 원칙: 가장 최신 보고서를 기준으로 과거 보고서 대비 무엇이 달라졌는가
+       - reports[0] = 사업보고서 (★ 최신·기준)
+       - reports[1] = 분기보고서 (과거·비교 대상)
+       관점: "최신 사업보고서가 과거 분기보고서 대비 어떻게 달라졌나"
     """
     sep = "─" * 60
     assert len(reports) == 2
-    base_r  = reports[0]  # 사업보고서(연간) — 기준 레퍼런스
-    cmp_r   = reports[1]  # 분기보고서 — 비교 대상
+    latest_r  = reports[0]  # 사업보고서 — ★ 최신·기준
+    past_r    = reports[1]  # 분기보고서 — 과거·비교
 
-    return f"""아래는 동일 기업의 DART 공시 **'2. 사업의 내용'** 섹션 두 개입니다.
+    return f"""[필수 준수 — 답변 시작 전 확인]
+1) 답변은 반드시 한국어로만 작성. 영어 단어/문장 사용 절대 금지.
+2) 분석 관점: **최신 사업보고서가 과거 분기보고서 대비 어떻게 달라졌나** (시간 회고형).
+3) 모든 변화는 5가지 라벨 중 하나로 분류: NEW / REMOVED / EXPANDED / SHRUNK / CHANGED.
 
-{sep}
-▶ [기준 보고서] {base_r['label']}
-(2025 사업보고서 — 연간 종합 레퍼런스. 가장 완성된 공식 사업 기술서입니다.)
+═══════════════════════════════════════════════════════════
+[데이터]
 
-{base_r['content']}
+▶ 과거 보고서: {past_r['label']} (먼저 발간)
+{past_r['content']}
 
-{sep}
-▶ [비교 대상 보고서] {cmp_r['label']}
-(분기보고서 — 해당 시점의 사업 내용. 기준 보고서와 비교합니다.)
+═══════════════════════════════════════════════════════════
+▶ ★ 최신 보고서: {latest_r['label']} (가장 최근 발간 — 분석 기준점)
+{latest_r['content']}
+═══════════════════════════════════════════════════════════
 
-{cmp_r['content']}
-{sep}
+[분석 원칙 — 한국어로만 답변]
+시간 흐름: 과거(분기보고서, {past_r['label']}) → 최신(사업보고서, {latest_r['label']})
+관점: "최신 사업보고서를 기준으로 보면, 과거 분기보고서 대비 ○○가 ○○로 달라졌다"
+시점 차이 인지: 분기보고서는 분기 누적, 사업보고서는 연간 누적. 수치 단순 비교 X.
 
-## ⚠ 분석 방향 (필수 준수)
+[변화 분류 룰 — 모든 변화 항목에 반드시 라벨]
+- NEW       : 최신 사업보고서에 새로 등장 (과거 분기엔 없었음)
+- REMOVED   : 최신 사업보고서에서 사라짐 (과거 분기엔 있었음)
+- EXPANDED  : 과거에도 있었으나 최신에서 확대·강조됨
+- SHRUNK    : 과거에 있었으나 최신에서 축소·약화됨
+- CHANGED   : 과거에 있었으나 내용이 변경됨
 
-- **기준(레퍼런스)**: {base_r['label']} — 2025 사업보고서. 연간 전체를 포괄하는 공식 사업 기술서입니다.
-- **비교 대상**: {cmp_r['label']} — 분기보고서. 해당 분기 시점의 사업 내용입니다.
-- **핵심 질문**: "분기보고서에서 연간 사업보고서 대비 무엇이 **달라지거나 주목할 만한가**?"
-- 사업보고서는 1년 전체를 완성된 시각으로 기술하고, 분기보고서는 그 시점의 스냅샷입니다.
-  따라서 비교 방향은 항상 **"사업보고서(기준) → 분기보고서(비교)"** 입니다.
-  분기보고서에만 있거나 강조된 내용 = 해당 분기에 특별히 부각된 사업·리스크·전략 신호.
+[답변 형식 예시 — 이 한국어 패턴으로 작성]
+"최신 사업보고서에 따르면 ○○ 사업이 신규 등장했다 [NEW]. 과거 분기보고서에는 해당 사업에 대한 언급이 없었다."
+"최신 사업보고서에서 ○○ 자회사 관련 기술이 사라졌다 [REMOVED]. 과거 분기보고서에는 ○○로 명시되어 있었다."
+"최신 사업보고서에서 신재생에너지 사업 비중이 확대됐다 [EXPANDED]. 과거 분기보고서에는 단순 언급에 그쳤으나 최신 보고서에서는 핵심 전략으로 부각됐다."
 
-## 분석 요청 항목
+═══════════════════════════════════════════════════════════
+[작성 항목 — 모두 한국어]
 
-1. **핵심 변화 요약**
-   - 기준(사업보고서) 대비 분기보고서에서 달라진 핵심 사항을 표로 정리
-   - 표 컬럼: 항목 | 사업보고서(기준) | 분기보고서(비교) | 변화 방향
+## 1. 핵심 변화 요약
+한국어 표로 정리.
 
-2. **분기보고서에서 강조된 사업·전략**
-   - 분기보고서에서 사업보고서보다 더 구체적으로 기술된 사업, 제품, 서비스
-   - 사업보고서에 없거나 축소된 내용이 분기보고서에 등장한 경우
+| 항목 | 과거 분기보고서 | 최신 사업보고서 | 변화 |
+|------|----------------|------------------|------|
+| (예) 신재생에너지 사업 | 언급 없음 | "신재생에너지 분야 진출" 명시 | NEW |
+| (예) 모빌리티 자회사 | 자회사 X 운영 | 매각 완료 | REMOVED |
 
-3. **시장 및 경쟁환경 변화**
-   - 분기 시점에 주요 고객, 점유율, 경쟁사 관련 서술이 어떻게 달랐는가
+## 2. 최신 사업보고서에 새로 등장한 사업·전략 [NEW]
+- 과거 분기보고서엔 없거나 축약돼 있다가 최신 사업보고서에 새로 등장한 항목
+- 사업·정관·자회사·제품·시장 진출 등 (한국어로만)
 
-4. **리스크 요인 변화**
-   - 분기보고서에만 등장하거나 강조된 리스크 (원재료·규제·기술·시장)
-   - 사업보고서에서는 해소됐거나 표현이 완화된 리스크
+## 3. 최신 사업보고서에서 사라진 내용 [REMOVED]
+- 과거 분기보고서엔 있었으나 최신 사업보고서에 빠진 항목
+- 사업 철수·자회사 청산·부문 통합 등
 
-5. **수치·실적 언급 변화**
-   - 매출·물량·점유율 등 구체 수치가 분기와 연간 사이에 어떻게 달라졌는가
+## 4. 시장 및 경쟁환경 서술 변화
+- 주요 고객·점유율·경쟁사 서술이 최신 사업보고서에서 어떻게 달라졌는가
+- 추가/삭제된 거래처 명단
 
-6. **취재 가치 판단**
-   - 이 차이 중 언론 보도 가치가 높은 시그널은 무엇인가? (긍정/부정 모두)
-   - 투자자·독자에게 중요한 정보를 1~3가지로 요약
+## 5. 리스크 요인 변화
+- 최신에 새로 등장한 리스크 [NEW]
+- 최신에서 사라진 리스크 [REMOVED]
 
-분석은 한국어로 작성하고, 각 항목마다 원문의 구체적인 표현·수치를 인용해 근거를 제시해주세요."""
+## 6. 수치·실적 변화 (시점 차이 명시)
+- 형식: "과거 분기보고서(분기 누적 기준) X → 최신 사업보고서(연간 누적 기준) Y"
+
+## 7. 취재 가치 판단 (1~3가지)
+- 우선순위: NEW > REMOVED > EXPANDED > SHRUNK > CHANGED 순
+
+═══════════════════════════════════════════════════════════
+[★ 출력 직전 자체 점검]
+- 답변에 영어 문장이 있는가? → 모두 한국어로 변환
+- "Annual / Quarterly / Reference / Comparison" 같은 영어 단어가 있는가? → 삭제
+- 모든 변화에 NEW/REMOVED/EXPANDED/SHRUNK/CHANGED 라벨이 붙었는가?
+- 관점이 "최신이 과거 대비 어떻게 다른가"로 되어있는가?
+
+지금 분석을 시작하세요. **한국어로만 답변.**"""
 
 
 # ─── 단일 태스크 처리 (병렬 워커용) ───────────────────────────────────────
@@ -525,14 +564,130 @@ def process_task(task: dict) -> dict:
     if wait > 0:
         time.sleep(wait)
 
-    # API 호출 (워커 전용 키)
+    # API 호출 (워커 전용 키 — 단, 소진된 키는 다른 키로 우회)
     keys = _get_api_keys()
-    api_key = keys[key_idx % len(keys)]
+    # 워커가 자기 키만 고집하지 않고, 소진되지 않은 키 중 round-robin으로 선택
+    with _exhausted_lock:
+        own_idx = key_idx % len(keys)
+        if own_idx in _exhausted_keys:
+            # 자기 키가 소진됐으면 살아있는 다른 키로 전환
+            alive = [i for i in range(len(keys)) if i not in _exhausted_keys]
+            if not alive:
+                # 모든 키 소진 → 에러로 즉시 반환
+                return {
+                    "status": "error", "corp_name": corp_name, "task_num": task_num,
+                    "total": total, "error": "모든 키 소진 — 내일 재개",
+                    "key_label": key_label, "key_idx": key_idx,
+                }
+            own_idx = alive[task_num % len(alive)]
+            key_label = f"파싱{own_idx+1}"
+    api_key = keys[own_idx]
+
+    # 영어 응답 자동 검출 + 재시도 (max 3회: 같은 모델 → 다른 모델 → 마지막 강한 prefix)
+    def _is_english_response(text: str) -> bool:
+        """응답이 영어 위주인지 검출"""
+        if not text or len(text) < 100:
+            return False
+        en_chars = len(re.findall(r"[a-zA-Z]", text))
+        kr_chars = len(re.findall(r"[가-힣]", text))
+        if kr_chars < 100 and en_chars > 200:
+            return True
+        if en_chars > kr_chars * 1.5:
+            return True
+        return False
 
     try:
-        result_text, used_model, used_type = call_gemini_with_key(
-            model, prompt, api_key, key_label, timeout=120
+        result_text = None
+        used_type = None
+        used_model = None
+
+        # 시도 1: 기본 모델 + 자기 키. 429 시 다른 키로 자동 우회
+        def _try_with_key_fallback(this_idx, this_label, this_key):
+            """주어진 키로 시도. 할당량 초과 시 살아있는 다른 키로 자동 전환."""
+            try:
+                return call_gemini_with_key(model, prompt, this_key, this_label, timeout=120, key_idx=this_idx), this_idx, this_label, this_key
+            except RuntimeError as ex:
+                if "할당량 초과" not in str(ex):
+                    raise
+                # 이 키 소진 마킹
+                with _exhausted_lock:
+                    _exhausted_keys.add(this_idx)
+                    alive = [i for i in range(len(keys)) if i not in _exhausted_keys]
+                _tprint(f"  ⚠ [{this_label}] 키 소진 마킹 — 살아있는 키 {len(alive)}개 남음")
+                # 살아있는 다른 키 시도
+                for alt_idx in alive:
+                    alt_key = keys[alt_idx]
+                    alt_label = f"파싱{alt_idx+1}"
+                    try:
+                        _tprint(f"  ↻ [{this_label}→{alt_label}] {corp_name} 다른 키로 재시도")
+                        return call_gemini_with_key(model, prompt, alt_key, alt_label, timeout=120, key_idx=alt_idx), alt_idx, alt_label, alt_key
+                    except RuntimeError as ex2:
+                        if "할당량 초과" in str(ex2):
+                            with _exhausted_lock:
+                                _exhausted_keys.add(alt_idx)
+                        continue
+                raise RuntimeError("모든 키 소진 — 내일 재개")
+
+        (result_text, used_model, used_type), key_idx, key_label, api_key = _try_with_key_fallback(
+            own_idx, key_label, api_key
         )
+
+        # 영어 검출 시 재시도 — 모델 변경 + 강력한 한국어 prefix
+        if _is_english_response(result_text):
+            _tprint(f"  ⚠ [{key_label}] {corp_name} 영어 응답 검출 (시도 1) — 다른 모델로 재시도")
+            time.sleep(2)
+            ko_prompt = (
+                "[★ 절대 명령 — 한국어로만 답변 ★]\n"
+                "당신은 한국 경제 기자입니다. 영어 사용 절대 금지.\n"
+                "답변은 반드시 한국어 문장으로 시작합니다. 모든 분석은 한국어로만 작성합니다.\n"
+                "예시 시작 문장: '최신 사업보고서에 따르면 ...'\n\n"
+                + prompt
+            )
+            # 다른 모델 타입 사용 (flash → flash-lite)
+            alt_model = "flash-lite" if model == "flash" else "flash"
+            try:
+                result_text, used_model, used_type = call_gemini_with_key(
+                    alt_model, ko_prompt, api_key, key_label, timeout=120, key_idx=key_idx
+                )
+            except Exception:
+                pass
+
+        # 시도 3: 다른 키 + 더 강한 prefix
+        if _is_english_response(result_text):
+            _tprint(f"  ⚠ [{key_label}] {corp_name} 영어 응답 검출 (시도 2) — 키·prefix 강화")
+            time.sleep(2)
+            other_keys = [(i, k) for i, k in enumerate(keys) if k != api_key]
+            try_idx, try_key = other_keys[0] if other_keys else (key_idx, api_key)
+            stronger_prompt = (
+                "한국어 답변 필수. 영어로 답변하면 무효 처리됩니다.\n"
+                "답변 첫 단어는 반드시 한글입니다.\n\n"
+                "다음 분석을 한국어로만 작성하세요:\n\n"
+                + prompt
+            )
+            try:
+                result_text, used_model, used_type = call_gemini_with_key(
+                    "flash-lite", stronger_prompt, try_key, "재시도", timeout=120, key_idx=try_idx
+                )
+            except Exception:
+                pass
+
+        # 마지막에도 영어면 폐기 처리 (status=error로 저장 — 재처리 추적용)
+        if _is_english_response(result_text):
+            _tprint(f"  ✗ [{key_label}] {corp_name} 영어 응답 3회 모두 실패 — 폐기")
+            with _db_lock:
+                save_error(db, corp_code, corp_name, rid_a, rid_b,
+                           type_a, type_b, model,
+                           "영어 응답 — 한국어 답변 3회 강제 실패 (재처리 대상)")
+            return {
+                "status": "error",
+                "corp_name": corp_name,
+                "task_num": task_num,
+                "total": total,
+                "error": "영어 응답 폐기",
+                "key_label": key_label,
+                "key_idx": key_idx,
+            }
+
         with _db_lock:
             save_result(db, corp_code, corp_name, rid_a, rid_b,
                         type_a, type_b, model,
@@ -568,10 +723,12 @@ def process_task(task: dict) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="배치 AI 비교 분석")
     parser.add_argument("--type-a",  default="2025_annual",
-                        choices=["2025_annual","2025_q3","2025_h1","2025_q1"],
+                        choices=["2025_annual","2025_q3","2025_h1","2025_q1",
+                                 "2026_annual","2026_q3","2026_h1","2026_q1"],
                         help="비교 기준 보고서 유형 (기본: 2025_annual)")
     parser.add_argument("--type-b",  default="2025_q1",
-                        choices=["2025_annual","2025_q3","2025_h1","2025_q1"],
+                        choices=["2025_annual","2025_q3","2025_h1","2025_q1",
+                                 "2026_annual","2026_q3","2026_h1","2026_q1"],
                         help="비교 대상 보고서 유형 (기본: 2025_q1)")
     parser.add_argument("--model",   default="flash",
                         choices=["flash", "flash-lite", "pro"],
@@ -588,10 +745,12 @@ def main():
                         help="실제 API 호출 없이 대상 기업 목록만 출력")
     parser.add_argument("--workers", type=int, default=1,
                         help="병렬 워커 수 (기본: 1=순차, 최대: 2). 워커 0→키1, 워커 1→키2 고정 할당.")
+    parser.add_argument("--market",  type=str, default="KOSPI,KOSDAQ",
+                        help="비교 대상 시장 (콤마 구분, 기본: KOSPI,KOSDAQ). KONEX/ALL 등 가능.")
     args = parser.parse_args()
 
-    # workers 범위 클램핑 (최대 2)
-    args.workers = max(1, min(2, args.workers))
+    # workers 범위 클램핑 (최대 3)
+    args.workers = max(1, min(3, args.workers))
 
     if args.type_a == args.type_b:
         print("오류: --type-a 와 --type-b 가 같습니다")
@@ -651,13 +810,18 @@ def main():
     print(f"{'='*60}\n")
 
     # 두 보고서 유형 모두 있는 기업 조회
-    rows = db.execute("""
+    # 시장 필터: 기본 KOSPI+KOSDAQ만 (--market 으로 변경 가능)
+    market_list = [m.strip().upper() for m in (args.market or "KOSPI,KOSDAQ").split(",") if m.strip()]
+    market_placeholders = ",".join(["?"] * len(market_list))
+    rows = db.execute(f"""
         SELECT
             a.corp_code,
             MAX(a.corp_name) as corp_name,
             MAX(CASE WHEN a.report_type=? THEN a.id END) as id_a,
             MAX(CASE WHEN a.report_type=? THEN a.id END) as id_b
         FROM reports a
+        JOIN companies c ON c.corp_code = a.corp_code
+                        AND c.market IN ({market_placeholders})
         WHERE a.biz_content IS NOT NULL
           AND LENGTH(a.biz_content) >= 500
           AND a.report_type IN (?, ?)
@@ -667,6 +831,7 @@ def main():
             AND MAX(CASE WHEN a.report_type=? THEN 1 ELSE 0 END) = 1
         ORDER BY a.corp_code
     """, [args.type_a, args.type_b,
+          *market_list,
           args.type_a, args.type_b,
           args.type_a, args.type_b]).fetchall()
 
@@ -754,8 +919,59 @@ def main():
             ]
             prompt = build_prompt(reports_data)
 
+            # 영어 응답 검출 함수
+            def _is_en(t):
+                if not t or len(t) < 100: return False
+                en = len(re.findall(r"[a-zA-Z]", t))
+                kr = len(re.findall(r"[가-힣]", t))
+                return (kr < 100 and en > 200) or (en > kr * 1.5)
+
             try:
+                # 1차 호출
                 result_text, used_model, used_type = call_gemini(args.model, prompt, timeout=120)
+
+                # 영어 응답이면 재시도 (다른 모델 + 강한 prefix)
+                if _is_en(result_text):
+                    print(f"        ⚠ 영어 응답 검출 — 다른 모델로 재시도")
+                    time.sleep(2)
+                    ko_prefix = (
+                        "[★ 절대 명령 — 한국어로만 답변 ★]\n"
+                        "당신은 한국 경제 기자입니다. 영어 사용 절대 금지.\n"
+                        "답변 첫 단어는 반드시 한글입니다.\n"
+                        "예시 시작: '최신 사업보고서에 따르면...'\n\n"
+                    )
+                    alt_model = "flash-lite" if args.model == "flash" else "flash"
+                    try:
+                        result_text, used_model, used_type = call_gemini(
+                            alt_model, ko_prefix + prompt, timeout=120
+                        )
+                    except Exception:
+                        pass
+
+                # 두 번째도 영어면 한 번 더
+                if _is_en(result_text):
+                    print(f"        ⚠ 영어 응답 재발 — 마지막 시도")
+                    time.sleep(2)
+                    stronger = (
+                        "한국어 답변만 유효. 영어 답변은 무효 처리.\n"
+                        "반드시 '최신 사업보고서에 따르면'으로 시작하세요.\n\n"
+                    )
+                    try:
+                        result_text, used_model, used_type = call_gemini(
+                            "flash-lite", stronger + prompt, timeout=120
+                        )
+                    except Exception:
+                        pass
+
+                # 그래도 영어면 폐기 (status=error로 저장)
+                if _is_en(result_text):
+                    print(f"        ✗ 영어 응답 3회 — 폐기")
+                    save_error(db, corp_code, corp_name, rid_a, rid_b,
+                               args.type_a, args.type_b, args.model,
+                               "영어 응답 — 한국어 강제 3회 실패")
+                    errors += 1
+                    continue
+
                 save_result(db, corp_code, corp_name, rid_a, rid_b,
                             args.type_a, args.type_b, args.model,
                             result_text, len(biz_a), len(biz_b))
@@ -842,10 +1058,11 @@ def main():
     errors    = 0
     skipped   = 0
 
+    key_var_names = ["GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]
     print(f"병렬 처리 시작: {len(tasks)}개 태스크, {args.workers}워커")
-    print(f"  워커 0 → {key_labels[0]} (GEMINI_API_KEY)")
-    if args.workers > 1 and num_keys > 1:
-        print(f"  워커 1 → {key_labels[1]} (GEMINI_API_KEY_2)")
+    for wi in range(min(args.workers, num_keys)):
+        vname = key_var_names[wi] if wi < len(key_var_names) else f"KEY_{wi+1}"
+        print(f"  워커 {wi} → {key_labels[wi]} ({vname})")
     print()
 
     with ThreadPoolExecutor(max_workers=args.workers) as executor:

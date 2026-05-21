@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📄 보고서 작업 뷰 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .rw-wrap { max-width:1280px; margin:0 auto; padding:16px; }
+    .rw-h1 {
+      font-size:20px; font-weight:700; margin:0 0 6px 0;
+      background:linear-gradient(135deg,#ec4899,#a855f7);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    }
+    .rw-sub { font-size:11px; color:var(--txt2); margin-bottom:14px; }
+
+    .head-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:14px 18px; margin-bottom:14px; display:grid;
+      grid-template-columns: 1fr auto; gap:12px; align-items:center;
+    }
+    .head-meta { font-size:11px; color:var(--txt2); margin-top:4px; }
+    .head-meta span { margin-right:10px; }
+    .head-actions a {
+      font-size:11px; padding:5px 10px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg1); color:var(--txt1);
+      text-decoration:none; display:inline-block; margin-left:4px;
+    }
+    .head-actions a:hover { border-color:var(--acc); color:var(--acc); }
+
+    .counts-row {
+      display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-bottom:14px;
+    }
+    .count-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+      padding:10px; text-align:center;
+    }
+    .count-num { font-size:20px; font-weight:800; color:var(--acc); }
+    .count-label { font-size:10px; color:var(--txt2); margin-top:2px; }
+
+    .section {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:12px 16px; margin-bottom:12px;
+    }
+    .section h3 {
+      font-size:13px; font-weight:700; margin:0 0 10px 0;
+      padding-bottom:6px; border-bottom:1px dashed rgba(148,163,184,.15);
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .section h3 .count {
+      font-size:10px; color:var(--txt2); font-weight:400;
+    }
+
+    .row {
+      padding:8px 10px; border-radius:6px; background:var(--bg1);
+      margin-bottom:6px; font-size:12px;
+      display:grid; grid-template-columns: auto 1fr auto; gap:10px;
+      align-items:start;
+    }
+    .row .tag {
+      font-size:9px; padding:2px 6px; border-radius:10px;
+      background:var(--bg2); border:1px solid var(--border); color:var(--txt2);
+      font-weight:600; white-space:nowrap;
+    }
+    .tag.sev-5 { background:rgba(239,68,68,.15); color:#ef4444; border-color:#ef4444; }
+    .tag.sev-4 { background:rgba(245,158,11,.15); color:#f59e0b; border-color:#f59e0b; }
+    .tag.sev-3 { background:rgba(168,85,247,.15); color:#a855f7; border-color:#a855f7; }
+    .tag.status-pending  { background:rgba(148,163,184,.15); color:var(--txt2); }
+    .tag.status-approved { background:rgba(34,197,94,.15); color:#22c55e; border-color:#22c55e; }
+    .tag.status-sent     { background:rgba(59,130,246,.15); color:#3b82f6; border-color:#3b82f6; }
+    .tag.status-replied  { background:rgba(168,85,247,.15); color:#a855f7; border-color:#a855f7; }
+    .tag.dir-in  { background:rgba(34,197,94,.15); color:#22c55e; }
+    .tag.dir-out { background:rgba(59,130,246,.15); color:#3b82f6; }
+
+    .row .body { color:var(--txt1); line-height:1.5; }
+    .row .body .sub { color:var(--txt2); font-size:10px; margin-top:3px; }
+    .row .right {
+      font-size:10px; color:var(--txt2); text-align:right; white-space:nowrap;
+    }
+    .row a { color:var(--acc); text-decoration:none; }
+    .row a:hover { text-decoration:underline; }
+
+    .empty { font-size:11px; color:var(--txt2); padding:10px; text-align:center; }
+    .err { color:#ef4444; padding:14px; }
+
+    .q-list { font-size:11px; color:var(--txt1); margin-top:4px; padding-left:0; }
+    .q-list .q { padding:2px 0; }
+    .q-list .qn { color:#ec4899; font-weight:600; margin-right:6px; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="rw-wrap">
+  <div id="page-content">
+    <div style="padding:30px;text-align:center;color:var(--txt2)">로딩 중...</div>
+  </div>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const reportId = q.get('id');
+
+function fmtDate(s) {
+  if (!s) return '';
+  return s.length >= 10 ? s.substring(0,10) : s;
+}
+function fmtDt(s) {
+  if (!s || s.length < 8) return s || '';
+  // YYYYMMDD → YYYY-MM-DD
+  if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  return s;
+}
+
+const REPORT_TYPE_LABEL = {
+  '2025_q1':'2025 Q1','2025_h1':'2025 반기','2025_q3':'2025 Q3','2025_annual':'2025 연간',
+  '2026_q1':'2026 Q1','2026_h1':'2026 반기','2026_q3':'2026 Q3','2026_annual':'2026 연간',
+};
+
+async function load() {
+  if (!reportId) {
+    document.getElementById('page-content').innerHTML =
+      `<div class="err">report_id 쿼리 파라미터 필요. 예: /report_work?id=12345</div>`;
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/api/report_work/${reportId}`);
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({error:'알 수 없음'}));
+      throw new Error(e.error || '오류');
+    }
+    const d = await r.json();
+    render(d);
+  } catch (e) {
+    document.getElementById('page-content').innerHTML =
+      `<div class="err">오류: ${e.message}</div>`;
+  }
+}
+
+function render(d) {
+  const rep = d.report;
+  const typeLabel = REPORT_TYPE_LABEL[rep.report_type] || rep.report_type;
+  const counts = d.counts || {};
+
+  let html = '';
+
+  // Header
+  html += `
+    <h1 class="rw-h1">📄 보고서 작업 카드</h1>
+    <p class="rw-sub">이 보고서에서 시작된 단서·기사·질문지·답장의 전체 흐름</p>
+    <div class="head-card">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:var(--txt1)">
+          ${escHtml(rep.corp_name || '(미상)')}
+          <span style="font-size:11px;color:var(--txt2);font-weight:400">
+            · ${escHtml(typeLabel)} · ${escHtml(rep.report_name || '')}
+          </span>
+        </div>
+        <div class="head-meta">
+          <span>📅 접수 ${escHtml(fmtDt(rep.rcept_dt))}</span>
+          <span>🏢 corp_code ${escHtml(rep.corp_code || '-')}</span>
+          <span>📝 작성 ${escHtml(rep.flr_nm || '-')}</span>
+          <span>📦 본문 ${(rep.biz_len||0).toLocaleString()}자</span>
+          <span>🔢 report_id ${rep.id}</span>
+        </div>
+      </div>
+      <div class="head-actions">
+        <a href="/corp_work?corp_code=${escHtml(rep.corp_code||'')}" title="이 회사의 분기별 작업 흐름">🏢 회사 타임라인</a>
+        <a href="/company_detail.html?corp_code=${escHtml(rep.corp_code||'')}" title="회사 종합 상세">📊 회사 상세</a>
+      </div>
+    </div>
+  `;
+
+  // Counts
+  html += `
+    <div class="counts-row">
+      <div class="count-card"><div class="count-num">${counts.comparisons||0}</div><div class="count-label">AI 비교</div></div>
+      <div class="count-card"><div class="count-num">${counts.leads||0}</div><div class="count-label">취재 단서</div></div>
+      <div class="count-card"><div class="count-num">${counts.drafts||0}</div><div class="count-label">기사 초안</div></div>
+      <div class="count-card"><div class="count-num">${counts.questionnaires||0}</div><div class="count-label">질문지</div></div>
+      <div class="count-card"><div class="count-num">${counts.emails||0}</div><div class="count-label">메일</div></div>
+    </div>
+  `;
+
+  // Comparisons
+  html += `<div class="section"><h3>🔬 AI 비교 분석 <span class="count">${(d.comparisons||[]).length}건</span></h3>`;
+  if (!(d.comparisons||[]).length) html += `<div class="empty">비교 결과 없음</div>`;
+  for (const c of (d.comparisons||[])) {
+    const aLab = REPORT_TYPE_LABEL[c.a_type] || c.a_type || '?';
+    const bLab = REPORT_TYPE_LABEL[c.b_type] || c.b_type || '?';
+    const otherSide = (c.report_id_a == reportId) ? c.report_id_b : c.report_id_a;
+    html += `
+      <div class="row">
+        <span class="tag status-${escHtml(c.status||'')}">${escHtml(c.status||'')}</span>
+        <div class="body">
+          <a href="/comparison_detail?id=${c.id}">#${c.id} ${escHtml(aLab)} ↔ ${escHtml(bLab)}</a>
+          <div class="sub">모델 ${escHtml(c.model||'-')} · ${(c.char_count_a||0).toLocaleString()} vs ${(c.char_count_b||0).toLocaleString()}자 · 결과 ${(c.result_len||0).toLocaleString()}자</div>
+        </div>
+        <div class="right">
+          ${escHtml(fmtDate(c.analyzed_at||''))}<br>
+          <a href="/report_work?id=${otherSide}" title="비교 상대 보고서 보기">↔ #${otherSide}</a>
+        </div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  // Leads
+  html += `<div class="section"><h3>📌 취재 단서 <span class="count">${(d.leads||[]).length}건</span></h3>`;
+  if (!(d.leads||[]).length) html += `<div class="empty">단서 없음 (severity 임계값 미달)</div>`;
+  for (const l of (d.leads||[])) {
+    const linkedDraft = (d.drafts||[]).find(dr => dr.lead_id === l.id);
+    let kws = [];
+    try { kws = JSON.parse(l.keywords || '[]'); } catch {}
+    html += `
+      <div class="row">
+        <span class="tag sev-${l.severity}">sev ${l.severity}</span>
+        <div class="body">
+          <a href="/lead_detail?id=${l.id}"><b>${escHtml(l.title || '')}</b></a>
+          <span style="font-size:9px;color:var(--txt2);margin-left:6px">[${escHtml(l.lead_type||'')}]</span>
+          <div class="sub">${escHtml((l.summary||'').substring(0,140))}${(l.summary||'').length>140?'…':''}</div>
+          ${kws.length ? `<div class="sub">🏷 ${kws.slice(0,6).map(escHtml).join(' · ')}</div>` : ''}
+        </div>
+        <div class="right">
+          ${escHtml(fmtDate(l.created_at||''))}<br>
+          ${linkedDraft ? `<a href="#draft-${linkedDraft.id}">→ 기사 #${linkedDraft.id}</a>`
+                       : '<span style="color:#f59e0b">기사 미생성</span>'}
+        </div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  // Drafts
+  html += `<div class="section"><h3>📰 기사 초안 <span class="count">${(d.drafts||[]).length}건</span></h3>`;
+  if (!(d.drafts||[]).length) html += `<div class="empty">기사 초안 없음</div>`;
+  for (const dr of (d.drafts||[])) {
+    const linkedQst = (d.questionnaires||[]).find(q => q.article_id === dr.id);
+    html += `
+      <div class="row" id="draft-${dr.id}">
+        <span class="tag status-${escHtml(dr.status||'')}">${escHtml(dr.status||'')}</span>
+        <div class="body">
+          <a href="/article_detail.html?id=${dr.id}"><b>${escHtml(dr.headline || '')}</b></a>
+          ${dr.subheadline ? `<div class="sub">${escHtml(dr.subheadline)}</div>` : ''}
+          <div class="sub">${(dr.content_len||0).toLocaleString()}자 · ${escHtml(dr.model||'-')}</div>
+        </div>
+        <div class="right">
+          ${escHtml(fmtDate(dr.created_at||''))}<br>
+          ${linkedQst ? `<a href="#qst-${linkedQst.id}">→ 질문지 #${linkedQst.id}</a>`
+                      : '<span style="color:#f59e0b">질문지 미생성</span>'}
+        </div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  // Questionnaires
+  html += `<div class="section"><h3>📨 질문지 <span class="count">${(d.questionnaires||[]).length}건</span></h3>`;
+  if (!(d.questionnaires||[]).length) html += `<div class="empty">질문지 없음</div>`;
+  for (const qst of (d.questionnaires||[])) {
+    const qhtml = (qst.questions||[]).map((qq, i) => {
+      const text = (typeof qq === 'string') ? qq : (qq.q || '');
+      return `<div class="q"><span class="qn">Q${i+1}.</span>${escHtml(text)}</div>`;
+    }).join('');
+    const emails = (d.emails||[]).filter(e => e.questionnaire_id === qst.id);
+    html += `
+      <div class="row" id="qst-${qst.id}" style="grid-template-columns:auto 1fr auto">
+        <span class="tag status-${escHtml(qst.status||'')}">${escHtml(qst.status||'')}</span>
+        <div class="body">
+          <a href="/questionnaire_review">질문지 #${qst.id}</a>
+          <span style="font-size:9px;color:var(--txt2);margin-left:6px">
+            기사 #${qst.article_id} · 단서 #${qst.lead_id||'-'}
+          </span>
+          <div class="q-list">${qhtml || '<span class="empty">질문 없음</span>'}</div>
+          ${emails.length ? `<div class="sub">📩 메일 ${emails.length}건 연결</div>` : ''}
+        </div>
+        <div class="right">
+          생성 ${escHtml(fmtDate(qst.created_at||''))}<br>
+          ${qst.sent_at ? `📤 ${escHtml(fmtDate(qst.sent_at))}<br>` : ''}
+          ${qst.replied_at ? `📬 ${escHtml(fmtDate(qst.replied_at))}` : ''}
+        </div>
+      </div>
+    `;
+  }
+  html += `</div>`;
+
+  // Emails
+  if ((d.emails||[]).length) {
+    html += `<div class="section"><h3>📬 메일 이력 <span class="count">${d.emails.length}건</span></h3>`;
+    for (const em of d.emails) {
+      const dir = em.direction || '';
+      const when = em.received_at || em.sent_at || '';
+      html += `
+        <div class="row">
+          <span class="tag dir-${escHtml(dir)}">${dir==='in'?'📥 수신':'📤 발송'}</span>
+          <div class="body">
+            <b>${escHtml(em.subject || '(제목 없음)')}</b>
+            <div class="sub">
+              ${dir==='in' ? '👤 ' + escHtml(em.from_addr||'') : '→ ' + escHtml(em.to_addr||'')}
+              · 질문지 #${em.questionnaire_id||'-'}
+            </div>
+          </div>
+          <div class="right">${escHtml(fmtDate(when))}</div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+  }
+
+  document.getElementById('page-content').innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('');
+  load();
+});
+</script>
+</body>
+</html>

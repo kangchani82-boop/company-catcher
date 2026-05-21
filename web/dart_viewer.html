@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Company Catcher — DART 공시 뷰어</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="common.js"></script>
 <style>
 /* ── 기본 ─────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -697,7 +698,20 @@ header h1 span { color: var(--accent); }
 </head>
 <body>
 
-<!-- 헤더 -->
+<!-- 통합 네비게이션 (다른 페이지와 동일) -->
+<nav id="main-nav"></nav>
+<script>
+  // common.js의 renderNav 즉시 호출 (window.onload 의존 안 함)
+  (function tryRenderNav() {
+    if (typeof renderNav === 'function') {
+      renderNav('home');
+    } else {
+      setTimeout(tryRenderNav, 50);
+    }
+  })();
+</script>
+
+<!-- 기업분석 자체 헤더 -->
 <header>
   <h1>🏢 Company <span>Catcher</span></h1>
   <span style="color:var(--txt2);font-size:11px;">DART 공시 뷰어</span>
@@ -1018,6 +1032,8 @@ let headerSearchTimer = null;
 
 // ── 초기화 ────────────────────────────────────────────────────────────────
 window.onload = async () => {
+  // 통합 nav 먼저 렌더 (다른 페이지와 동일)
+  if (typeof renderNav === 'function') renderNav('home');
   await loadSession();
   await loadReportTypes();   // 소프트코딩: 먼저 유형 로드 후 UI 구성
   loadStats();

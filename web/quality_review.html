@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🔍 기사·질문지 품질 재검토 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .qa-wrap { max-width:1280px; margin:0 auto; padding:16px; }
+    .qa-h1 { font-size:22px; font-weight:700; margin:0 0 6px 0;
+             background:linear-gradient(135deg,#ec4899,#a855f7);
+             -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .qa-sub { font-size:12px; color:var(--txt2); margin-bottom:14px; }
+
+    .stat-row { display:grid; grid-template-columns:repeat(auto-fit, minmax(110px, 1fr));
+                gap:8px; margin-bottom:12px; }
+    .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+                 padding:8px 12px; text-align:center; cursor:pointer; transition: all .15s; }
+    .stat-card:hover { border-color:var(--acc); }
+    .stat-card.active { border-color:var(--acc); background:rgba(168,85,247,.08); }
+    .stat-num { font-size:18px; font-weight:800; }
+    .stat-label { font-size:10px; color:var(--txt2); margin-top:2px; }
+
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar input, .toolbar select {
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      border-radius:6px; padding:6px 10px; font-size:12px;
+    }
+    .toolbar input[type=text] { flex:1; min-width:200px; }
+    .btn {
+      font-size:11px; padding:5px 12px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg2); color:var(--txt1);
+    }
+    .btn:hover { border-color:var(--acc); }
+    .btn-primary { background:var(--acc); border-color:var(--acc); color:#fff; }
+
+    .qa-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:14px 16px; margin-bottom:10px;
+    }
+    .qa-card.score-5 { border-left:4px solid #22c55e; }
+    .qa-card.score-4 { border-left:4px solid #3b82f6; }
+    .qa-card.score-3 { border-left:4px solid #a855f7; }
+    .qa-card.score-2 { border-left:4px solid #f59e0b; }
+    .qa-card.score-1 { border-left:4px solid #ef4444; opacity:0.75; }
+    .qa-card.applied { background:rgba(34,197,94,0.04); }
+    .qa-card.kb-focus {
+      box-shadow:0 0 0 2px var(--acc), 0 6px 24px rgba(168,85,247,.22);
+      scroll-margin-top:80px;
+    }
+    #kb-help code {
+      display:inline-block; padding:1px 5px; border-radius:3px;
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      font-family:monospace; font-size:10px; margin:0 2px;
+    }
+
+    .qa-head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+               margin-bottom:8px; }
+    .qa-corp { font-size:14px; font-weight:700; color:var(--txt1); }
+    .qa-meta { font-size:10px; color:var(--txt2); margin-top:2px; }
+    .qa-badges { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+    .badge {
+      display:inline-block; font-size:9px; padding:2px 7px; border-radius:10px;
+      font-weight:600; border:1px solid var(--border); background:var(--bg1);
+    }
+    .b-score-5 { background:rgba(34,197,94,.15); color:#22c55e; border-color:#22c55e; }
+    .b-score-4 { background:rgba(59,130,246,.15); color:#3b82f6; border-color:#3b82f6; }
+    .b-score-3 { background:rgba(168,85,247,.15); color:#a855f7; border-color:#a855f7; }
+    .b-score-2 { background:rgba(245,158,11,.15); color:#f59e0b; border-color:#f59e0b; }
+    .b-score-1 { background:rgba(239,68,68,.15); color:#ef4444; border-color:#ef4444; }
+    .b-verdict-approve  { background:rgba(34,197,94,.15); color:#22c55e; border-color:#22c55e; }
+    .b-verdict-revise   { background:rgba(168,85,247,.15); color:#a855f7; border-color:#a855f7; }
+    .b-verdict-escalate { background:rgba(245,158,11,.15); color:#f59e0b; border-color:#f59e0b; }
+    .b-verdict-discard  { background:rgba(239,68,68,.15); color:#ef4444; border-color:#ef4444; }
+    .b-applied { background:rgba(34,197,94,.2); color:#22c55e; border-color:#22c55e; }
+
+    .qa-headline {
+      font-size:13px; color:var(--txt1); padding:6px 10px;
+      background:var(--bg1); border-radius:6px; border-left:2px solid var(--acc);
+      margin-bottom:8px;
+    }
+    .qa-headline .new {
+      display:block; margin-top:4px; color:#22c55e;
+      font-weight:600;
+    }
+
+    .qa-grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:8px; }
+    @media (max-width: 900px) { .qa-grid { grid-template-columns:1fr; } }
+
+    .qa-box {
+      background:var(--bg1); border:1px solid var(--border); border-radius:6px;
+      padding:8px 10px;
+    }
+    .qa-box h5 {
+      margin:0 0 4px; font-size:10px; color:var(--txt2); font-weight:600;
+      text-transform:uppercase; letter-spacing:.5px;
+    }
+    .qa-box p { margin:0; font-size:12px; color:var(--txt1); line-height:1.5; }
+
+    .qa-section {
+      background:var(--bg1); border:1px solid var(--border); border-radius:6px;
+      padding:8px 12px; margin-top:8px;
+    }
+    .qa-section h5 { margin:0 0 6px; font-size:11px; color:var(--txt2); font-weight:600; }
+    .q-line { font-size:12px; line-height:1.5; padding:3px 0;
+              display:flex; gap:8px; align-items:flex-start; }
+    .q-line .qn { color:#ec4899; font-weight:700; min-width:24px; }
+    .q-line .reason {
+      font-size:10px; color:var(--txt2); margin-top:2px;
+      padding-left:32px; font-style:italic;
+    }
+    .q-line.new .qn { color:#22c55e; }
+    .q-line.new .qt { color:#22c55e; }
+
+    .qa-actions { display:flex; gap:6px; justify-content:flex-end; margin-top:10px;
+                  padding-top:8px; border-top:1px dashed rgba(148,163,184,.15); }
+
+    .empty { padding:40px; text-align:center; color:var(--txt2); }
+    .err { color:#ef4444; padding:14px; }
+    .pagination { display:flex; gap:4px; justify-content:center; padding:16px; }
+    .pg-btn { font-size:11px; padding:5px 10px; border-radius:4px; cursor:pointer;
+              background:var(--bg2); border:1px solid var(--border); color:var(--txt2); }
+    .pg-btn.active { background:var(--acc); color:#fff; border-color:var(--acc); }
+    .pg-btn:disabled { opacity:0.4; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="qa-wrap">
+  <h1 class="qa-h1">🔍 기사·질문지 품질 재검토</h1>
+  <p class="qa-sub">
+    Gemini 데스크장 관점에서 313건 기사·질문지를 <b>현재 재무 + 미래 가치</b> 기준으로 재평가.
+    뉴스 60일 + 재무 4년 + AI 비교 원본을 함께 분석.
+  </p>
+
+  <!-- 점수 분포 (클릭 필터) -->
+  <div class="stat-row" id="score-stats">
+    <div class="stat-card" onclick="setFilter('','','')" id="f-all">
+      <div class="stat-num" id="n-total">-</div>
+      <div class="stat-label">전체</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','5','')" id="f-5">
+      <div class="stat-num" style="color:#22c55e" id="n-5">-</div>
+      <div class="stat-label">⭐ 5 즉시</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','4','')" id="f-4">
+      <div class="stat-num" style="color:#3b82f6" id="n-4">-</div>
+      <div class="stat-label">4 양호</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','3','')" id="f-3">
+      <div class="stat-num" style="color:#a855f7" id="n-3">-</div>
+      <div class="stat-label">3 평범</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','2','')" id="f-2">
+      <div class="stat-num" style="color:#f59e0b" id="n-2">-</div>
+      <div class="stat-label">2 폐기?</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','1','')" id="f-1">
+      <div class="stat-num" style="color:#ef4444" id="n-1">-</div>
+      <div class="stat-label">1 무가치</div>
+    </div>
+  </div>
+
+  <!-- verdict 필터 -->
+  <div class="stat-row">
+    <div class="stat-card" onclick="setFilter('approve','','')" id="v-approve">
+      <div class="stat-num" style="color:#22c55e" id="n-approve">-</div>
+      <div class="stat-label">✓ approve</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('revise','','')" id="v-revise">
+      <div class="stat-num" style="color:#a855f7" id="n-revise">-</div>
+      <div class="stat-label">✎ revise</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('escalate','','')" id="v-escalate">
+      <div class="stat-num" style="color:#f59e0b" id="n-escalate">-</div>
+      <div class="stat-label">🔍 escalate</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('discard','','')" id="v-discard">
+      <div class="stat-num" style="color:#ef4444" id="n-discard">-</div>
+      <div class="stat-label">🗑 discard</div>
+    </div>
+    <div class="stat-card" onclick="setFilter('','','1')" id="f-applied">
+      <div class="stat-num" style="color:#22c55e" id="n-applied">-</div>
+      <div class="stat-label">✅ 적용됨</div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <input type="text" id="f-q" placeholder="회사명·헤드라인 검색" oninput="debounceLoad()">
+    <button class="btn" onclick="bulkApply(4)" title="score 4점 이상 모두 자동 적용 (질문 추가 + 헤드라인 교체)"
+            style="border-color:#3b82f6;color:#3b82f6">⚡ score≥4 일괄 적용</button>
+    <button class="btn" onclick="bulkApply(5)" title="score 5점만 자동 적용">
+      ⭐ score=5만 일괄
+    </button>
+    <span style="margin-left:auto;font-size:11px;color:var(--txt2)" id="meta">로딩 중...</span>
+  </div>
+
+  <div id="list">
+    <div class="empty">로딩 중...</div>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- 키보드 단축키 도움말 (한 번 닫으면 localStorage 기억) -->
+<div id="kb-help" style="position:fixed; right:14px; bottom:14px; background:var(--bg2);
+                         border:1px solid var(--border); border-radius:8px; padding:10px 14px;
+                         font-size:11px; color:var(--txt2); z-index:50; max-width:260px;
+                         box-shadow:0 6px 24px rgba(0,0,0,.25)">
+  <span style="position:absolute;top:4px;right:6px;cursor:pointer;color:var(--txt2);font-size:14px"
+        onclick="dismissKbHelp()">✕</span>
+  <b style="color:var(--txt1)">⌨ 키보드 단축키</b><br>
+  <code>J</code>/<code>↓</code> 다음 &nbsp; <code>K</code>/<code>↑</code> 이전<br>
+  <code>A</code> 전부 적용 &nbsp; <code>Q</code> 질문만 추가<br>
+  <code>O</code> 기사 상세 새 탭 &nbsp; <code>W</code> 회사 흐름 새 탭<br>
+  <code>1~5</code> 점수별 필터 &nbsp; <code>0</code> 전체<br>
+  <code>?</code> 도움말 토글
+</div>
+
+<script>
+let state = { page:1, per:10, total:0, verdict:'', score:'', applied:'', q:'' };
+let dt;
+
+function debounceLoad() {
+  clearTimeout(dt);
+  dt = setTimeout(() => { state.page=1; loadList(); }, 300);
+}
+function setFilter(verdict, score, applied) {
+  state.verdict = verdict; state.score = score; state.applied = applied;
+  state.page = 1;
+  ['f-all','f-5','f-4','f-3','f-2','f-1',
+   'v-approve','v-revise','v-escalate','v-discard','f-applied'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
+  if (verdict) document.getElementById('v-'+verdict)?.classList.add('active');
+  else if (score) document.getElementById('f-'+score)?.classList.add('active');
+  else if (applied) document.getElementById('f-applied')?.classList.add('active');
+  else document.getElementById('f-all')?.classList.add('active');
+  loadList();
+}
+
+async function loadList() {
+  state.q = document.getElementById('f-q').value;
+  const p = new URLSearchParams({
+    page: state.page, per_page: state.per,
+    verdict: state.verdict, score: state.score,
+    applied: state.applied, q: state.q,
+  });
+  try {
+    const r = await fetch(`${API}/api/quality_review?${p}`);
+    const d = await r.json();
+    state.total = d.total || 0;
+    renderStats(d.stats);
+    document.getElementById('meta').textContent = `${state.total}건 (페이지 ${state.page})`;
+    if (!d.items || !d.items.length) {
+      document.getElementById('list').innerHTML = '<div class="empty">결과 없음</div>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+    document.getElementById('list').innerHTML = d.items.map(renderCard).join('');
+    renderPg();
+    kbFocusIdx = -1;   // 페이지 갱신 시 키보드 포커스 초기화
+  } catch(e) {
+    document.getElementById('list').innerHTML = `<div class="err">오류: ${e.message}</div>`;
+  }
+}
+
+function renderStats(s) {
+  if (!s) return;
+  document.getElementById('n-total').textContent = (s.total||0).toLocaleString();
+  for (let i=1;i<=5;i++) document.getElementById('n-'+i).textContent = (s.by_score[i]||0);
+  for (const v of ['approve','revise','escalate','discard']) {
+    document.getElementById('n-'+v).textContent = (s.by_verdict[v]||0);
+  }
+  document.getElementById('n-applied').textContent = s.applied || 0;
+}
+
+function renderCard(it) {
+  const sq = it.suggested_questions || [];
+  const oq = it.orig_questions || [];
+
+  const sqHtml = sq.length
+    ? sq.map((q, i) => {
+        const qt = (typeof q === 'string') ? q : (q.q || '');
+        const reason = (typeof q === 'object' && q.reason) ? q.reason : '';
+        return `<div class="q-line new">
+          <span class="qn">+${i+1}.</span>
+          <div style="flex:1">
+            <span class="qt">${escHtml(qt)}</span>
+            ${reason ? `<div class="reason">↳ ${escHtml(reason)}</div>` : ''}
+          </div>
+        </div>`;
+      }).join('')
+    : '<div style="font-size:11px;color:var(--txt2)">제안 없음</div>';
+
+  const oqHtml = oq.length
+    ? oq.map((q, i) => {
+        const qt = (typeof q === 'string') ? q : (q.q || '');
+        return `<div class="q-line"><span class="qn">Q${i+1}.</span><span>${escHtml(qt)}</span></div>`;
+      }).join('')
+    : '<div style="font-size:11px;color:var(--txt2)">질문 없음</div>';
+
+  return `
+    <div class="qa-card score-${it.score||3} ${it.applied?'applied':''}" id="qr-${it.id}">
+      <div class="qa-head">
+        <div>
+          <div class="qa-corp">${escHtml(it.corp_name||'')}
+            <span style="font-size:9px;color:var(--txt2);font-weight:400">#article-${it.article_id}</span>
+          </div>
+          <div class="qa-meta">
+            ${escHtml(it.corp_code||'-')} ·
+            뉴스 ${it.news_count||0}건 · 재무 ${it.financials_used?'있음':'없음'} · ${escHtml(it.model||'-')}
+            · 검토 ${escHtml((it.reviewed_at||'').substring(0,16))}
+          </div>
+        </div>
+        <div class="qa-badges">
+          <span class="badge b-score-${it.score||3}">⭐ ${it.score||'-'}</span>
+          <span class="badge b-verdict-${it.verdict||'escalate'}">${it.verdict||'?'}</span>
+          ${it.applied ? '<span class="badge b-applied">✓ 적용됨</span>' : ''}
+        </div>
+      </div>
+
+      <div class="qa-headline">
+        📰 <b>${escHtml(it.orig_headline||'(헤드라인 없음)')}</b>
+        ${it.suggested_angle ? `<span class="new">💡 새 앵글: ${escHtml(it.suggested_angle)}</span>` : ''}
+      </div>
+
+      <div class="qa-grid">
+        <div class="qa-box">
+          <h5>💰 재무 건전성</h5>
+          <p>${escHtml(it.financial_health||'-')}</p>
+        </div>
+        <div class="qa-box">
+          <h5>🚀 미래 가치</h5>
+          <p>${escHtml(it.future_value||'-')}</p>
+        </div>
+      </div>
+
+      <div class="qa-section">
+        <h5>📌 종합 평가</h5>
+        <div style="font-size:12px;color:var(--txt1);line-height:1.5">
+          ${escHtml(it.rationale||'-')}
+        </div>
+      </div>
+
+      <div class="qa-grid" style="margin-top:8px">
+        <div class="qa-section" style="margin-top:0">
+          <h5>현재 질문지 (${oq.length}개)</h5>
+          ${oqHtml}
+        </div>
+        <div class="qa-section" style="margin-top:0; border-color:rgba(34,197,94,.3)">
+          <h5 style="color:#22c55e">제안 추가 질문 (${sq.length}개)</h5>
+          ${sqHtml}
+        </div>
+      </div>
+
+      <div class="qa-actions">
+        <a class="btn" href="/article_detail.html?id=${it.article_id}" target="_blank">📄 기사 상세</a>
+        <a class="btn" href="/corp_work?corp_code=${escHtml(it.corp_code||'')}" target="_blank">🏢 회사 흐름</a>
+        ${!it.applied ? `
+          <button class="btn" onclick="applyReview(${it.id}, false)" title="제안 질문만 기존에 추가">
+            + 질문만 추가
+          </button>
+          <button class="btn btn-primary" onclick="applyReview(${it.id}, true)" title="제안 질문 추가 + 헤드라인 교체">
+            ✓ 전부 적용
+          </button>
+        ` : ''}
+      </div>
+    </div>
+  `;
+}
+
+async function applyReview(qrId, includeHeadline) {
+  if (!confirm(includeHeadline
+      ? '제안 질문 추가 + 헤드라인 교체합니다. 진행할까요?'
+      : '제안 질문만 기존 질문지에 추가합니다. 진행할까요?')) return;
+  try {
+    const r = await fetch(`${API}/api/quality_review/${qrId}/apply`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        apply_questions: true,
+        apply_headline: includeHeadline,
+      })
+    });
+    const d = await r.json();
+    if (d.error) { alert('실패: ' + d.error); return; }
+    // 카드 부분 갱신
+    const card = document.getElementById('qr-' + qrId);
+    if (card) {
+      card.classList.add('applied');
+      const badges = card.querySelector('.qa-badges');
+      if (badges && !badges.querySelector('.b-applied')) {
+        badges.insertAdjacentHTML('beforeend', '<span class="badge b-applied">✓ 적용됨</span>');
+      }
+      card.querySelector('.qa-actions').innerHTML = `
+        <a class="btn" href="/article_detail.html?id=${qrId}" target="_blank">📄 기사 상세</a>
+        <span style="font-size:11px;color:#22c55e">${d.actions.questions_added}개 질문 추가됨${d.actions.headline_changed?', 헤드라인 교체됨':''}</span>
+      `;
+    }
+  } catch(e) { alert('오류: ' + e.message); }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 일괄 적용
+// ────────────────────────────────────────────────────────────────────────
+async function bulkApply(minScore) {
+  // 사전 개수 확인 (only_unapplied=true 의 가정)
+  const ok = confirm(
+    `⚡ Score ≥ ${minScore} 인 미적용 카드를 모두 자동 적용합니다.\n\n` +
+    `동작:\n` +
+    `  • 제안 질문 → 기존 질문지에 추가\n` +
+    `  • 새 앵글 → 헤드라인 교체\n` +
+    `  • applied=1 마킹\n\n` +
+    `진행할까요?`
+  );
+  if (!ok) return;
+
+  const btn = event.target;
+  const origText = btn.textContent;
+  btn.textContent = '⏳ 적용 중...';
+  btn.disabled = true;
+
+  try {
+    const r = await fetch(`${API}/api/quality_review/bulk_apply`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        min_score: minScore,
+        apply_questions: true,
+        apply_headline: true,
+        only_unapplied: true,
+      })
+    });
+    const d = await r.json();
+    if (d.error) {
+      alert('실패: ' + d.error);
+      return;
+    }
+    alert(
+      `✅ 일괄 적용 완료\n\n` +
+      `적용된 카드: ${d.applied_count}건\n` +
+      `추가된 질문: ${d.questions_added}건\n` +
+      `교체된 헤드라인: ${d.headlines_changed}건`
+    );
+    loadList();   // 카드 색상·배지 갱신
+  } catch(e) {
+    alert('오류: ' + e.message);
+  } finally {
+    btn.textContent = origText;
+    btn.disabled = false;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────
+// 키보드 단축키
+// ────────────────────────────────────────────────────────────────────────
+let kbFocusIdx = -1;
+
+function setKbFocus(idx) {
+  const cards = document.querySelectorAll('.qa-card');
+  if (!cards.length) return;
+  cards.forEach(c => c.classList.remove('kb-focus'));
+  kbFocusIdx = Math.max(0, Math.min(idx, cards.length - 1));
+  const t = cards[kbFocusIdx];
+  t.classList.add('kb-focus');
+  t.scrollIntoView({ behavior:'smooth', block:'center' });
+}
+
+function getFocusedCard() {
+  const cards = document.querySelectorAll('.qa-card');
+  if (!cards.length) return null;
+  if (kbFocusIdx < 0 || kbFocusIdx >= cards.length) {
+    // 화면 중앙에 가장 가까운 카드 자동 선택
+    const cy = window.innerHeight / 2;
+    let best = 0, bestD = Infinity;
+    cards.forEach((c, i) => {
+      const r = c.getBoundingClientRect();
+      const d = Math.abs(r.top + r.height/2 - cy);
+      if (d < bestD) { bestD = d; best = i; }
+    });
+    kbFocusIdx = best;
+    cards[best].classList.add('kb-focus');
+  }
+  return cards[kbFocusIdx];
+}
+
+function isEditable(el) {
+  if (!el) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+}
+
+document.addEventListener('keydown', (e) => {
+  if (isEditable(document.activeElement)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const key = e.key.toLowerCase();
+
+  switch (key) {
+    case 'j': case 'arrowdown':
+      setKbFocus(kbFocusIdx + 1); e.preventDefault(); break;
+    case 'k': case 'arrowup':
+      setKbFocus(kbFocusIdx - 1); e.preventDefault(); break;
+    case 'a': {
+      const card = getFocusedCard();
+      if (card && !card.classList.contains('applied')) {
+        const qrId = parseInt(card.id.replace('qr-', ''));
+        applyReview(qrId, true);
+      }
+      e.preventDefault(); break;
+    }
+    case 'q': {
+      const card = getFocusedCard();
+      if (card && !card.classList.contains('applied')) {
+        const qrId = parseInt(card.id.replace('qr-', ''));
+        applyReview(qrId, false);
+      }
+      e.preventDefault(); break;
+    }
+    case 'o': {
+      const card = getFocusedCard();
+      if (card) {
+        const link = card.querySelector('a[href^="/article_detail"]');
+        if (link) window.open(link.href, '_blank');
+      }
+      e.preventDefault(); break;
+    }
+    case 'w': {
+      const card = getFocusedCard();
+      if (card) {
+        const link = card.querySelector('a[href^="/corp_work"]');
+        if (link) window.open(link.href, '_blank');
+      }
+      e.preventDefault(); break;
+    }
+    case '0': setFilter('', '', ''); e.preventDefault(); break;
+    case '1': case '2': case '3': case '4': case '5':
+      setFilter('', key, ''); e.preventDefault(); break;
+    case '?': {
+      const h = document.getElementById('kb-help');
+      h.style.display = (h.style.display === 'none') ? 'block' : 'none';
+      e.preventDefault();
+      break;
+    }
+  }
+});
+
+function dismissKbHelp() {
+  document.getElementById('kb-help').style.display = 'none';
+  try { localStorage.setItem('qa_kb_help_dismissed', '1'); } catch(e){}
+}
+if (typeof localStorage !== 'undefined' && localStorage.getItem('qa_kb_help_dismissed') === '1') {
+  document.addEventListener('DOMContentLoaded', () => {
+    const h = document.getElementById('kb-help'); if (h) h.style.display = 'none';
+  });
+}
+
+function renderPg() {
+  const pages = Math.ceil(state.total / state.per);
+  if (pages <= 1) { document.getElementById('pagination').innerHTML=''; return; }
+  const cur = state.page;
+  const start = Math.max(1, cur-2), end = Math.min(pages, cur+2);
+  let html = `<button class="pg-btn" ${cur<=1?'disabled':''} onclick="goPage(${cur-1})">◀</button>`;
+  if (start>1) html += `<button class="pg-btn" onclick="goPage(1)">1</button>`;
+  for (let i=start;i<=end;i++) html += `<button class="pg-btn ${i===cur?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  if (end<pages) html += `<button class="pg-btn" onclick="goPage(${pages})">${pages}</button>`;
+  html += `<button class="pg-btn" ${cur>=pages?'disabled':''} onclick="goPage(${cur+1})">▶</button>`;
+  document.getElementById('pagination').innerHTML = html;
+}
+function goPage(n){ state.page = n; loadList(); window.scrollTo(0,0); }
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('');
+  document.getElementById('f-all').classList.add('active');
+  loadList();
+});
+</script>
+</body>
+</html>

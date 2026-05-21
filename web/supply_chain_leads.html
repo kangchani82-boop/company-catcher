@@ -82,9 +82,9 @@
 </div>
 
 <script>
-const API = window.location.origin;
+// API는 common.js에서 이미 선언됨 — 재선언 금지
 const PER_PAGE = 30;
-let currentScenario = 'all';
+let currentScenario = new URLSearchParams(location.search).get('scenario') || 'all';
 let currentPage = 1;
 let totalItems = 0;
 

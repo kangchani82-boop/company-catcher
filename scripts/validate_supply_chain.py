@@ -51,13 +51,10 @@ if _env_path.exists():
                 os.environ[key] = val
 
 # ── Gemini 모델 우선순위 ─────────────────────────────────────────────
-GEMINI_MODELS = [
-    "gemma-3-27b-it",
-    "gemini-2.0-flash",
-    "gemma-3-12b-it",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash-lite",
-]
+# SSOT(config/gemini_models.py)에서 import — JSON 출력 정확도 우선 라인업
+sys.path.insert(0, str(ROOT))
+from config.gemini_models import SUPPLY_CHAIN_VALIDATE_MODELS as GEMINI_MODELS
+
 BATCH_SIZE  = 20    # 한 번 API 호출당 기업 수
 DELAY       = 1.5   # API 호출 간격 (초)
 

@@ -169,11 +169,11 @@
       </select>
       <select id="type-filter" onchange="onFilterChange()">
         <option value="">전체 유형</option>
-        <option value="2025_annual__2025_q1">사업보고서 → 1분기</option>
-        <option value="2025_annual__2025_h1">사업보고서 → 반기</option>
-        <option value="2025_annual__2025_q3">사업보고서 → 3분기</option>
-        <option value="2025_q1__2025_h1">1분기 → 반기</option>
-        <option value="2025_h1__2025_q3">반기 → 3분기</option>
+        <option value="2025_annual__2025_q1">2025년 1분기 보고서 → 2025년 전체 사업보고서</option>
+        <option value="2025_annual__2025_h1">2025년 반기 보고서 → 2025년 전체 사업보고서</option>
+        <option value="2025_annual__2025_q3">2025년 3분기 보고서 → 2025년 전체 사업보고서</option>
+        <option value="2025_q1__2025_h1">2025년 1분기 보고서 → 2025년 반기 보고서</option>
+        <option value="2025_h1__2025_q3">2025년 반기 보고서 → 2025년 3분기 보고서</option>
       </select>
     </div>
 
@@ -253,14 +253,31 @@
   let searchTimer  = null;
   let selectedComp = null; // { id, corp_code, corp_name }
 
-  // ── 보고서 유형 라벨 ──────────────────────────────────────────────────────
+  // ── 보고서 유형 라벨 (연도+종류 명시) ────────────────────────────────────
   const TYPE_LABELS = {
-    '2025_annual': '사업보고서',
-    '2025_q1':     '1분기',
-    '2025_h1':     '반기',
-    '2025_q3':     '3분기',
+    '2025_annual': '2025년 전체 사업보고서',
+    '2025_q1':     '2025년 1분기 보고서',
+    '2025_h1':     '2025년 반기 보고서',
+    '2025_q3':     '2025년 3분기 보고서',
+    '2026_annual': '2026년 전체 사업보고서',
+    '2026_q1':     '2026년 1분기 보고서',
+    '2026_h1':     '2026년 반기 보고서',
+    '2026_q3':     '2026년 3분기 보고서',
   };
   function typeLabel(t) { return TYPE_LABELS[t] || t; }
+
+  // 보고서 시간 순서 — 발간 시점 순 정렬 (과거 → 최신 표시용)
+  // 같은 연도: q1 < h1 < q3 < annual (annual은 익년 3월 발간이라 최신)
+  const TYPE_ORDER = {
+    '2025_q1': 1, '2025_h1': 2, '2025_q3': 3, '2025_annual': 4,
+    '2026_q1': 5, '2026_h1': 6, '2026_q3': 7, '2026_annual': 8,
+  };
+  function chronoSort(typeA, typeB) {
+    // 시간 흐름순 (older first, newer second) 반환
+    const oA = TYPE_ORDER[typeA] || 0;
+    const oB = TYPE_ORDER[typeB] || 0;
+    return oA < oB ? [typeA, typeB] : [typeB, typeA];
+  }
 
   // ── URL 파라미터 ──────────────────────────────────────────────────────────
   function getUrlParams() {
@@ -384,14 +401,21 @@
           <span class="type-badge">${escHtml(item.model || 'flash')}</span>
           <span style="margin-left:auto;display:flex;align-items:center;gap:6px;">
             <span style="font-size:11px;color:var(--txt2);">${fmtDate(item.analyzed_at)}</span>
+            <a class="btn-exclude" href="/report_work?id=${item.report_id_b||item.report_id_a||''}"
+               onclick="event.stopPropagation()"
+               title="이 비교가 시작된 보고서의 작업 흐름 (단서·기사·질문지·답장)"
+               style="text-decoration:none;background:rgba(168,85,247,.12);color:#a855f7;border-color:rgba(168,85,247,.3)">📄 작업</a>
             <button class="btn-exclude" onclick="event.stopPropagation(); excludeComparison(${item.id}, this)"
               title="기사 가치 없음 — 목록에서 제외">🚫 제외</button>
           </span>
         </div>
         <div class="comp-route">
-          <span class="type-tag">${escHtml(typeLabel(item.report_type_a))}</span>
-          <span class="comp-route-arrow">→</span>
-          <span class="type-tag">${escHtml(typeLabel(item.report_type_b))}</span>
+          ${(() => {
+            const [past, latest] = chronoSort(item.report_type_a, item.report_type_b);
+            return `<span class="type-tag" title="과거(비교 대상)">${escHtml(typeLabel(past))}</span>
+                    <span class="comp-route-arrow">→</span>
+                    <span class="type-tag" title="최신(기준점)" style="background:rgba(236,72,153,.12);color:#ec4899;font-weight:700">${escHtml(typeLabel(latest))}</span>`;
+          })()}
         </div>
         ${preview ? `<div class="comp-preview">${escHtml(preview)}</div>` : ''}
         <div class="comp-footer">
@@ -460,8 +484,10 @@
   }
 
   function renderDetail(comp) {
-    const ta   = typeLabel(comp.report_type_a);
-    const tb   = typeLabel(comp.report_type_b);
+    // 시간순 정렬 (과거 → 최신)
+    const [_pastT, _latestT] = chronoSort(comp.report_type_a, comp.report_type_b);
+    const ta   = typeLabel(_pastT);
+    const tb   = typeLabel(_latestT);
     const charA = comp.char_count_a ? `A:${Math.round(comp.char_count_a/1000)}k자` : '';
     const charB = comp.char_count_b ? `B:${Math.round(comp.char_count_b/1000)}자` : '';
 

@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IR 담당자 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .ir-wrap { max-width: 1500px; margin: 0 auto; padding: 16px; }
+    .ir-h1 { font-size: 22px; font-weight: 700; margin: 0 0 6px 0;
+             background: linear-gradient(135deg, #ec4899, #a855f7);
+             -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .ir-sub { font-size: 12px; color: var(--txt2); margin-bottom: 16px; }
+
+    /* 통계 카드 */
+    .stat-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 16px; }
+    .stat-card {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; text-align: center;
+    }
+    .stat-num { font-size: 20px; font-weight: 800; color: var(--acc); }
+    .stat-label { font-size: 11px; color: var(--txt2); margin-top: 2px; }
+
+    /* 필터바 */
+    .filter-bar {
+      display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 12px;
+    }
+    .filter-bar input, .filter-bar select {
+      background: var(--bg1); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 6px; padding: 6px 10px; font-size: 12px;
+    }
+    .filter-bar input[type=text] { flex: 1; min-width: 200px; }
+    .chip {
+      font-size: 11px; padding: 4px 10px; border-radius: 999px; cursor: pointer;
+      background: var(--bg1); border: 1px solid var(--border); color: var(--txt2);
+      transition: all .15s;
+    }
+    .chip:hover { border-color: var(--acc); color: var(--acc); }
+    .chip.on { background: var(--acc); color: #fff; border-color: var(--acc); }
+
+    /* 표 */
+    .ir-table {
+      width: 100%; border-collapse: collapse; font-size: 12px;
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      overflow: hidden;
+    }
+    .ir-table th {
+      background: var(--bg3); color: var(--txt2); font-weight: 700;
+      padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left;
+      position: sticky; top: 0; z-index: 1;
+    }
+    .ir-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .ir-table tbody tr:hover { background: var(--bg3); }
+    .ir-table .priority { color: #ef4444; font-weight: 700; }
+
+    /* 인라인 편집 */
+    .editable { cursor: pointer; min-height: 16px; padding: 2px 4px; border-radius: 3px;
+                color: var(--txt1); }
+    .editable:hover { background: var(--bg1); outline: 1px dashed var(--acc); }
+    .editable.empty { color: #d1d5db40; font-style: italic; }
+    .editable.empty::after { content: "—"; }
+    .edit-input {
+      width: 100%; background: var(--bg1); border: 1px solid var(--acc);
+      color: var(--txt1); border-radius: 4px; padding: 3px 6px; font-size: 12px;
+    }
+
+    /* 신뢰도 배지 */
+    .conf {
+      font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 999px;
+      letter-spacing: .3px; text-transform: uppercase;
+    }
+    .conf-A_complete   { background: rgba(34,197,94,.18); color: #22c55e; }
+    .conf-A_verified   { background: rgba(34,197,94,.13); color: #16a34a; }
+    .conf-A_email_only { background: rgba(59,130,246,.15); color: #3b82f6; }
+    .conf-found        { background: rgba(168,85,247,.15); color: #a855f7; }
+    .conf-B_extracted  { background: rgba(245,158,11,.15); color: #f59e0b; }
+    .conf-B_phone_only { background: rgba(245,158,11,.10); color: #d97706; }
+    .conf-C_homepage   { background: rgba(148,163,184,.15); color: #94a3b8; }
+    .conf-C_guessed    { background: rgba(148,163,184,.10); color: #94a3b8; }
+    .conf-guessed      { background: rgba(148,163,184,.10); color: #94a3b8; }
+    .conf-D_manual     { background: rgba(99,102,241,.18); color: #6366f1; }
+    .conf-none         { background: rgba(220,38,38,.10); color: #dc2626; }
+
+    /* 출처 배지 */
+    .src {
+      font-size: 9px; padding: 2px 5px; border-radius: 4px; color: var(--txt2);
+      background: var(--bg1); border: 1px solid var(--border);
+    }
+
+    /* 버튼 */
+    .btn {
+      font-size: 11px; padding: 4px 10px; border-radius: 6px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--bg1); color: var(--txt2);
+      transition: all .15s;
+    }
+    .btn:hover { border-color: var(--acc); color: var(--acc); }
+    .btn-primary { background: var(--acc); color: #fff; border-color: var(--acc); }
+    .btn-danger:hover { border-color: #ef4444; color: #ef4444; }
+    .btn-success:hover { border-color: #22c55e; color: #22c55e; }
+    .btn-success.on { background: #22c55e; color: #fff; border-color: #22c55e; }
+
+    /* 페이지네이션 */
+    .pagination { display: flex; gap: 4px; justify-content: center; padding: 12px; }
+    .pg-btn {
+      font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer;
+      background: var(--bg2); border: 1px solid var(--border); color: var(--txt2);
+    }
+    .pg-btn:hover:not(:disabled) { border-color: var(--acc); color: var(--acc); }
+    .pg-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .pg-btn.active { background: var(--acc); color: #fff; border-color: var(--acc); }
+
+    /* 모달 */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100;
+      display: none; align-items: center; justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+      padding: 20px; min-width: 480px; max-width: 600px;
+    }
+    .modal h3 { margin: 0 0 16px 0; }
+    .form-grid { display: grid; grid-template-columns: 110px 1fr; gap: 10px 12px; align-items: center; }
+    .form-grid input, .form-grid select {
+      background: var(--bg1); border: 1px solid var(--border); color: var(--txt1);
+      border-radius: 6px; padding: 6px 10px; font-size: 12px;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="ir-wrap">
+  <div>
+    <h1 class="ir-h1">📨 IR 담당자 관리</h1>
+    <p class="ir-sub">수집된 IR/PR 담당자 정보를 검토·편집하고, 발송 가능한 contact만 추려 사용하세요. 빈 셀 클릭으로 인라인 편집.</p>
+  </div>
+
+  <!-- 통계 -->
+  <div class="stat-grid" id="stat-grid">
+    <div class="stat-card"><div class="stat-num" id="st-total">-</div><div class="stat-label">전체</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-verified">-</div><div class="stat-label">검증됨</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-A">-</div><div class="stat-label">A 등급</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-priority">-</div><div class="stat-label">우선순위 contact</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-with-email">-</div><div class="stat-label">이메일 보유</div></div>
+  </div>
+
+  <!-- 필터 -->
+  <div class="filter-bar">
+    <input type="text" id="f-q" placeholder="검색 (회사명·이메일·이름)" oninput="debounceLoad()">
+    <select id="f-source" onchange="loadList()">
+      <option value="">출처 (전체)</option>
+      <option value="PRESS_RELEASE">📰 보도자료</option>
+      <option value="HOMEPAGE">🏠 홈페이지</option>
+      <option value="DOMAIN_GUESS">🟡 도메인 추정</option>
+      <option value="DART_HOMEPAGE_ONLY">📂 DART 홈페이지만</option>
+      <option value="MANUAL">✍ 수동</option>
+    </select>
+    <select id="f-conf" onchange="loadList()">
+      <option value="">신뢰도 (전체)</option>
+      <option value="A_complete">A_complete</option>
+      <option value="A_verified">A_verified</option>
+      <option value="A_email_only">A_email_only</option>
+      <option value="found">found</option>
+      <option value="B_phone_only">B_phone_only</option>
+      <option value="guessed">guessed</option>
+      <option value="D_manual">D_manual</option>
+    </select>
+    <span class="chip" id="ch-priority" onclick="toggleFilter('priority')">★ 우선순위만</span>
+    <span class="chip" id="ch-verified" onclick="toggleFilter('verified')">✓ 검증된 것만</span>
+    <span class="chip" id="ch-email" onclick="toggleFilter('with_email')">📧 이메일 있는 것만</span>
+    <span class="chip" id="ch-review" onclick="toggleReview()" style="border-color:#ef4444;color:#ef4444">⚠ 검토필요만</span>
+    <span style="margin-left:auto"></span>
+    <a class="btn" href="/api/ir_contacts/export" download="ir_contacts.csv" title="현재 데이터를 CSV로 다운로드">📥 CSV 다운로드</a>
+    <button class="btn" onclick="document.getElementById('csv-upload').click()" title="CSV 파일 업로드 — 일괄 등록">📤 CSV 업로드</button>
+    <input type="file" id="csv-upload" accept=".csv" style="display:none" onchange="onCsvUpload(this.files[0])">
+    <button class="btn btn-primary" onclick="showAddForm()">+ 추가</button>
+  </div>
+
+  <!-- 표 -->
+  <div style="background: var(--bg2); border-radius: 10px; overflow: auto; max-height: calc(100vh - 270px);">
+    <table class="ir-table">
+      <thead>
+        <tr>
+          <th style="width:30px"></th>
+          <th>회사명</th>
+          <th>이메일</th>
+          <th>이름</th>
+          <th>직책</th>
+          <th>부서</th>
+          <th>전화/휴대</th>
+          <th>출처</th>
+          <th>신뢰도</th>
+          <th style="width:140px">검증/액션</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="10" style="padding:30px;text-align:center;color:var(--txt2)">로딩 중...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<!-- 인라인 펼침 폼 (모달 X) -->
+<div id="addform" style="display:none; background: var(--bg2); border: 1px solid var(--acc);
+                          border-radius: 10px; padding: 16px; margin-bottom: 12px;">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <h3 id="form-title" style="margin:0;font-size:15px">📝 IR 담당자 신규 등록</h3>
+    <button type="button" class="btn" onclick="hideAddForm()">✕ 닫기</button>
+  </div>
+  <div style="font-size:11px;color:var(--txt2);margin-bottom:12px">
+    ★ <b>회사명 검색</b>한 후 드롭다운에서 선택하세요. 수정 시 회사를 변경하면 자동으로 반영됩니다. 이메일 또는 (이름+전화)는 필수.
+  </div>
+  <div class="form-grid">
+    <label>회사 *</label>
+    <div>
+      <input type="text" id="m-corp-search" placeholder="회사명 또는 종목코드" oninput="searchCorpForModal()" autocomplete="off">
+      <select id="m-corp-code" style="margin-top:6px;width:100%" onchange="onCorpSelected()">
+        <option value="">↑ 위에서 검색 후 선택</option>
+      </select>
+      <div id="m-corp-confirm" style="font-size:11px;color:#22c55e;margin-top:4px;display:none"></div>
+    </div>
+    <label>이메일</label>
+    <input type="email" id="m-email" placeholder="ir@example.com">
+    <label>보조 이메일</label>
+    <input type="email" id="m-email2" placeholder="(선택)">
+    <label>이름</label>
+    <input type="text" id="m-name">
+    <label>직책</label>
+    <input type="text" id="m-title" placeholder="팀장 / 부장 등">
+    <label>부서</label>
+    <input type="text" id="m-dept" placeholder="IR팀 / 홍보팀 등">
+    <label>전화</label>
+    <input type="text" id="m-phone" placeholder="02-1234-5678">
+    <label>휴대폰</label>
+    <input type="text" id="m-mobile" placeholder="010-1234-5678">
+    <label>메모</label>
+    <input type="text" id="m-notes">
+  </div>
+  <div id="m-error" style="font-size:11px;color:#ef4444;margin-top:8px;display:none"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <button type="button" class="btn" onclick="hideAddForm()">취소</button>
+    <button type="button" class="btn btn-primary" onclick="submitNew()">저장</button>
+  </div>
+</div>
+
+<script>
+let state = {
+  page: 1, perPage: 50, total: 0,
+  q: '', source: '', conf: '',
+  priority: false, verified: false, with_email: false,
+};
+
+let debounceTimer;
+function debounceLoad() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => { state.page=1; loadList(); }, 350);
+}
+
+function toggleFilter(key) {
+  state[key] = !state[key];
+  document.getElementById('ch-' + (key === 'with_email' ? 'email' : key)).classList.toggle('on', state[key]);
+  state.page = 1;
+  loadList();
+}
+
+function toggleReview() {
+  state.review = !state.review;
+  document.getElementById('ch-review').classList.toggle('on', state.review);
+  // 검토필요만 보기 — 검색창에 [검토필요] 강제
+  if (state.review) {
+    document.getElementById('f-q').value = '[검토필요]';
+  } else {
+    document.getElementById('f-q').value = '';
+  }
+  state.page = 1;
+  loadList();
+}
+
+async function loadList() {
+  state.q = document.getElementById('f-q').value;
+  state.source = document.getElementById('f-source').value;
+  state.conf = document.getElementById('f-conf').value;
+
+  const params = new URLSearchParams({
+    page: state.page,
+    per_page: state.perPage,
+    q: state.q,
+    source: state.source,
+    confidence: state.conf,
+  });
+  if (state.priority) params.set('priority', '1');
+  if (state.verified) params.set('verified', '1');
+  if (state.with_email) params.set('with_email', '1');
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '<tr><td colspan="10" style="padding:30px;text-align:center">로딩...</td></tr>';
+
+  try {
+    const r = await fetch(`${API}/api/ir_contacts?${params}`);
+    const data = await r.json();
+    state.total = data.total || 0;
+
+    // 통계 업데이트
+    const stats = data.stats || {};
+    document.getElementById('st-total').textContent = (stats.total_contacts || 0).toLocaleString();
+    const cf = stats.by_confidence || {};
+    const totalA = (cf['A_complete']||0) + (cf['A_verified']||0) + (cf['A_email_only']||0);
+    const verifiedCount = data.items.filter(i => i.user_verified).length;  // 페이지내만
+    document.getElementById('st-verified').textContent = verifiedCount + '+';
+    document.getElementById('st-A').textContent = totalA.toLocaleString();
+    document.getElementById('st-priority').textContent = data.items.filter(i => i.is_priority).length + '+';
+    document.getElementById('st-with-email').textContent = data.items.filter(i => i.ir_email && !i.ir_email.startsWith('_')).length + '+';
+
+    if (!data.items.length) {
+      tbody.innerHTML = '<tr><td colspan="10" style="padding:40px;text-align:center;color:var(--txt2)">결과 없음</td></tr>';
+      document.getElementById('pagination').innerHTML = '';
+      return;
+    }
+
+    tbody.innerHTML = data.items.map(it => renderRow(it)).join('');
+    renderPg();
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="10" style="padding:30px;text-align:center;color:#ef4444">오류: ${e.message}</td></tr>`;
+  }
+}
+
+function renderRow(it) {
+  const showEmail = it.ir_email && !it.ir_email.startsWith('_') ? it.ir_email : '';
+  return `
+    <tr id="row-${it.id}">
+      <td>${it.is_priority ? '<span class="priority" title="우선순위 회사">★</span>' : ''}</td>
+      <td>
+        <span class="editable ${!it.corp_name?'empty':''}" data-field="corp_name" data-id="${it.id}"
+              style="font-weight:600">${escHtml(it.corp_name||'')}</span>
+        <br>
+        <span style="font-size:9px;color:var(--txt2);cursor:pointer;text-decoration:underline dotted"
+              onclick="showEditForm(${it.id})" title="회사 변경·전체 수정 폼">${escHtml(it.corp_code)} ✎</span>
+      </td>
+      <td><span class="editable ${!showEmail?'empty':''}" data-field="ir_email" data-id="${it.id}">${escHtml(showEmail)}</span></td>
+      <td><span class="editable ${!it.ir_name?'empty':''}" data-field="ir_name" data-id="${it.id}">${escHtml(it.ir_name||'')}</span></td>
+      <td><span class="editable ${!it.ir_title?'empty':''}" data-field="ir_title" data-id="${it.id}">${escHtml(it.ir_title||'')}</span></td>
+      <td><span class="editable ${!it.ir_dept?'empty':''}" data-field="ir_dept" data-id="${it.id}">${escHtml(it.ir_dept||'')}</span></td>
+      <td>
+        <span class="editable ${!it.ir_mobile?'empty':''}" data-field="ir_mobile" data-id="${it.id}">${escHtml(it.ir_mobile||'')}</span>
+        ${it.ir_phone ? `<br><span class="editable" data-field="ir_phone" data-id="${it.id}">${escHtml(it.ir_phone)}</span>` : ''}
+      </td>
+      <td><span class="src">${it.source||''}</span></td>
+      <td><span class="conf conf-${it.confidence||'none'}">${it.confidence||'none'}</span></td>
+      <td>
+        <button class="btn" onclick="showEditForm(${it.id})" title="전체 편집">✎ 수정</button>
+        <button class="btn btn-success ${it.user_verified?'on':''}"
+                onclick="toggleVerified(${it.id}, ${it.user_verified?0:1})">${it.user_verified?'✓':'검증'}</button>
+        <button class="btn btn-danger" onclick="delContact(${it.id})">🗑</button>
+      </td>
+    </tr>`;
+}
+
+function renderPg() {
+  const total = state.total;
+  const pages = Math.ceil(total / state.perPage);
+  const cur = state.page;
+  const el = document.getElementById('pagination');
+  if (pages <= 1) { el.innerHTML = `<span style="font-size:11px;color:var(--txt2)">총 ${total}건</span>`; return; }
+  let html = `<span style="font-size:11px;color:var(--txt2);margin-right:12px">총 ${total.toLocaleString()}건 · ${cur}/${pages}</span>`;
+  html += `<button class="pg-btn" ${cur<=1?'disabled':''} onclick="goPage(${cur-1})">◀</button>`;
+  // 페이지 번호 표시 (current 좌우 2개씩)
+  const start = Math.max(1, cur - 2);
+  const end = Math.min(pages, cur + 2);
+  if (start > 1) html += `<button class="pg-btn" onclick="goPage(1)">1</button>${start>2?'<span style="padding:4px">...</span>':''}`;
+  for (let i = start; i <= end; i++) {
+    html += `<button class="pg-btn ${i===cur?'active':''}" onclick="goPage(${i})">${i}</button>`;
+  }
+  if (end < pages) html += `${end<pages-1?'<span style="padding:4px">...</span>':''}<button class="pg-btn" onclick="goPage(${pages})">${pages}</button>`;
+  html += `<button class="pg-btn" ${cur>=pages?'disabled':''} onclick="goPage(${cur+1})">▶</button>`;
+  el.innerHTML = html;
+}
+
+function goPage(n) { state.page = n; loadList(); window.scrollTo(0,0); }
+
+// 인라인 편집
+document.addEventListener('click', e => {
+  const t = e.target.closest('.editable');
+  if (!t) return;
+  if (t.querySelector('input')) return;  // 이미 편집 중
+  const cur = t.textContent.trim();
+  const id = t.dataset.id;
+  const field = t.dataset.field;
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.value = cur;
+  inp.className = 'edit-input';
+  t.innerHTML = '';
+  t.appendChild(inp);
+  inp.focus();
+  inp.select();
+  const finish = async (save) => {
+    if (save && inp.value !== cur) {
+      try {
+        await fetch(`${API}/api/ir_contacts/${id}`, {
+          method: 'PATCH', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({[field]: inp.value})
+        });
+      } catch(e){ alert('저장 실패: '+e.message); }
+    }
+    t.innerHTML = escHtml(save ? inp.value : cur);
+    if (!t.textContent.trim()) t.classList.add('empty'); else t.classList.remove('empty');
+  };
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('keydown', ev => {
+    if (ev.key==='Enter') { finish(true); }
+    if (ev.key==='Escape') { finish(false); }
+  });
+});
+
+async function toggleVerified(id, val) {
+  await fetch(`${API}/api/ir_contacts/${id}`, {
+    method: 'PATCH', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({user_verified: val})
+  });
+  loadList();
+}
+
+async function onCsvUpload(file) {
+  if (!file) return;
+  const ok = confirm(
+    `CSV 일괄 업로드\n\n파일: ${file.name}\n\n` +
+    `필수 컬럼: corp_code 또는 corp_name (회사 매칭용)\n` +
+    `선택 컬럼: ir_email, ir_name, ir_title, ir_dept, ir_phone, ir_mobile, notes\n\n` +
+    `진행하시겠습니까?`
+  );
+  if (!ok) return;
+  try {
+    const text = await file.text();
+    const r = await fetch(`${API}/api/ir_contacts/import`, {
+      method: 'POST', headers: {'Content-Type':'text/csv'},
+      body: text
+    });
+    const res = await r.json();
+    if (res.error) { alert('오류: ' + res.error); return; }
+    let msg = `✅ ${res.inserted}건 등록됨\n`;
+    msg += `회사 자동 매칭: ${res.matched_corp}건\n`;
+    if (res.skipped) msg += `빈 행 스킵: ${res.skipped}건\n`;
+    if (res.errors && res.errors.length) msg += `\n에러:\n` + res.errors.join('\n');
+    alert(msg);
+    document.getElementById('csv-upload').value = '';
+    loadList();
+  } catch(e) { alert('업로드 실패: ' + e.message); }
+}
+
+async function delContact(id) {
+  if (!confirm('정말 삭제하시겠습니까?')) return;
+  await fetch(`${API}/api/ir_contacts/${id}`, {method:'DELETE'});
+  loadList();
+}
+
+function openAddModal() { showAddForm(); }
+function closeModal() { hideAddForm(); }
+
+let editingId = null;  // null이면 신규, 숫자면 수정 모드
+
+function resetForm() {
+  ['m-corp-search','m-email','m-email2','m-name','m-title','m-dept','m-phone','m-mobile','m-notes']
+    .forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('m-corp-code').innerHTML = '<option value="">↑ 위에서 검색 후 선택</option>';
+  document.getElementById('m-corp-confirm').style.display = 'none';
+  document.getElementById('m-error').style.display = 'none';
+}
+
+function showAddForm() {
+  editingId = null;
+  resetForm();
+  document.getElementById('form-title').textContent = '📝 IR 담당자 신규 등록';
+  const f = document.getElementById('addform');
+  f.style.display = 'block';
+  f.scrollIntoView({behavior:'smooth', block:'start'});
+  setTimeout(() => document.getElementById('m-corp-search').focus(), 100);
+}
+
+async function showEditForm(id) {
+  editingId = id;
+  resetForm();
+  document.getElementById('form-title').textContent = '✎ IR 담당자 수정 (#' + id + ')';
+  // 기존 데이터 로드
+  try {
+    const r = await fetch(`${API}/api/ir_contacts/${id}`);
+    const d = await r.json();
+    if (d.error) { alert('로드 실패: ' + d.error); return; }
+    // 회사 정보 prefill
+    document.getElementById('m-corp-search').value = d.corp_name || '';
+    const sel = document.getElementById('m-corp-code');
+    sel.innerHTML = `<option value="${d.corp_code}" selected>${d.corp_name||''} ${d.corp_code}</option>`;
+    document.getElementById('m-corp-confirm').textContent = '✓ ' + (d.corp_name||'') + ' (' + d.corp_code + ')';
+    document.getElementById('m-corp-confirm').style.display = 'block';
+    // 다른 필드
+    document.getElementById('m-email').value = (d.ir_email && !d.ir_email.startsWith('_')) ? d.ir_email : '';
+    document.getElementById('m-email2').value = d.ir_email_secondary || '';
+    document.getElementById('m-name').value = d.ir_name || '';
+    document.getElementById('m-title').value = d.ir_title || '';
+    document.getElementById('m-dept').value = d.ir_dept || '';
+    document.getElementById('m-phone').value = d.ir_phone || '';
+    document.getElementById('m-mobile').value = d.ir_mobile || '';
+    document.getElementById('m-notes').value = d.notes || '';
+  } catch(e) {
+    alert('로드 실패: ' + e.message); return;
+  }
+  const f = document.getElementById('addform');
+  f.style.display = 'block';
+  f.scrollIntoView({behavior:'smooth', block:'start'});
+}
+function hideAddForm() {
+  document.getElementById('addform').style.display = 'none';
+}
+
+// ESC로 폼 닫기
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('addform').style.display !== 'none') {
+    hideAddForm();
+  }
+});
+
+function onCorpSelected() {
+  const sel = document.getElementById('m-corp-code');
+  const txt = sel.options[sel.selectedIndex]?.textContent || '';
+  const cd = document.getElementById('m-corp-confirm');
+  if (sel.value) {
+    cd.textContent = '✓ 선택됨: ' + txt;
+    cd.style.display = 'block';
+  } else {
+    cd.style.display = 'none';
+  }
+}
+
+let corpSearchTimer;
+async function searchCorpForModal() {
+  clearTimeout(corpSearchTimer);
+  corpSearchTimer = setTimeout(async () => {
+    const q = document.getElementById('m-corp-search').value;
+    const sel = document.getElementById('m-corp-code');
+    if (q.length < 2) {
+      sel.innerHTML = '<option value="">↑ 회사명 2글자 이상 입력</option>';
+      return;
+    }
+    try {
+      const r = await fetch(`${API}/api/companies/search?q=${encodeURIComponent(q)}&limit=30`);
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        sel.innerHTML = '<option value="">검색 결과 없음</option>';
+        return;
+      }
+      sel.innerHTML = '<option value="">선택하세요 (' + items.length + '건)</option>' +
+        items.map(c => `<option value="${c.corp_code}">${escHtml(c.corp_name)} ${c.stock_code ? '('+c.stock_code+')' : ''}</option>`).join('');
+      // 정확히 1건이면 자동 선택
+      if (items.length === 1) {
+        sel.value = items[0].corp_code;
+        onCorpSelected();
+      }
+    } catch(e){
+      sel.innerHTML = '<option value="">검색 오류</option>';
+    }
+  }, 300);
+}
+
+function showError(msg) {
+  const el = document.getElementById('m-error');
+  el.textContent = '⚠ ' + msg;
+  el.style.display = 'block';
+  setTimeout(() => el.style.display = 'none', 5000);
+}
+
+async function submitNew() {
+  const cc = document.getElementById('m-corp-code').value;
+  if (!cc) { showError('회사를 검색하고 드롭다운에서 선택해주세요'); return; }
+  const email = document.getElementById('m-email').value.trim();
+  const name = document.getElementById('m-name').value.trim();
+  const phone = document.getElementById('m-phone').value.trim();
+  const mobile = document.getElementById('m-mobile').value.trim();
+  if (!email && !(name && (phone || mobile))) {
+    showError('이메일 또는 (이름 + 전화/휴대폰) 필수입니다');
+    return;
+  }
+  // 회사명도 자동 업데이트 — 선택된 옵션의 텍스트에서 회사명 추출
+  const sel = document.getElementById('m-corp-code');
+  const selOpt = sel.options[sel.selectedIndex];
+  let corp_name = '';
+  if (selOpt) {
+    // 옵션 텍스트 형식: "회사명 (종목코드)" 또는 "회사명 종목코드"
+    corp_name = selOpt.textContent.replace(/\s*\(?\d{6}\)?\s*$/, '').trim();
+  }
+  const data = {
+    corp_code: cc,
+    corp_name: corp_name,  // 수정/신규 모두 회사명 같이 보냄
+    ir_email: email,
+    ir_email_secondary: document.getElementById('m-email2').value.trim(),
+    ir_name: name,
+    ir_title: document.getElementById('m-title').value.trim(),
+    ir_dept: document.getElementById('m-dept').value.trim(),
+    ir_phone: phone,
+    ir_mobile: mobile,
+    notes: document.getElementById('m-notes').value.trim(),
+  };
+
+  const url = editingId ? `${API}/api/ir_contacts/${editingId}` : `${API}/api/ir_contacts`;
+  const method = editingId ? 'PATCH' : 'POST';
+  try {
+    const r = await fetch(url, {
+      method: method, headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(data)
+    });
+    const res = await r.json();
+    if (!r.ok || res.error) {
+      showError('저장 실패: ' + (res.error || r.status));
+      return;
+    }
+    hideAddForm();
+    loadList();
+  } catch(e){
+    showError('저장 실패: ' + e.message);
+  }
+}
+
+// 초기화
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('ir_contacts');
+  loadList();
+});
+</script>
+
+</body>
+</html>

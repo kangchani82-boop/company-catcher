@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📊 업종 분석 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .sa-wrap { max-width:1500px; margin:0 auto; padding:16px; }
+    .sa-h1 { font-size:22px; font-weight:700; margin:0 0 6px 0;
+             background:linear-gradient(135deg,#10b981,#3b82f6);
+             -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .sa-sub { font-size:12px; color:var(--txt2); margin-bottom:16px; }
+    .toolbar { display:flex; gap:12px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+    .toolbar select, .toolbar input {
+      background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+      border-radius:6px; padding:6px 10px; font-size:12px;
+    }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:12px; }
+    .sector-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:14px 16px;
+    }
+    .sector-card h3 {
+      font-size:14px; margin:0 0 8px 0; padding-bottom:6px;
+      border-bottom:2px solid var(--border);
+      display:flex; justify-content:space-between; align-items:center;
+    }
+    .stat-row { display:flex; justify-content:space-between; align-items:center;
+                padding:4px 0; font-size:11px; color:var(--txt2); }
+    .stat-row b { color:var(--txt1); font-size:12px; }
+    .kw-cloud { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+    .kw {
+      font-size:10px; padding:2px 8px; border-radius:999px;
+      background:rgba(16,185,129,.12); color:#10b981;
+    }
+    .util-meter {
+      display:inline-block; width:80px; height:6px; background:var(--bg1);
+      border-radius:3px; overflow:hidden; vertical-align:middle;
+    }
+    .util-bar { height:100%; background:linear-gradient(90deg,#ef4444,#f59e0b,#10b981); }
+    .companies { font-size:10px; color:var(--txt2); margin-top:4px; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="sa-wrap">
+  <h1 class="sa-h1">📊 업종 분석 — 사업보고서 종합</h1>
+  <p class="sa-sub">
+    같은 업종 회사들의 사업보고서 II. 사업의 내용을 섹션별로 분리하여 종합 분석.
+    공통 키워드 / 가동률 평균 / 증설 발표 분포 등 — 단일 회사 분석으론 보이지 않는 패턴.
+  </p>
+
+  <div class="toolbar">
+    <label style="font-size:11px;color:var(--txt2)">보기:</label>
+    <select id="f-mode" onchange="loadData()">
+      <option value="taxonomy" selected>🌳 분류 트리 (제품군/공정/가치사슬/적용처)</option>
+      <option value="section">📊 섹션별 통계 (가동률·증설 등)</option>
+    </select>
+    <label style="font-size:11px;color:var(--txt2)" id="lbl-aux">업종:</label>
+    <select id="f-sector" onchange="loadData()">
+      <option value="">로딩...</option>
+    </select>
+    <label style="font-size:11px;color:var(--txt2)" id="lbl-section" style="display:none">섹션:</label>
+    <select id="f-section" onchange="loadData()" style="display:none">
+      <option value="overview">사업의 개요</option>
+      <option value="products">주요 제품 및 서비스</option>
+      <option value="materials" selected>원재료 및 생산설비</option>
+      <option value="revenue">매출 및 수주현황</option>
+      <option value="risk">위험관리</option>
+      <option value="contracts">주요계약·연구개발</option>
+      <option value="etc">기타 참고사항</option>
+    </select>
+    <span style="margin-left:auto;font-size:11px;color:var(--txt2)" id="meta">로딩 중...</span>
+  </div>
+
+  <div class="grid" id="grid">
+    <div style="padding:30px;text-align:center;color:var(--txt2)">로딩 중...</div>
+  </div>
+</div>
+
+<style>
+  .ax-card { background:var(--bg2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; }
+  .ax-card h3 { font-size:14px; margin:0 0 10px 0; padding-bottom:6px; border-bottom:2px solid var(--border); }
+  .cat-block { margin-bottom:14px; }
+  .cat-name { font-size:12px; font-weight:600; color:var(--acc); margin-bottom:4px; }
+  .cat-conf { display:flex; gap:4px; flex-wrap:wrap; }
+  .conf-pill {
+    font-size:9px; padding:2px 7px; border-radius:999px; font-weight:700;
+    cursor:pointer; transition:all .15s;
+  }
+  .conf-pill.HIGH { background:rgba(34,197,94,.15); color:#22c55e; }
+  .conf-pill.MEDIUM { background:rgba(245,158,11,.15); color:#f59e0b; }
+  .conf-pill.LOW { background:rgba(148,163,184,.15); color:#94a3b8; }
+  .cat-companies {
+    margin-top:6px; max-height:0; overflow:hidden; transition:max-height .3s;
+    font-size:10px; color:var(--txt2); line-height:1.5;
+  }
+  .cat-block.open .cat-companies { max-height:400px; overflow-y:auto; }
+  .corp-tag {
+    display:inline-block; padding:2px 7px; margin:2px; border-radius:4px;
+    background:var(--bg1); border:1px solid var(--border); color:var(--txt1);
+    cursor:pointer; font-size:10px;
+  }
+  .corp-tag:hover { border-color:var(--acc); }
+</style>
+
+<script>
+let currentData = null;
+let sectorList = [];
+
+async function initSectorList() {
+  // 분류 트리에서 sector 목록 추출
+  try {
+    const r = await fetch(`${API}/api/sector_taxonomy`);
+    const d = await r.json();
+    sectorList = Object.keys(d.tree || {}).sort();
+    const sel = document.getElementById('f-sector');
+    sel.innerHTML = sectorList.map(s => `<option value="${s}">${s}</option>`).join('');
+  } catch(e) {}
+}
+
+async function loadData() {
+  const mode = document.getElementById('f-mode').value;
+  const sector = document.getElementById('f-sector').value;
+  const section = document.getElementById('f-section').value;
+  document.getElementById('grid').innerHTML = '<div style="padding:30px;text-align:center;color:var(--txt2)">로딩...</div>';
+
+  // 모드별 표시 전환
+  document.getElementById('f-section').style.display = mode === 'section' ? '' : 'none';
+  document.getElementById('lbl-section').style.display = mode === 'section' ? '' : 'none';
+  document.getElementById('f-sector').style.display = mode === 'taxonomy' ? '' : 'none';
+  document.getElementById('lbl-aux').textContent = mode === 'taxonomy' ? '업종:' : '섹션:';
+
+  if (mode === 'taxonomy') {
+    if (!sector) return;
+    try {
+      const r = await fetch(`${API}/api/sector_taxonomy?sector=${encodeURIComponent(sector)}`);
+      const data = await r.json();
+      currentData = data;
+      const totalAxes = Object.keys(data.axes || {}).length;
+      const totalCats = Object.values(data.axes || {}).reduce((s, c) => s + Object.keys(c).length, 0);
+      document.getElementById('meta').textContent =
+        `${sector} | 분류축 ${totalAxes}개 / 카테고리 ${totalCats}개`;
+      renderTaxonomy();
+    } catch(e) {
+      document.getElementById('grid').innerHTML = `<div style="color:#ef4444">오류: ${e.message}</div>`;
+    }
+  } else {
+    try {
+      const r = await fetch(`${API}/api/sector_analysis?section=${section}`);
+      const data = await r.json();
+      currentData = data;
+      document.getElementById('meta').textContent =
+        `섹션: ${data.section_label || section} | 업종 ${Object.keys(data.sectors||{}).length}개`;
+      renderSection();
+    } catch(e) {
+      document.getElementById('grid').innerHTML = `<div style="color:#ef4444">오류: ${e.message}</div>`;
+    }
+  }
+}
+
+function renderTaxonomy() {
+  if (!currentData || !currentData.axes) return;
+  const grid = document.getElementById('grid');
+  const axes = currentData.axes;
+  grid.innerHTML = Object.entries(axes).map(([axisName, categories]) => {
+    const totalCorps = Object.values(categories).reduce((s, l) => s + l.length, 0);
+    const cats = Object.entries(categories).map(([catName, corps]) => {
+      const byConf = { HIGH: [], MEDIUM: [], LOW: [] };
+      corps.forEach(c => { byConf[c.confidence] = byConf[c.confidence] || []; byConf[c.confidence].push(c); });
+      const summary = `<span class="conf-pill HIGH">HIGH ${byConf.HIGH.length}</span>` +
+                      `<span class="conf-pill MEDIUM">MEDIUM ${byConf.MEDIUM.length}</span>` +
+                      `<span class="conf-pill LOW">LOW ${byConf.LOW.length}</span>`;
+      const corpList = corps.slice(0, 50).map(c =>
+        `<span class="corp-tag" onclick="location.href='/company_detail.html?corp_code=${c.corp_code}'"
+                title="${c.confidence} (${c.keyword_count}회)">${escHtml(c.corp_name)}</span>`
+      ).join('');
+      const more = corps.length > 50 ? ` (+${corps.length - 50}개 더)` : '';
+      return `
+        <div class="cat-block" onclick="this.classList.toggle('open')">
+          <div class="cat-name">${escHtml(catName)} <span style="color:var(--txt2);font-weight:400">— ${corps.length}개사</span></div>
+          <div class="cat-conf">${summary}</div>
+          <div class="cat-companies">${corpList}${more}</div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="ax-card">
+        <h3>${escHtml(axisName)} <span style="color:var(--txt2);font-weight:400;font-size:11px">— 누적 ${totalCorps}개사 매칭</span></h3>
+        ${cats}
+      </div>`;
+  }).join('');
+}
+
+function renderSection() {
+  if (!currentData || !currentData.sectors) return;
+  const sectors = Object.entries(currentData.sectors).filter(([k,v]) => k && k !== 'null');
+  sectors.sort(([,a], [,b]) => (b.company_count||0) - (a.company_count||0));
+  const grid = document.getElementById('grid');
+  grid.innerHTML = sectors.map(([sector, info]) => {
+    const utiBar = info.avg_utilization
+      ? `<div class="util-meter"><div class="util-bar" style="width:${Math.min(info.avg_utilization, 100)}%"></div></div>` : '';
+    const utiText = info.avg_utilization ? `${info.avg_utilization}%` : '-';
+    const expandPct = info.company_count ? Math.round(100 * info.expand_count / info.company_count) : 0;
+    const kws = (info.top_keywords || []).slice(0, 12).map(k => `<span class="kw">${escHtml(k)}</span>`).join('');
+    return `
+      <div class="sector-card">
+        <h3><span>${escHtml(sector)}</span>
+          <span style="font-size:11px;color:var(--txt2);font-weight:400">${info.company_count}개사</span></h3>
+        <div class="stat-row"><span>가동률 평균</span><span><b>${utiText}</b> ${utiBar}</span></div>
+        <div class="stat-row"><span>증설/신설 언급</span><span><b>${info.expand_count}개사</b> (${expandPct}%)</span></div>
+        <div class="stat-row"><span>매출 언급</span><span><b>${info.revenue_mentions}건</b></span></div>
+        <div style="margin-top:10px">
+          <div style="font-size:10px;color:var(--txt2);margin-bottom:4px">핵심 키워드</div>
+          <div class="kw-cloud">${kws}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  if (typeof renderNav === 'function') renderNav('sector_analysis');
+  await initSectorList();
+  // 기본 sector
+  if (sectorList.includes('반도체·전자')) {
+    document.getElementById('f-sector').value = '반도체·전자';
+  }
+  loadData();
+});
+</script>
+
+</body>
+</html>

@@ -54,15 +54,13 @@ def load_env(path: Path):
 
 
 # ── 모델 설정 ────────────────────────────────────────────────────────────────
-# 기사 초안 전용 모델 fallback 체인
-ARTICLE_MODELS = [
-    "gemini-flash-latest",            # 1순위: 최신 alias (자동 최신 버전)
-    "gemini-2.5-flash",               # 2순위: Flash 안정
-    "gemini-2.5-flash-lite",          # 3순위: 경량·고속
-    "gemini-2.0-flash",               # 최종 폴백
-]
-ARTICLE_RPD   = 100
-ARTICLE_DELAY = 7.0  # 10 RPM → 6초 + 여유
+# Gemini 모델 정책은 config/gemini_models.py 한 곳에서 관리 (SSOT)
+sys.path.insert(0, str(ROOT))
+from config.gemini_models import GEMINI_FALLBACKS, GEMINI_LIMITS, GEMINI_DELAYS
+
+ARTICLE_MODELS = GEMINI_FALLBACKS["article"]
+ARTICLE_RPD    = GEMINI_LIMITS["article"]["rpd"]
+ARTICLE_DELAY  = GEMINI_DELAYS["article"] + 0.5  # 여유 0.5초 가산
 
 
 # ── DB 연결 ──────────────────────────────────────────────────────────────────
@@ -76,12 +74,14 @@ def get_conn() -> sqlite3.Connection:
 
 # ── Gemini API 호출 (듀얼 키 지원) ───────────────────────────────────────────
 def _get_draft_keys() -> list:
-    """파싱1 + 파싱2 키 목록"""
+    """파싱1 + 파싱2 + 파싱3 키 목록 (모두 활용)"""
     keys = []
     k1 = os.environ.get("GEMINI_API_KEY", "").strip()
     k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
+    k3 = os.environ.get("GEMINI_API_KEY_3", "").strip()
     if k1: keys.append(k1)
     if k2: keys.append(k2)
+    if k3: keys.append(k3)
     return keys
 
 _draft_key_idx = 0

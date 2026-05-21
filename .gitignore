@@ -51,3 +51,22 @@ Thumbs.db
 .vscode/settings.json
 .idea/
 *.swp
+
+# OAuth secrets — Google Cloud credentials
+secrets/
+secrets/*.json
+*.token.json
+*credentials*.json
+
+# 대용량 IR 자료 (재수집 가능)
+data/ir_books/
+data/ir_batch_stats/
+
+# 데이터 산출물 (스크립트로 재생성)
+data/sector_analysis.json
+data/exports/
+data/imports/
+
+# Claude / IDE 작업 디렉토리
+.claude/worktrees/
+.claude/settings.local.json

@@ -44,15 +44,9 @@ MODEL = "claude-haiku-4-5"
 API_URL = "https://api.anthropic.com/v1/messages"
 DELAY = 1.5   # 초 (450K TPM 한도 고려: 6K tokens × ~60 RPM = 360K TPM)
 
-# Gemini 폴백 모델 (Claude 크레딧 소진 시)
-GEMINI_MODELS = [
-    "gemma-3-27b-it",           # JSON 출력 정확, 주력 모델
-    "gemma-3-12b-it",           # 폴백
-    "gemini-2.5-flash",         # 쿼터 리셋 후 자동 활성
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemma-4-31b-it",           # JSON 출력 불안정, 최후 수단
-]
+# Gemini 폴백 모델 (Claude 크레딧 소진 시) — SSOT에서 import
+sys.path.insert(0, str(ROOT))
+from config.gemini_models import SUPPLY_CHAIN_EXTRACT_MODELS as GEMINI_MODELS
 
 SYSTEM_PROMPT = """Extract supply chain relationships from the Korean corporate disclosure text below.
 Output ONLY a valid JSON array. No explanation, no markdown, no extra text.

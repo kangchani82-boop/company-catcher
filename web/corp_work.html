@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🏢 회사 작업 타임라인 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .cw-wrap { max-width:1080px; margin:0 auto; padding:16px; }
+    .cw-h1 {
+      font-size:20px; font-weight:700; margin:0 0 6px 0;
+      background:linear-gradient(135deg,#ec4899,#a855f7);
+      -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+    }
+    .cw-sub { font-size:11px; color:var(--txt2); margin-bottom:14px; }
+    .head-card {
+      background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+      padding:14px 18px; margin-bottom:14px;
+    }
+    .head-card .actions a {
+      font-size:11px; padding:4px 10px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg1); color:var(--txt1);
+      text-decoration:none; display:inline-block; margin-right:4px;
+    }
+    .head-card .actions a:hover { border-color:var(--acc); color:var(--acc); }
+
+    .timeline {
+      position:relative;
+      padding-left:24px;
+      margin-top:14px;
+    }
+    .timeline::before {
+      content:''; position:absolute; left:8px; top:6px; bottom:6px;
+      width:2px; background:linear-gradient(to bottom, #ec4899, #a855f7, #3b82f6);
+      border-radius:1px;
+    }
+    .t-item {
+      position:relative;
+      background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+      padding:10px 14px; margin-bottom:10px; cursor:pointer;
+      transition: all .15s;
+    }
+    .t-item:hover { border-color:var(--acc); transform: translateX(2px); }
+    .t-item::before {
+      content:''; position:absolute; left:-21px; top:14px;
+      width:12px; height:12px; border-radius:50%;
+      background:var(--bg1); border:2px solid var(--acc);
+    }
+    .t-item.active::before { background:var(--acc); box-shadow:0 0 0 4px rgba(168,85,247,.2); }
+
+    .t-head {
+      display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+      font-size:13px; color:var(--txt1); font-weight:600;
+    }
+    .t-type {
+      font-size:10px; padding:2px 8px; border-radius:10px;
+      background:rgba(168,85,247,.15); color:#a855f7; border:1px solid rgba(168,85,247,.3);
+      font-weight:600;
+    }
+    .t-date { color:var(--txt2); font-size:11px; font-weight:400; }
+    .t-meta { font-size:11px; color:var(--txt2); margin-top:6px;
+              display:flex; gap:12px; flex-wrap:wrap; }
+    .t-meta b { color:var(--acc); font-weight:700; }
+    .t-meta .zero { color:var(--txt2); }
+    .t-meta .biz-empty { color:#f59e0b; }
+
+    .empty { font-size:11px; color:var(--txt2); padding:20px; text-align:center; }
+    .err { color:#ef4444; padding:14px; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="cw-wrap">
+  <div id="page-content">
+    <div style="padding:30px;text-align:center;color:var(--txt2)">로딩 중...</div>
+  </div>
+</div>
+
+<script>
+const q = new URLSearchParams(location.search);
+const corpCode = q.get('corp_code');
+
+const REPORT_TYPE_LABEL = {
+  '2025_q1':'2025 Q1','2025_h1':'2025 반기','2025_q3':'2025 Q3','2025_annual':'2025 연간',
+  '2026_q1':'2026 Q1','2026_h1':'2026 반기','2026_q3':'2026 Q3','2026_annual':'2026 연간',
+  'A':'수시공시',
+};
+
+function fmtDt(s) {
+  if (!s) return '';
+  if (/^\d{8}$/.test(s)) return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  return s;
+}
+
+async function load() {
+  if (!corpCode) {
+    document.getElementById('page-content').innerHTML =
+      `<div class="err">corp_code 쿼리 파라미터 필요. 예: /corp_work?corp_code=00257732</div>`;
+    return;
+  }
+  try {
+    const r = await fetch(`${API}/api/corp_work/${corpCode}`);
+    if (!r.ok) {
+      const e = await r.json().catch(()=>({error:'알 수 없음'}));
+      throw new Error(e.error || '오류');
+    }
+    const d = await r.json();
+    render(d);
+  } catch (e) {
+    document.getElementById('page-content').innerHTML =
+      `<div class="err">오류: ${e.message}</div>`;
+  }
+}
+
+function render(d) {
+  const items = d.items || [];
+  let html = `
+    <h1 class="cw-h1">🏢 ${escHtml(d.corp_name || '(미상)')} — 작업 타임라인</h1>
+    <p class="cw-sub">corp_code ${escHtml(d.corp_code)} · 보고서별로 단서·기사·질문지·답장이 어떻게 흘러갔는지</p>
+    <div class="head-card">
+      <div class="actions">
+        <a href="/company_detail.html?corp_code=${escHtml(d.corp_code)}">📊 회사 종합 상세</a>
+        <a href="/ir_contacts.html?corp_code=${escHtml(d.corp_code)}">📇 IR 담당자</a>
+      </div>
+      <div style="margin-top:8px;font-size:11px;color:var(--txt2)">
+        보고서 ${items.length}건 · 가장 최근 ${items.length ? escHtml(fmtDt(items[items.length-1].rcept_dt)) : '-'}
+      </div>
+    </div>
+  `;
+
+  if (!items.length) {
+    html += `<div class="empty">이 회사 보고서 없음</div>`;
+  } else {
+    html += `<div class="timeline">`;
+    // 최신이 위에 오도록 reverse
+    const sorted = items.slice().reverse();
+    for (const it of sorted) {
+      const typeLabel = REPORT_TYPE_LABEL[it.report_type] || it.report_type;
+      const bizClass = (it.biz_len < 500) ? 'biz-empty' : '';
+      const cmpN = it.cmp_n||0, leadN = it.lead_n||0, dN = it.draft_n||0, qN = it.qst_n||0;
+      const isActive = cmpN > 0 || qN > 0;
+      html += `
+        <div class="t-item ${isActive?'active':''}" onclick="location.href='/report_work?id=${it.id}'">
+          <div class="t-head">
+            <span class="t-type">${escHtml(typeLabel)}</span>
+            <span>${escHtml(it.report_name || '')}</span>
+            <span class="t-date">· ${escHtml(fmtDt(it.rcept_dt||''))}</span>
+          </div>
+          <div class="t-meta">
+            <span class="${bizClass}">📦 ${(it.biz_len||0).toLocaleString()}자</span>
+            <span class="${cmpN?'':'zero'}">🔬 비교 <b>${cmpN}</b></span>
+            <span class="${leadN?'':'zero'}">📌 단서 <b>${leadN}</b></span>
+            <span class="${dN?'':'zero'}">📰 기사 <b>${dN}</b></span>
+            <span class="${qN?'':'zero'}">📨 질문지 <b>${qN}</b></span>
+            <span style="margin-left:auto">→ 보고서 #${it.id}</span>
+          </div>
+        </div>
+      `;
+    }
+    html += `</div>`;
+  }
+
+  document.getElementById('page-content').innerHTML = html;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('');
+  load();
+});
+</script>
+</body>
+</html>

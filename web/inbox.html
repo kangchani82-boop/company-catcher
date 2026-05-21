@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📬 IR 인박스 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .inbox-wrap { max-width:1400px; margin:0 auto; padding:16px; }
+    .inbox-h1 { font-size:22px; font-weight:700; margin:0 0 6px 0;
+                background:linear-gradient(135deg,#ec4899,#a855f7);
+                -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+    .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:12px 0; }
+    .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+                 padding:10px 12px; text-align:center; }
+    .stat-num { font-size:20px; font-weight:800; color:var(--acc); }
+    .stat-label { font-size:11px; color:var(--txt2); margin-top:2px; }
+    .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+    .toolbar .btn {
+      font-size:12px; padding:6px 12px; border-radius:6px; cursor:pointer;
+      border:1px solid var(--border); background:var(--bg2); color:var(--txt1);
+    }
+    .toolbar .btn:hover { border-color:var(--acc); }
+    .email-row {
+      background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+      padding:12px 16px; margin-bottom:8px; cursor:pointer;
+    }
+    .email-row:hover { border-color:var(--acc); }
+    .email-row.unread { border-left:4px solid #ec4899; }
+    .email-row.replied { background:rgba(34,197,94,.06); }
+    .badge {
+      font-size:9px; padding:2px 6px; border-radius:999px; font-weight:700;
+      text-transform:uppercase;
+    }
+    .b-out { background:rgba(59,130,246,.15); color:#3b82f6; }
+    .b-in  { background:rgba(34,197,94,.15);  color:#22c55e; }
+    .b-replied { background:rgba(168,85,247,.15); color:#a855f7; }
+  </style>
+</head>
+<body>
+
+<nav id="main-nav"></nav>
+
+<div class="inbox-wrap">
+  <h1 class="inbox-h1">📬 IR 인박스</h1>
+  <p style="font-size:12px;color:var(--txt2);margin:0 0 12px 0">
+    발송한 IR 질문지 + 받은 답장 한눈에. 답장은 자동으로 우리 발송과 매칭됩니다.
+  </p>
+
+  <div class="stat-grid">
+    <div class="stat-card"><div class="stat-num" id="st-sent">-</div><div class="stat-label">발송</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-replied">-</div><div class="stat-label">답장 수신</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-pending">-</div><div class="stat-label">미발송 질문지</div></div>
+    <div class="stat-card"><div class="stat-num" id="st-rate">-</div><div class="stat-label">응답률</div></div>
+  </div>
+
+  <div class="toolbar">
+    <button class="btn" onclick="syncInbox()" title="Gmail 받은편지함을 가져와서 우리 발송한 메일에 대한 답장만 추출 + 자동 학습">
+      🔄 새 메일 가져오기 + 학습
+    </button>
+    <button class="btn" onclick="relearnAll()" title="이미 받아둔 답장 전체에서 IR 담당자 정보 다시 학습">
+      📚 답장 재학습
+    </button>
+    <button class="btn" onclick="filterTab('all')" id="t-all">전체</button>
+    <button class="btn" onclick="filterTab('out')" id="t-out">📤 발송</button>
+    <button class="btn" onclick="filterTab('in')" id="t-in">📥 답장</button>
+    <button class="btn" onclick="filterTab('pending')" id="t-pending">⏳ 미발송</button>
+    <span style="margin-left:auto;font-size:11px;color:var(--txt2)" id="lastSync"></span>
+  </div>
+
+  <!-- 학습 진행 패널 -->
+  <div id="learn-panel" style="display:none; background:var(--bg2); border:1px solid var(--border);
+                                border-radius:8px; padding:10px 14px; margin-bottom:12px;
+                                font-size:12px; color:var(--txt1)">
+    <b style="color:#a855f7">📚 답장 학습 결과</b>
+    <span id="learn-result" style="margin-left:10px"></span>
+  </div>
+
+  <!-- 학습 통계 (펼쳐 보기) -->
+  <details style="margin-bottom:12px; font-size:12px;">
+    <summary style="cursor:pointer; color:var(--txt2); padding:6px 0">
+      📊 답장 학습 누적 통계
+    </summary>
+    <div id="learn-stats" style="background:var(--bg2); border:1px solid var(--border);
+         border-radius:8px; padding:10px 14px; display:grid;
+         grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:8px; margin-top:6px">
+      <div>로딩 중...</div>
+    </div>
+  </details>
+
+  <div id="email-list">
+    <div style="padding:30px;text-align:center;color:var(--txt2)">로딩 중...</div>
+  </div>
+</div>
+
+<script>
+let currentFilter = 'all';
+
+async function loadInbox() {
+  try {
+    const r = await fetch(`${API}/api/inbox`);
+    const data = await r.json();
+    document.getElementById('st-sent').textContent = data.stats?.sent || 0;
+    document.getElementById('st-replied').textContent = data.stats?.replied || 0;
+    document.getElementById('st-pending').textContent = data.stats?.pending || 0;
+    const rate = data.stats?.sent ? ((data.stats.replied/data.stats.sent)*100).toFixed(0)+'%' : '-';
+    document.getElementById('st-rate').textContent = rate;
+    renderList(data.items || []);
+  } catch(e) {
+    document.getElementById('email-list').innerHTML = `<div style="padding:30px;color:#ef4444">오류: ${e.message}</div>`;
+  }
+}
+
+function renderList(items) {
+  const filtered = items.filter(it => {
+    if (currentFilter === 'all') return true;
+    if (currentFilter === 'pending') return it.status === 'pending';
+    if (currentFilter === 'out') return it.direction === 'out';
+    if (currentFilter === 'in') return it.direction === 'in';
+    return true;
+  });
+  const el = document.getElementById('email-list');
+  if (!filtered.length) {
+    el.innerHTML = '<div style="padding:30px;text-align:center;color:var(--txt2)">결과 없음</div>';
+    return;
+  }
+  el.innerHTML = filtered.map(it => {
+    const cls = ['email-row'];
+    if (it.direction === 'in' && !it.is_read) cls.push('unread');
+    if (it.status === 'replied') cls.push('replied');
+    const dirBadge = it.direction === 'out' ? '<span class="badge b-out">📤 발송</span>'
+                    : it.direction === 'in' ? '<span class="badge b-in">📥 답장</span>'
+                    : '<span class="badge b-replied">⏳ 미발송</span>';
+    const date = it.sent_at || it.received_at || it.created_at || '';
+    return `
+      <div class="${cls.join(' ')}" onclick="openDetail(${it.id||0}, '${it.questionnaire_id||''}', '${it.article_id||''}')">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <div>${dirBadge} <b style="font-size:13px">${escHtml(it.corp_name||'')}</b></div>
+          <span style="font-size:10px;color:var(--txt2)">${escHtml(date)}</span>
+        </div>
+        <div style="font-size:12px;color:var(--txt1);margin:4px 0">${escHtml(it.subject||it.headline||'(제목 없음)')}</div>
+        <div style="font-size:11px;color:var(--txt2)">
+          ${it.from_addr ? '발: '+escHtml(it.from_addr)+' →' : ''}
+          ${escHtml(it.to_addr||it.target||'')}
+          ${it.body_preview ? ' · '+escHtml(it.body_preview.substring(0,80)) : ''}
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function filterTab(f) {
+  currentFilter = f;
+  document.querySelectorAll('.toolbar .btn').forEach(b => b.style.background = '');
+  const btn = document.getElementById('t-'+f);
+  if (btn) btn.style.background = 'var(--acc)';
+  loadInbox();
+}
+
+async function syncInbox() {
+  document.getElementById('lastSync').textContent = '동기화 중...';
+  try {
+    const r = await fetch(`${API}/api/inbox/sync`, {method:'POST'});
+    const res = await r.json();
+    const t = new Date().toLocaleTimeString();
+    let msg = `최근 동기화: ${t} (새 ${res.new||0}건, 매칭 ${res.matched||0}건`;
+    if (typeof res.learned === 'number') msg += `, 학습 ${res.learned}건`;
+    if (res.msg) msg += ` — ${res.msg}`;
+    msg += ')';
+    document.getElementById('lastSync').textContent = msg;
+
+    if (res.matched && res.matched > 0) {
+      const panel = document.getElementById('learn-panel');
+      panel.style.display = 'block';
+      document.getElementById('learn-result').textContent =
+        `새 답장 ${res.matched}건 → 자동 학습 ${res.learned||0}건. 회사별 응답성 통계 갱신.`;
+    }
+    loadInbox();
+    loadLearnStats();
+  } catch(e) {
+    document.getElementById('lastSync').textContent = '동기화 실패: ' + e.message;
+  }
+}
+
+async function relearnAll() {
+  if (!confirm('이미 받아둔 모든 답장에서 IR 담당자 정보를 재학습합니다. 계속할까요?')) return;
+  const panel = document.getElementById('learn-panel');
+  panel.style.display = 'block';
+  document.getElementById('learn-result').textContent = '재학습 중...';
+  try {
+    const r = await fetch(`${API}/api/inbox/relearn`, {method:'POST'});
+    const s = await r.json();
+    if (s.error) {
+      document.getElementById('learn-result').textContent = '오류: ' + s.error;
+      return;
+    }
+    document.getElementById('learn-result').innerHTML =
+      `대상 <b>${s.total||0}</b>건 → ` +
+      `신규 IR담당자 <b style="color:#22c55e">${s.inserted||0}</b>, ` +
+      `갱신 <b style="color:#3b82f6">${s.updated||0}</b>, ` +
+      `중복스킵 ${s.duplicate_skip||0}, 미반영 ${s.skipped||0}`;
+    loadLearnStats();
+  } catch(e) {
+    document.getElementById('learn-result').textContent = '재학습 실패: ' + e.message;
+  }
+}
+
+async function loadLearnStats() {
+  const box = document.getElementById('learn-stats');
+  try {
+    const r = await fetch(`${API}/api/inbox/stats`);
+    const s = await r.json();
+    const cell = (label, val, color) =>
+      `<div style="background:var(--bg1); padding:8px 10px; border-radius:6px;
+            border-left:3px solid ${color||'#a855f7'}">
+        <div style="font-size:18px; font-weight:700; color:${color||'var(--acc)'}">${val ?? '-'}</div>
+        <div style="font-size:10px; color:var(--txt2)">${label}</div>
+      </div>`;
+    box.innerHTML = [
+      cell('발송한 메일',    s.sent,                  '#3b82f6'),
+      cell('받은 답장',      s.received,              '#22c55e'),
+      cell('질문지 매칭',    s.matched,               '#22c55e'),
+      cell('replied 상태',   s.qst_replied,           '#a855f7'),
+      cell('학습된 IR담당자', s.contacts_learned,      '#ec4899'),
+      cell('사용자 검증',    s.contacts_user_verified,'#f59e0b'),
+      cell('회사별 응답통계', s.corp_response_stats,   '#06b6d4'),
+      cell('응답률',         (s.response_rate ?? '-') + (s.response_rate ? '%' : ''), '#22c55e'),
+    ].join('');
+  } catch(e) {
+    box.innerHTML = '<div style="color:#ef4444">오류: ' + e.message + '</div>';
+  }
+}
+
+function openDetail(id, qid, aid) {
+  if (aid) location.href = '/article_detail.html?id=' + aid;
+  else if (qid) alert('질문지 #' + qid);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof renderNav === 'function') renderNav('inbox');
+  loadInbox();
+  loadLearnStats();
+});
+</script>
+
+</body>
+</html>
