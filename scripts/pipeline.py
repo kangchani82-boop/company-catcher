@@ -181,19 +181,40 @@ def step_collect(dry_run: bool, year: int, types: list[str] | None):
 
 
 def step_compare(dry_run: bool, limit: int):
-    """2단계: AI 비교 분석"""
+    """2단계: AI 비교 분석
+
+    자동 페어: scripts/_compare_pair.get_latest_compare_pair(db)가 현재 시점의
+    (과거=type_a, 최신=type_b) 페어를 DB 기반으로 산출. 새 보고서가 들어오면
+    자동으로 페어가 갱신됨.
+
+    멱등성: batch_compare.py 내부의 already_done(corp,a,b,model,status='ok') 로
+    이미 처리된 회사는 자동 skip. --resume은 사용하지 않음 (페어가 바뀌면 의미
+    없는 인덱스가 됨).
+    """
     log("=" * 50)
     log("STEP 2: AI 비교 분석")
     log("=" * 50)
 
     import sqlite3
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    from scripts._compare_pair import get_latest_compare_pair, TYPE_KIND_LABEL
+
     conn = sqlite3.connect(str(DB_PATH), timeout=10)
-    done = conn.execute(
-        "SELECT COUNT(*) FROM ai_comparisons WHERE status='ok'"
-    ).fetchone()[0]
+    conn.row_factory = sqlite3.Row
+    pair = get_latest_compare_pair(conn)
     conn.close()
 
-    args = ["--resume", str(done), "--limit", str(limit), "--delay", "6.5"]
+    if pair is None:
+        log("⚠ 자동 페어 산출 실패 — 보고서 부족 또는 임계 미달. step_compare 건너뜀.")
+        return True
+
+    type_a, type_b = pair
+    log(f"자동 페어: {type_a}({TYPE_KIND_LABEL.get(type_a,'?')}, 과거) → "
+        f"{type_b}({TYPE_KIND_LABEL.get(type_b,'?')}, 최신)")
+
+    args = ["--type-a", type_a, "--type-b", type_b,
+            "--limit", str(limit), "--delay", "6.5"]
     return run_script("batch_compare.py", args, dry_run)
 
 

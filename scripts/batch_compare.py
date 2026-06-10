@@ -68,6 +68,15 @@ from config.gemini_models import (
     FALLBACK_ON_QUOTA,
 )
 
+# ── 페어 자동 도출 + 라벨 SSOT ───────────────────────────────────────────
+# 보고서 종류·시간 순서·자동 페어 산출은 scripts/_compare_pair.py 한 곳에서 관리
+from scripts._compare_pair import (
+    TYPE_TIME_ORDER,
+    TYPE_KIND_LABEL,
+    get_latest_compare_pair,
+    assert_pair_order,
+)
+
 # 본 스크립트는 limits dict에 'delay'도 함께 보관 (호출 간격 계산용)
 GEMINI_LIMITS = {
     k: {**v, "delay": GEMINI_DELAYS.get(k, 6.5)}
@@ -84,12 +93,10 @@ TYPE_LABELS = {
     "2026_q3":     "2026년 3분기 보고서",
     "2026_h1":     "2026년 반기 보고서",
     "2026_q1":     "2026년 1분기 보고서",
-}
-
-# 보고서 발간 시간 순서 (작을수록 과거) — 시간 흐름순 표시용
-TYPE_TIME_ORDER = {
-    "2025_q1": 1, "2025_h1": 2, "2025_q3": 3, "2025_annual": 4,
-    "2026_q1": 5, "2026_h1": 6, "2026_q3": 7, "2026_annual": 8,
+    "2027_annual": "2027년 전체 사업보고서",
+    "2027_q3":     "2027년 3분기 보고서",
+    "2027_h1":     "2027년 반기 보고서",
+    "2027_q1":     "2027년 1분기 보고서",
 }
 
 
@@ -400,51 +407,55 @@ def call_gemini(model_type: str, prompt: str, timeout: int = 120):
     raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
 
 
-def build_prompt(reports: list) -> str:
-    """분석 프롬프트 생성 (biz_content 전용) — v3 최신 기준 회고
+def build_prompt(reports: list, past_kind: str, latest_kind: str) -> str:
+    """분석 프롬프트 생성 (biz_content 전용) — v4 라벨 동적
 
     ★ 핵심 원칙: 가장 최신 보고서를 기준으로 과거 보고서 대비 무엇이 달라졌는가
-       - reports[0] = 사업보고서 (★ 최신·기준)
-       - reports[1] = 분기보고서 (과거·비교 대상)
-       관점: "최신 사업보고서가 과거 분기보고서 대비 어떻게 달라졌나"
+       - reports[0] = 과거 보고서 (type_a, past)  ← 호출 측 보장
+       - reports[1] = 최신 보고서 (type_b, latest) ← 호출 측 보장
+       관점: "최신({latest_kind})이 과거({past_kind}) 대비 어떻게 달라졌나"
+
+    past_kind / latest_kind:
+      보고서 종류 한국어 라벨 ("사업보고서", "1분기보고서", "반기보고서", "3분기보고서").
+      _compare_pair.TYPE_KIND_LABEL[type_x] 로 얻는다.
     """
     sep = "─" * 60
     assert len(reports) == 2
-    latest_r  = reports[0]  # 사업보고서 — ★ 최신·기준
-    past_r    = reports[1]  # 분기보고서 — 과거·비교
+    past_r    = reports[0]  # type_a — 과거·출발점
+    latest_r  = reports[1]  # type_b — 최신·종착점
 
     return f"""[필수 준수 — 답변 시작 전 확인]
 1) 답변은 반드시 한국어로만 작성. 영어 단어/문장 사용 절대 금지.
-2) 분석 관점: **최신 사업보고서가 과거 분기보고서 대비 어떻게 달라졌나** (시간 회고형).
+2) 분석 관점: **최신 {latest_kind}가 과거 {past_kind} 대비 어떻게 달라졌나** (시간 회고형).
 3) 모든 변화는 5가지 라벨 중 하나로 분류: NEW / REMOVED / EXPANDED / SHRUNK / CHANGED.
 
 ═══════════════════════════════════════════════════════════
 [데이터]
 
-▶ 과거 보고서: {past_r['label']} (먼저 발간)
+▶ 과거 보고서 ({past_kind}): {past_r['label']} (먼저 발간 — 출발점)
 {past_r['content']}
 
 ═══════════════════════════════════════════════════════════
-▶ ★ 최신 보고서: {latest_r['label']} (가장 최근 발간 — 분석 기준점)
+▶ ★ 최신 보고서 ({latest_kind}): {latest_r['label']} (가장 최근 발간 — 분석 기준점·종착점)
 {latest_r['content']}
 ═══════════════════════════════════════════════════════════
 
 [분석 원칙 — 한국어로만 답변]
-시간 흐름: 과거(분기보고서, {past_r['label']}) → 최신(사업보고서, {latest_r['label']})
-관점: "최신 사업보고서를 기준으로 보면, 과거 분기보고서 대비 ○○가 ○○로 달라졌다"
-시점 차이 인지: 분기보고서는 분기 누적, 사업보고서는 연간 누적. 수치 단순 비교 X.
+시간 흐름: 과거({past_kind}, {past_r['label']}) → 최신({latest_kind}, {latest_r['label']})
+관점: "최신 {latest_kind}를 기준으로 보면, 과거 {past_kind} 대비 ○○가 ○○로 달라졌다"
+시점 차이 인지: 보고서마다 누적 기준이 다를 수 있음 (예: 분기보고서는 분기 누적, 사업보고서는 연간 누적). 수치 단순 비교 X.
 
 [변화 분류 룰 — 모든 변화 항목에 반드시 라벨]
-- NEW       : 최신 사업보고서에 새로 등장 (과거 분기엔 없었음)
-- REMOVED   : 최신 사업보고서에서 사라짐 (과거 분기엔 있었음)
+- NEW       : 최신 {latest_kind}에 새로 등장 (과거 {past_kind}엔 없었음)
+- REMOVED   : 최신 {latest_kind}에서 사라짐 (과거 {past_kind}엔 있었음)
 - EXPANDED  : 과거에도 있었으나 최신에서 확대·강조됨
 - SHRUNK    : 과거에 있었으나 최신에서 축소·약화됨
 - CHANGED   : 과거에 있었으나 내용이 변경됨
 
 [답변 형식 예시 — 이 한국어 패턴으로 작성]
-"최신 사업보고서에 따르면 ○○ 사업이 신규 등장했다 [NEW]. 과거 분기보고서에는 해당 사업에 대한 언급이 없었다."
-"최신 사업보고서에서 ○○ 자회사 관련 기술이 사라졌다 [REMOVED]. 과거 분기보고서에는 ○○로 명시되어 있었다."
-"최신 사업보고서에서 신재생에너지 사업 비중이 확대됐다 [EXPANDED]. 과거 분기보고서에는 단순 언급에 그쳤으나 최신 보고서에서는 핵심 전략으로 부각됐다."
+"최신 {latest_kind}에 따르면 ○○ 사업이 신규 등장했다 [NEW]. 과거 {past_kind}에는 해당 사업에 대한 언급이 없었다."
+"최신 {latest_kind}에서 ○○ 자회사 관련 기술이 사라졌다 [REMOVED]. 과거 {past_kind}에는 ○○로 명시되어 있었다."
+"최신 {latest_kind}에서 신재생에너지 사업 비중이 확대됐다 [EXPANDED]. 과거 {past_kind}에는 단순 언급에 그쳤으나 최신 보고서에서는 핵심 전략으로 부각됐다."
 
 ═══════════════════════════════════════════════════════════
 [작성 항목 — 모두 한국어]
@@ -452,29 +463,29 @@ def build_prompt(reports: list) -> str:
 ## 1. 핵심 변화 요약
 한국어 표로 정리.
 
-| 항목 | 과거 분기보고서 | 최신 사업보고서 | 변화 |
-|------|----------------|------------------|------|
+| 항목 | 과거 {past_kind} | 최신 {latest_kind} | 변화 |
+|------|------------------|---------------------|------|
 | (예) 신재생에너지 사업 | 언급 없음 | "신재생에너지 분야 진출" 명시 | NEW |
 | (예) 모빌리티 자회사 | 자회사 X 운영 | 매각 완료 | REMOVED |
 
-## 2. 최신 사업보고서에 새로 등장한 사업·전략 [NEW]
-- 과거 분기보고서엔 없거나 축약돼 있다가 최신 사업보고서에 새로 등장한 항목
+## 2. 최신 {latest_kind}에 새로 등장한 사업·전략 [NEW]
+- 과거 {past_kind}엔 없거나 축약돼 있다가 최신 {latest_kind}에 새로 등장한 항목
 - 사업·정관·자회사·제품·시장 진출 등 (한국어로만)
 
-## 3. 최신 사업보고서에서 사라진 내용 [REMOVED]
-- 과거 분기보고서엔 있었으나 최신 사업보고서에 빠진 항목
+## 3. 최신 {latest_kind}에서 사라진 내용 [REMOVED]
+- 과거 {past_kind}엔 있었으나 최신 {latest_kind}에 빠진 항목
 - 사업 철수·자회사 청산·부문 통합 등
 
 ## 4. 시장 및 경쟁환경 서술 변화
-- 주요 고객·점유율·경쟁사 서술이 최신 사업보고서에서 어떻게 달라졌는가
+- 주요 고객·점유율·경쟁사 서술이 최신 {latest_kind}에서 어떻게 달라졌는가
 - 추가/삭제된 거래처 명단
 
 ## 5. 리스크 요인 변화
-- 최신에 새로 등장한 리스크 [NEW]
-- 최신에서 사라진 리스크 [REMOVED]
+- 최신 {latest_kind}에 새로 등장한 리스크 [NEW]
+- 최신 {latest_kind}에서 사라진 리스크 [REMOVED]
 
 ## 6. 수치·실적 변화 (시점 차이 명시)
-- 형식: "과거 분기보고서(분기 누적 기준) X → 최신 사업보고서(연간 누적 기준) Y"
+- 형식: "과거 {past_kind}(누적 기준) X → 최신 {latest_kind}(누적 기준) Y"
 
 ## 7. 취재 가치 판단 (1~3가지)
 - 우선순위: NEW > REMOVED > EXPANDED > SHRUNK > CHANGED 순
@@ -484,7 +495,7 @@ def build_prompt(reports: list) -> str:
 - 답변에 영어 문장이 있는가? → 모두 한국어로 변환
 - "Annual / Quarterly / Reference / Comparison" 같은 영어 단어가 있는가? → 삭제
 - 모든 변화에 NEW/REMOVED/EXPANDED/SHRUNK/CHANGED 라벨이 붙었는가?
-- 관점이 "최신이 과거 대비 어떻게 다른가"로 되어있는가?
+- 관점이 "최신({latest_kind})이 과거({past_kind}) 대비 어떻게 다른가"로 되어있는가?
 
 지금 분석을 시작하세요. **한국어로만 답변.**"""
 
@@ -537,20 +548,19 @@ def process_task(task: dict) -> dict:
             return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
         return dt or ""
 
-    # type_a = 사업보고서(연간 기준)가 reports[0], type_b = 분기보고서가 reports[1]
-    # rcept_dt 기준 역순 정렬: 최신(사업보고서) → 오래된(분기보고서) 순
-    reports = sorted([
+    # 인자 순서 = 시간 순서:
+    #   type_a = 출발점(과거)  → reports[0]
+    #   type_b = 종착점(최신)  → reports[1]
+    # rcept_dt 정렬 안 함. 호출 측에서 이미 (과거, 최신) 순서로 인자를 받았다고 가정.
+    reports = [
         {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
-         "content": biz_a,
-         "rcept_dt": rr_a['rcept_dt'] or ''},
+         "content": biz_a},   # type_a = 과거
         {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
-         "content": biz_b,
-         "rcept_dt": rr_b['rcept_dt'] or ''},
-    ], key=lambda x: x['rcept_dt'], reverse=True)  # 최신(사업보고서) 먼저 → 기준으로
-    # build_prompt에서 rcept_dt 키는 불필요하므로 제거
-    for r in reports:
-        r.pop('rcept_dt', None)
-    prompt = build_prompt(reports)
+         "content": biz_b},   # type_b = 최신
+    ]
+    past_kind   = TYPE_KIND_LABEL.get(type_a, type_a)
+    latest_kind = TYPE_KIND_LABEL.get(type_b, type_b)
+    prompt = build_prompt(reports, past_kind, latest_kind)
 
     # 워커별 딜레이 (per-key rate limit)
     now = time.time()
@@ -722,14 +732,11 @@ def process_task(task: dict) -> dict:
 # ─── 메인 ─────────────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(description="배치 AI 비교 분석")
-    parser.add_argument("--type-a",  default="2025_annual",
-                        choices=["2025_annual","2025_q3","2025_h1","2025_q1",
-                                 "2026_annual","2026_q3","2026_h1","2026_q1"],
-                        help="비교 기준 보고서 유형 (기본: 2025_annual)")
-    parser.add_argument("--type-b",  default="2025_q1",
-                        choices=["2025_annual","2025_q3","2025_h1","2025_q1",
-                                 "2026_annual","2026_q3","2026_h1","2026_q1"],
-                        help="비교 대상 보고서 유형 (기본: 2025_q1)")
+    _type_choices = list(TYPE_TIME_ORDER.keys())
+    parser.add_argument("--type-a",  default=None, choices=_type_choices,
+                        help="출발점(과거) 보고서 유형. 미지정 시 DB 기반 자동 페어 사용.")
+    parser.add_argument("--type-b",  default=None, choices=_type_choices,
+                        help="종착점(최신) 보고서 유형. 미지정 시 DB 기반 자동 페어 사용.")
     parser.add_argument("--model",   default="flash",
                         choices=["flash", "flash-lite", "pro"],
                         help="AI 모델: flash(기본,500RPD) | flash-lite(최고RPD,1000/키,2키=2000) | pro(100RPD)")
@@ -752,10 +759,6 @@ def main():
     # workers 범위 클램핑 (최대 3)
     args.workers = max(1, min(3, args.workers))
 
-    if args.type_a == args.type_b:
-        print("오류: --type-a 와 --type-b 가 같습니다")
-        sys.exit(1)
-
     # API 키 확인
     if not os.environ.get("GEMINI_API_KEY"):
         print("오류: GEMINI_API_KEY가 .env에 없습니다")
@@ -773,6 +776,31 @@ def main():
 
     db = get_db()
     ensure_table(db)
+
+    # ── 자동 페어 도출 (둘 다 미지정 시) ──────────────────────────────────
+    if args.type_a is None and args.type_b is None:
+        pair = get_latest_compare_pair(db)
+        if pair is None:
+            print("오류: 자동 페어 산출 실패 — DB에 충분한 보고서가 없거나 임계 미달.")
+            print("      --type-a 와 --type-b 를 명시적으로 지정하세요.")
+            sys.exit(1)
+        args.type_a, args.type_b = pair
+        print(f"\n[자동 페어 선택] type_a={args.type_a}({TYPE_KIND_LABEL[args.type_a]}, 과거)"
+              f"  →  type_b={args.type_b}({TYPE_KIND_LABEL[args.type_b]}, 최신)")
+    elif args.type_a is None or args.type_b is None:
+        print("오류: --type-a 또는 --type-b 중 하나만 지정됨. 둘 다 지정하거나 둘 다 생략(자동)하세요.")
+        sys.exit(1)
+
+    if args.type_a == args.type_b:
+        print("오류: --type-a 와 --type-b 가 같습니다")
+        sys.exit(1)
+
+    # ── 페어 시간 순서 안전장치 ──────────────────────────────────────────
+    try:
+        assert_pair_order(args.type_a, args.type_b)
+    except ValueError as e:
+        print(f"오류: {e}")
+        sys.exit(1)
 
     label_a = TYPE_LABELS.get(args.type_a, args.type_a)
     label_b = TYPE_LABELS.get(args.type_b, args.type_b)
@@ -911,13 +939,16 @@ def main():
                     return f"{dt[:4]}.{dt[4:6]}.{dt[6:]}"
                 return dt or ""
 
+            # 인자 순서 = 시간 순서: type_a(과거) → reports[0], type_b(최신) → reports[1]
             reports_data = [
                 {"label": f"{corp_name} / {rr_a['report_name']} (접수:{fmt_dt(rr_a['rcept_dt'])})",
-                 "content": biz_a},
+                 "content": biz_a},   # type_a = 과거
                 {"label": f"{corp_name} / {rr_b['report_name']} (접수:{fmt_dt(rr_b['rcept_dt'])})",
-                 "content": biz_b},
+                 "content": biz_b},   # type_b = 최신
             ]
-            prompt = build_prompt(reports_data)
+            past_kind_s   = TYPE_KIND_LABEL.get(args.type_a, args.type_a)
+            latest_kind_s = TYPE_KIND_LABEL.get(args.type_b, args.type_b)
+            prompt = build_prompt(reports_data, past_kind_s, latest_kind_s)
 
             # 영어 응답 검출 함수
             def _is_en(t):

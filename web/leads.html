@@ -311,6 +311,28 @@
     return `<span class="badge sev-badge-${sev}">${icon} ${sev}</span>`;
   }
 
+  function scoopBadge(score) {
+    if (score == null) return '';
+    const map = {
+      10: ['🚨', 'rgba(231,76,60,.3)', '#e74c3c'],
+      9:  ['🚨', 'rgba(231,76,60,.3)', '#e74c3c'],
+      8:  ['🚨', 'rgba(231,76,60,.25)', '#e74c3c'],
+      7:  ['⭐', 'rgba(241,196,15,.25)', '#f1c40f'],
+      6:  ['📰', 'rgba(52,152,219,.2)', '#3498db'],
+    };
+    const [icon, bg, color] = map[score] || ['', '', ''];
+    if (!icon) return '';
+    return `<span class="badge" style="background:${bg};color:${color};border:1px solid ${color}55;font-weight:700">${icon} N1:${score}</span>`;
+  }
+
+  function valenceBadge(val) {
+    if (!val) return '';
+    const map = { GOOD: ['📈', '#2ecc71'], BAD: ['📉', '#e74c3c'], MIXED: ['🔄', '#9b59b6'] };
+    const [icon, color] = map[val] || ['', ''];
+    if (!icon) return '';
+    return `<span class="badge" style="background:${color}22;color:${color};border:1px solid ${color}55;font-weight:700">${icon} ${val}</span>`;
+  }
+
   function newsCoverageBadge(status) {
     const map = {
       exclusive: ['🔴 독점', 'news-cover-exclusive'],
@@ -335,11 +357,15 @@
           <div class="lc-main" onclick="location.href='/lead_detail.html?id=${lead.id}'">
             <div class="lc-badges">
               ${sevBadge(lead.severity)}
+              ${scoopBadge(lead.newsability_score)}
+              ${valenceBadge(lead.valence)}
               <span class="type-badge">${escHtml(typeLabel)}</span>
               ${leadStatusBadge(lead.status || 'new')}
               ${newsCoverageBadge(lead.news_status)}
+              ${lead.cross_verified === 'CONFIRMED' ? '<span class="badge" style="background:rgba(241,196,15,.2);color:#f1c40f;border:1px solid rgba(241,196,15,.5);font-weight:700">🏆 ULTRA</span>' : ''}
             </div>
             <div class="lc-title">${escHtml(lead.title || '(제목 없음)')}</div>
+            ${lead.headline_ko ? `<div class="lc-headline" style="font-size:13px;color:var(--acc);margin:4px 0 6px;font-weight:600">📰 ${escHtml(lead.headline_ko)}</div>` : ''}
             <div class="lc-corp">
               <a href="/company_detail.html?corp_code=${encodeURIComponent(lead.corp_code||'')}&corp_name=${encodeURIComponent(lead.corp_name||'')}"
                  onclick="event.stopPropagation()" style="text-decoration:none;color:var(--acc)">🏢 ${escHtml(lead.corp_name || '')}</a>

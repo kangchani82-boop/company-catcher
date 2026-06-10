@@ -9,7 +9,11 @@
       "Bash(tasklist /FI \"IMAGENAME eq python.exe\" /V)",
       "Bash(python scripts/batch_compare.py --resume 49 --limit 2700 --model flash)",
       "Bash(python scripts/detect_leads.py --stats)",
-      "Bash(python scripts/pipeline.py --check)"
+      "Bash(python scripts/pipeline.py --check)",
+      "PowerShell(Get-CimInstance Win32_Process -Filter \"Name='python.exe' OR Name='pythonw.exe'\" | Where-Object { $_.CommandLine -match 'resume_chain|finalize|batch_compare|detect_leads|_j1|_k3|_l2|_h1|verify' } | Select-Object ProcessId, ParentProcessId, CreationDate, @{n='Cmd';e={$_.CommandLine}} | Format-Table -AutoSize -Wrap)",
+      "Bash(tasklist //FI \"PID eq 39236\" //NH)",
+      "Bash(python -X utf8 -c ' *)",
+      "Bash(python -X utf8 scripts/_gen_gold_brief.py 20260608)"
     ]
   }
 }

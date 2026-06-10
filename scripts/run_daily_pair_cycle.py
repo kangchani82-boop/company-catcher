@@ -251,10 +251,9 @@ def main():
     # 다시 산출 (fetch 후 신규 보고서가 늘었을 수 있음)
     targets = count_targets()
 
-    # ② batch_compare
-    if stage("② batch_compare (2025_annual × 2026_q1)", targets['compare']):
+    # ② batch_compare — 자동 페어 (DB의 가장 최근 두 보고서 종류)
+    if stage("② batch_compare (자동 페어)", targets['compare']):
         rc = run([PYTHON, str(SCRIPTS / "batch_compare.py"),
-                  "--type-a", "2025_annual", "--type-b", "2026_q1",
                   "--model", args.model, "--workers", str(args.workers)],
                  log_name="cycle_02_compare.log")
         rc_total += rc

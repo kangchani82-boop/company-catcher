@@ -200,6 +200,11 @@
   <!-- Q1 마감 카운트다운 + 오늘 진척 (분기보고서 시즌만 노출) -->
   <div id="q1-strip" style="display:none; margin-bottom:18px"></div>
 
+  <!-- 🚨 출고 후보 하이라이트 (N-1 검증 완료) -->
+  <div class="kpi-grid" id="scoop-kpi-grid" style="grid-template-columns: repeat(5, 1fr); margin-bottom: 16px;">
+    <div class="loading-card">SCOOP 로딩…</div>
+  </div>
+
   <!-- KPI 4개 -->
   <div class="kpi-grid" id="kpi-grid">
     <div class="loading-card">로딩 중...</div>
@@ -279,6 +284,8 @@ async function loadDashboard() {
   // 각 렌더 함수 독립 try-catch
   try { renderKPI(data.kpi || {}); }
   catch(e){ console.error('renderKPI', e); document.getElementById('kpi-grid').innerHTML = '<div class="loading-card">KPI 렌더 실패</div>'; }
+  // 출고 후보 KPI는 /api/scoop에서 별도 로드
+  loadScoopKPI();
   try { renderCrossSignals(data.cross_signals || {}); }
   catch(e){ console.error('renderCrossSignals', e); document.getElementById('cross-grid').innerHTML = '<div class="loading-card">교차신호 렌더 실패</div>'; }
   try { renderHot(data.hot_leads || []); }
@@ -288,6 +295,45 @@ async function loadDashboard() {
   // 수시공시 피드 제거됨 (본질 외 — 정기보고서 비교 분석에 집중)
   try { renderArticles(data.latest_articles || []); }
   catch(e){ console.error('renderArticles', e); document.getElementById('article-grid').innerHTML = '<div class="loading-card">기사 렌더 실패</div>'; }
+}
+
+async function loadScoopKPI() {
+  try {
+    const res = await fetch('/api/scoop?min_score=7&limit=1');
+    if (!res.ok) throw new Error('scoop api failed');
+    const d = await res.json();
+    const s = d.stats || {};
+    document.getElementById('scoop-kpi-grid').innerHTML = `
+      <div class="kpi-card" onclick="location.href='/scoop?score=8'" style="border-left:4px solid #ef4444;">
+        <div class="kpi-icon">🚨</div>
+        <div class="kpi-value" style="color:#ef4444">${s.score_8_plus ?? 0}</div>
+        <div class="kpi-label">즉시 출고 (8점+)</div>
+      </div>
+      <div class="kpi-card" onclick="location.href='/scoop?score=7'" style="border-left:4px solid #f59e0b;">
+        <div class="kpi-icon">⭐</div>
+        <div class="kpi-value" style="color:#f59e0b">${s.score_7 ?? 0}</div>
+        <div class="kpi-label">이번 주 출고 (7점)</div>
+      </div>
+      <div class="kpi-card" onclick="location.href='/scoop?score=6'" style="border-left:4px solid #3498db;">
+        <div class="kpi-icon">📰</div>
+        <div class="kpi-value" style="color:#3498db">${s.score_6 ?? 0}</div>
+        <div class="kpi-label">추가 취재 (6점)</div>
+      </div>
+      <div class="kpi-card" onclick="location.href='/scoop'" style="border-left:4px solid #f1c40f;">
+        <div class="kpi-icon">🏆</div>
+        <div class="kpi-value" style="color:#f1c40f">${s.gold ?? 0}</div>
+        <div class="kpi-label">GOLD</div>
+      </div>
+      <div class="kpi-card" onclick="location.href='/scoop'" style="border-left:4px solid #e67e22;">
+        <div class="kpi-icon">🏆</div>
+        <div class="kpi-value" style="color:#e67e22">${s.ultra_gold ?? 0}</div>
+        <div class="kpi-label">ULTRA GOLD</div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('scoop kpi load failed', e);
+    document.getElementById('scoop-kpi-grid').innerHTML = '<div class="loading-card">SCOOP KPI 로드 실패</div>';
+  }
 }
 
 function renderKPI(kpi) {

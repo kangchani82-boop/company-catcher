@@ -989,29 +989,55 @@ function drawScGraph(edges) {
   }, 900);
 }
 
-// ── 비교분석 탭 ──────────────────────────────────────────────────────────────
+// ── 비교분석 탭 (페어별 그룹) ──────────────────────────────────────────────
+const TKO = {'2025_annual':'2025년 사업보고서','2025_q1':'2025년 1분기보고서','2025_h1':'2025년 반기보고서','2025_q3':'2025년 3분기보고서','2026_annual':'2026년 사업보고서','2026_q1':'2026년 1분기보고서','2026_h1':'2026년 반기보고서','2026_q3':'2026년 3분기보고서','2027_annual':'2027년 사업보고서','2027_q1':'2027년 1분기보고서'};
+const ORD = {'2025_q1':1,'2025_h1':2,'2025_q3':3,'2025_annual':4,'2026_q1':5,'2026_h1':6,'2026_q3':7,'2026_annual':8,'2027_q1':9,'2027_h1':10,'2027_q3':11,'2027_annual':12};
+
 function renderComparisons(cmps, el) {
   if (!cmps.length) { el.innerHTML='<div class="empty">비교분석 결과가 없습니다.</div>'; return; }
+
+  // 페어별 그룹: 시간 순서 정렬해서 (과거 → 최신) 키 생성
+  const groups = {};
+  cmps.forEach(c => {
+    const a = c.report_type_a || '?';
+    const b = c.report_type_b || '?';
+    const [past, latest] = (ORD[a]||0) < (ORD[b]||0) ? [a,b] : [b,a];
+    const key = `${past}__${latest}`;
+    if (!groups[key]) groups[key] = { past, latest, items: [] };
+    groups[key].items.push(c);
+  });
+
+  // 최신 페어가 위로 오도록 정렬
+  const sortedKeys = Object.keys(groups).sort((k1, k2) =>
+    (ORD[groups[k2].latest]||0) - (ORD[groups[k1].latest]||0));
+
   el.innerHTML = `
     <div class="section-card">
-      <div class="section-title">📊 비교분석 목록 <span class="cnt">${cmps.length}건</span></div>
-      ${cmps.map(c => `
-        <a class="list-item" href="/comparison_detail.html?id=${c.id}">
-          <div class="list-item-top">
-            <span style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-size:9px;color:var(--txt2)">
-              ${(() => {
-                const TKO = {'2025_annual':'2025년 전체 사업보고서','2025_q1':'2025년 1분기 보고서','2025_h1':'2025년 반기 보고서','2025_q3':'2025년 3분기 보고서','2026_annual':'2026년 전체 사업보고서','2026_q1':'2026년 1분기 보고서','2026_h1':'2026년 반기 보고서','2026_q3':'2026년 3분기 보고서'};
-                const ORD = {'2025_q1':1,'2025_h1':2,'2025_q3':3,'2025_annual':4,'2026_q1':5,'2026_h1':6,'2026_q3':7,'2026_annual':8};
-                const a = c.report_type_a||'', b = c.report_type_b||'';
-                const [past, latest] = (ORD[a]||0) < (ORD[b]||0) ? [a,b] : [b,a];
-                return `${escHtml(TKO[past]||past)} → ${escHtml(TKO[latest]||latest)}`;
-              })()}
-            </span>
-            <span style="font-size:9px;color:var(--txt2)">🤖 ${escHtml(c.model||'flash').toUpperCase()}</span>
+      <div class="section-title">📊 비교분석 히스토리 <span class="cnt">${cmps.length}건 / ${sortedKeys.length}개 페어</span></div>
+      ${sortedKeys.map((key, idx) => {
+        const g = groups[key];
+        const isLatest = idx === 0;
+        const pairLabel = `${TKO[g.past]||g.past} → ${TKO[g.latest]||g.latest}`;
+        const latestTag = isLatest
+          ? '<span style="font-size:10px;color:#fff;background:var(--acc);border-radius:3px;padding:2px 6px;margin-left:6px;font-weight:600">최신</span>'
+          : '<span style="font-size:10px;color:var(--txt2);background:var(--bg3);border-radius:3px;padding:2px 6px;margin-left:6px">과거</span>';
+        return `
+        <div style="margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:8px;background:${isLatest?'rgba(91,106,240,.05)':'var(--bg2)'}">
+          <div style="font-size:12px;color:var(--txt1);font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+            🕐 ${escHtml(pairLabel)} ${latestTag}
+            <span style="font-size:10px;color:var(--txt2);margin-left:auto">${g.items.length}건</span>
           </div>
-          <div class="list-item-title">${escHtml(c.result ? c.result.substring(0,120) : '분석 결과 없음')}...</div>
-          <div class="list-item-meta">${fmtDate(c.analyzed_at)}</div>
-        </a>`).join('')}
+          ${g.items.map(c => `
+            <a class="list-item" href="/comparison_detail.html?id=${c.id}" style="margin-bottom:6px">
+              <div class="list-item-top">
+                <span style="font-size:9px;color:var(--txt2)">🤖 ${escHtml(c.model||'flash').toUpperCase()}</span>
+                <span style="font-size:9px;color:var(--txt2);margin-left:auto">${fmtDate(c.analyzed_at)}</span>
+              </div>
+              <div class="list-item-title">${escHtml(c.result ? c.result.substring(0,140) : '분석 결과 없음')}…</div>
+            </a>
+          `).join('')}
+        </div>`;
+      }).join('')}
     </div>`;
 }
 

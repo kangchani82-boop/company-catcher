@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🚨 출고 후보 — Company Catcher</title>
+  <script src="common.js"></script>
+  <style>
+    .kpi-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 18px; }
+    .kpi { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; text-align: center; }
+    .kpi-label { font-size: 11px; color: var(--txt2); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+    .kpi-value { font-size: 28px; font-weight: 700; color: var(--acc); }
+    .kpi-gold .kpi-value { color: #f1c40f; }
+    .kpi-ug   .kpi-value { color: #e67e22; }
+    .kpi-scoop .kpi-value { color: #e74c3c; }
+
+    .filter-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; align-items: center; font-size: 13px; color: var(--txt2); }
+    .filter-row select, .filter-row input { background: var(--bg3); color: var(--txt1); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+
+    .scoop-grid { display: flex; flex-direction: column; gap: 12px; }
+    .scoop-card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 18px; transition: border-color .15s; cursor: pointer; }
+    .scoop-card:hover { border-color: var(--acc); }
+    .scoop-card.score-8 { border-left: 4px solid #e74c3c; }
+    .scoop-card.score-7 { border-left: 4px solid #f1c40f; }
+    .scoop-card.score-6 { border-left: 4px solid #3498db; }
+
+    .card-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+    .score-badge { font-weight: 700; font-size: 13px; padding: 2px 8px; border-radius: 4px; }
+    .score-8 .score-badge { background: rgba(231,76,60,.2); color: #e74c3c; }
+    .score-7 .score-badge { background: rgba(241,196,15,.2); color: #f1c40f; }
+    .score-6 .score-badge { background: rgba(52,152,219,.2); color: #3498db; }
+    .val-icon { font-size: 16px; }
+    .corp-name { font-size: 15px; font-weight: 600; color: var(--txt1); }
+    .risk-tag { font-size: 11px; padding: 1px 6px; border-radius: 3px; }
+    .risk-LOW    { background: rgba(46,204,113,.2); color: #2ecc71; }
+    .risk-MEDIUM { background: rgba(241,196,15,.2); color: #f1c40f; }
+    .risk-HIGH   { background: rgba(231,76,60,.2); color: #e74c3c; }
+
+    .headline { font-size: 16px; color: var(--txt1); margin: 4px 0 8px; line-height: 1.4; font-weight: 500; }
+    .story-angle { font-size: 12px; color: var(--txt2); line-height: 1.5; margin-bottom: 6px; }
+    .card-meta { display: flex; gap: 14px; font-size: 11px; color: var(--txt2); flex-wrap: wrap; }
+    .card-meta strong { color: var(--txt1); }
+    .missing-block { font-size: 11px; color: #e67e22; margin-top: 6px; padding: 6px 10px; background: rgba(230,126,34,.08); border-radius: 4px; border-left: 2px solid #e67e22; }
+    .ir-q { font-size: 11px; color: #3498db; margin-top: 4px; padding: 6px 10px; background: rgba(52,152,219,.08); border-radius: 4px; }
+    .empty { text-align: center; color: var(--txt2); padding: 40px; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div id="header-placeholder"></div>
+  <main class="container">
+    <div class="page-header">
+      <h1>🚨 출고 후보</h1>
+      <p class="page-desc">N-1 newsability 검증 완료 + score ≥ 7 — 출고 우선 단서</p>
+    </div>
+
+    <!-- KPI -->
+    <div class="kpi-row">
+      <div class="kpi kpi-scoop"><div class="kpi-label">🚨 즉시 출고 (8점+)</div><div id="kpi-8" class="kpi-value">—</div></div>
+      <div class="kpi"><div class="kpi-label">⭐ 이번 주 출고 (7점)</div><div id="kpi-7" class="kpi-value">—</div></div>
+      <div class="kpi"><div class="kpi-label">📰 추가 취재 (6점)</div><div id="kpi-6" class="kpi-value">—</div></div>
+      <div class="kpi kpi-gold"><div class="kpi-label">🏆 GOLD</div><div id="kpi-gold" class="kpi-value">—</div></div>
+      <div class="kpi kpi-ug"><div class="kpi-label">🏆 ULTRA GOLD</div><div id="kpi-ug" class="kpi-value">—</div></div>
+    </div>
+
+    <!-- 필터 -->
+    <div class="filter-row">
+      <label>최소점수
+        <select id="f-score">
+          <option value="8">8 (SCOOP)</option>
+          <option value="7" selected>7 (출고 후보)</option>
+          <option value="6">6 (추가 취재)</option>
+        </select>
+      </label>
+      <label>valence
+        <select id="f-val">
+          <option value="">전체</option>
+          <option value="GOOD">📈 GOOD</option>
+          <option value="BAD">📉 BAD</option>
+          <option value="MIXED">🔄 MIXED</option>
+        </select>
+      </label>
+      <label>출고 리스크
+        <select id="f-risk">
+          <option value="">전체</option>
+          <option value="LOW">🟢 LOW</option>
+          <option value="MEDIUM">🟡 MEDIUM</option>
+          <option value="HIGH">🔴 HIGH</option>
+        </select>
+      </label>
+      <span id="result-count" style="margin-left:auto;font-size:12px;color:var(--txt2);"></span>
+    </div>
+
+    <div id="scoop-list" class="scoop-grid">
+      <div class="empty">불러오는 중…</div>
+    </div>
+  </main>
+
+  <script>
+    const VAL_ICON = { GOOD: "📈", BAD: "📉", MIXED: "🔄" };
+
+    function escapeHTML(s) {
+      return String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));
+    }
+
+    function renderCards(items) {
+      const list = document.getElementById("scoop-list");
+      if (!items.length) {
+        list.innerHTML = '<div class="empty">조건에 맞는 출고 후보가 없습니다.</div>';
+        return;
+      }
+      list.innerHTML = items.map(it => {
+        const sc = it.newsability_score;
+        const scClass = sc >= 8 ? "score-8" : (sc === 7 ? "score-7" : "score-6");
+        const valIcon = VAL_ICON[it.valence] || "❓";
+        const risk = it.publish_risk || "MEDIUM";
+        return `
+          <div class="scoop-card ${scClass}" onclick="window.location.href='/lead_detail?id=${it.id}'">
+            <div class="card-head">
+              <span class="score-badge">${sc}점</span>
+              <span class="val-icon">${valIcon}</span>
+              <span class="corp-name">${escapeHTML(it.corp_name)}</span>
+              <span class="risk-tag risk-${risk}">${risk}</span>
+              ${it.cross_verified === 'CONFIRMED' ? '<span class="risk-tag risk-LOW">🏆 ULTRA</span>' : ''}
+              ${it.draft_count > 0 ? `<span class="risk-tag risk-LOW">초안 ${it.draft_count}건</span>` : ''}
+            </div>
+            <div class="headline">${escapeHTML(it.headline_ko || it.title || '(헤드라인 미정)')}</div>
+            <div class="story-angle">${escapeHTML(it.story_angle || '')}</div>
+            <div class="card-meta">
+              <span><strong>방향</strong> ${escapeHTML(it.value_direction || '-')} / ${escapeHTML(it.industry_alignment || '-')}</span>
+              <span><strong>fact</strong> ${escapeHTML(it.fact_match_label || '-')}</span>
+              <span><strong>news</strong> ${escapeHTML(it.news_status || '-')} ${it.actual_news_count != null ? `(${it.actual_news_count})` : ''}</span>
+              <span><strong>페어</strong> ${escapeHTML(it.report_type_a || '?')} → ${escapeHTML(it.report_type_b || '?')}</span>
+            </div>
+            ${it.missing_verification ? `<div class="missing-block">⚠ 추가 확인: ${escapeHTML(it.missing_verification)}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function load() {
+      const score = document.getElementById("f-score").value;
+      const val = document.getElementById("f-val").value;
+      const risk = document.getElementById("f-risk").value;
+      const params = new URLSearchParams({ min_score: score, limit: 200 });
+      if (val) params.set("valence", val);
+      if (risk) params.set("risk", risk);
+      const res = await fetch(`/api/scoop?${params}`);
+      const data = await res.json();
+      if (data.error) {
+        document.getElementById("scoop-list").innerHTML = `<div class="empty">에러: ${data.error}</div>`;
+        return;
+      }
+      document.getElementById("kpi-8").textContent = data.stats.score_8_plus;
+      document.getElementById("kpi-7").textContent = data.stats.score_7;
+      document.getElementById("kpi-6").textContent = data.stats.score_6;
+      document.getElementById("kpi-gold").textContent = data.stats.gold;
+      document.getElementById("kpi-ug").textContent = data.stats.ultra_gold;
+      document.getElementById("result-count").textContent = `${data.items.length}건`;
+      renderCards(data.items);
+    }
+
+    document.getElementById("f-score").addEventListener("change", load);
+    document.getElementById("f-val").addEventListener("change", load);
+    document.getElementById("f-risk").addEventListener("change", load);
+    document.addEventListener("DOMContentLoaded", load);
+  </script>
+</body>
+</html>

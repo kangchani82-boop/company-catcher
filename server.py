@@ -175,73 +175,105 @@ def increment_usage(model: str):
 # Gemini 모델 정책은 config/gemini_models.py 한 곳에서 관리 (SSOT)
 from config.gemini_models import GEMINI_LIMITS, GEMINI_FALLBACKS
 
+# 자동 페어 + 보고서 종류 SSOT
+try:
+    from scripts._compare_pair import (
+        TYPE_TIME_ORDER as _PAIR_TYPE_ORDER,
+        TYPE_KIND_LABEL as _PAIR_TYPE_KIND,
+        get_latest_compare_pair as _get_latest_pair,
+    )
+except Exception:
+    _PAIR_TYPE_ORDER = {
+        "2025_q1": 1, "2025_h1": 2, "2025_q3": 3, "2025_annual": 4,
+        "2026_q1": 5, "2026_h1": 6, "2026_q3": 7, "2026_annual": 8,
+    }
+    _PAIR_TYPE_KIND = {}
+    def _get_latest_pair(db, min_corp_count=1000):
+        return None
+
+# 5분 캐시 (서버 시작 후 같은 페어 반복 조회 절감)
+_CACHED_LATEST_PAIR = {"value": None, "ts": 0}
+
+def _current_pair(db):
+    """현재 시점의 (과거, 최신) 페어. 5분 TTL 캐시."""
+    now = time.time()
+    if (_CACHED_LATEST_PAIR["value"] is not None
+        and now - _CACHED_LATEST_PAIR["ts"] < 300):
+        return _CACHED_LATEST_PAIR["value"]
+    try:
+        pair = _get_latest_pair(db)
+    except Exception:
+        pair = None
+    _CACHED_LATEST_PAIR["value"] = pair
+    _CACHED_LATEST_PAIR["ts"] = now
+    return pair
+
 
 def _get_gemini_keys() -> list:
-    """파싱1 + 파싱2 API 키 목록 반환"""
+    """모든 Gemini API 키 (파싱1 + 파싱2 + 파싱3) 반환"""
     keys = []
-    k1 = os.environ.get("GEMINI_API_KEY", "").strip()
-    k2 = os.environ.get("GEMINI_API_KEY_2", "").strip()
-    if k1: keys.append(k1)
-    if k2: keys.append(k2)
+    for var in ("GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"):
+        k = os.environ.get(var, "").strip()
+        if k:
+            keys.append(k)
     return keys
 
 _srv_key_idx = 0
 
 def call_gemini(model_type: str, prompt: str) -> str:
+    """모든 키 × 모든 모델 조합 순회. 429/404/5xx 시 다음 시도. 살아있는 키 하나라도 있으면 성공할 때까지."""
     global _srv_key_idx
     keys = _get_gemini_keys()
     if not keys:
         raise ValueError("GEMINI_API_KEY가 .env에 설정되지 않았습니다")
 
     candidates = GEMINI_FALLBACKS.get(model_type, GEMINI_FALLBACKS["flash"])
+    n = len(keys)
+    start = _srv_key_idx % n
+    _srv_key_idx += 1
     last_err = None
 
     for model_name in candidates:
-        # 라운드로빈으로 키 선택
-        api_key = keys[_srv_key_idx % len(keys)]
-        _srv_key_idx += 1
-
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_name}:generateContent?key={api_key}"
-        )
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
-        }).encode("utf-8")
-
-        req = urllib.request.Request(
-            url, data=payload,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            key_label = f"파싱{keys.index(api_key)+1}"
-            log.info(f"Gemini 사용 모델: {model_name} ({key_label})")
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            if e.code == 404:
-                log.warning(f"Gemini 모델 없음({model_name}), 다음 시도...")
-                last_err = f"모델 없음: {model_name}"
+        for i in range(n):
+            api_key = keys[(start + i) % n]
+            url = (
+                f"https://generativelanguage.googleapis.com/v1beta/models/"
+                f"{model_name}:generateContent?key={api_key}"
+            )
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 8192, "temperature": 0.3},
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=payload,
+                headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                key_label = f"파싱{(start+i)%n+1}"
+                log.info(f"Gemini 사용 모델: {model_name} ({key_label})")
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code == 404:
+                    last_err = f"모델 없음: {model_name}"
+                    break  # 다음 모델
+                if e.code == 429:
+                    last_err = f"키 {(start+i)%n+1}/{n} 할당량 초과"
+                    continue  # 다음 키
+                if e.code in (500, 503):
+                    last_err = f"{model_name} 서버 오류 {e.code}"
+                    continue
+                last_err = f"Gemini API 오류 {e.code}: {body[:200]}"
                 continue
-            if e.code == 429 and len(keys) > 1:
-                # 다른 키로 재시도
-                alt_key = keys[(keys.index(api_key) + 1) % len(keys)]
-                alt_url = url.replace(api_key, alt_key)
-                alt_req = urllib.request.Request(alt_url, data=payload,
-                    headers={"Content-Type": "application/json"}, method="POST")
-                try:
-                    with urllib.request.urlopen(alt_req, timeout=120) as r2:
-                        d2 = json.loads(r2.read().decode("utf-8"))
-                    return d2["candidates"][0]["content"]["parts"][0]["text"]
-                except Exception:
-                    pass
-            raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:400]}")
-
-    raise RuntimeError(f"사용 가능한 Gemini 모델 없음. 마지막 오류: {last_err}")
+            except urllib.error.URLError as e:
+                last_err = f"네트워크 오류: {e.reason}"
+                continue
+            except (TimeoutError, OSError) as e:
+                last_err = f"{model_name} 타임아웃"
+                continue
+    raise RuntimeError(
+        f"모든 키({n}개) × 모든 모델({len(candidates)}개) 시도 실패. 마지막: {last_err}"
+    )
 
 
 def call_claude(prompt: str) -> str:
@@ -382,37 +414,57 @@ def _build_article_prompt(lead, ai_result: str) -> str:
 
 
 def _call_gemini_article(prompt: str, timeout: int = 120) -> tuple:
+    """기사 초안 생성 호출. 모든 키 × 모든 모델 조합을 순회하며 429/404/5xx 발생 시 다음 시도.
+    살아있는 키가 하나라도 있으면 성공할 때까지 시도. 모두 실패하면 마지막 오류 raise."""
     global _srv_key_idx
     keys = _get_gemini_keys()
     if not keys:
         raise ValueError("GEMINI_API_KEY 없음")
-    # 라운드로빈으로 키 선택
-    api_key = keys[_srv_key_idx % len(keys)]
+
+    # 라운드로빈 시작점부터 모든 키 순회
+    n = len(keys)
+    start = _srv_key_idx % n
     _srv_key_idx += 1
+
     last_err = None
     for model_name in _ARTICLE_MODELS:
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{model_name}:generateContent?key={api_key}")
-        payload = json.dumps({
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7},
-        }).encode("utf-8")
-        req = urllib.request.Request(url, data=payload,
-            headers={"Content-Type": "application/json"}, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            return data["candidates"][0]["content"]["parts"][0]["text"], model_name
-        except urllib.error.HTTPError as e:
-            body = e.read().decode("utf-8", errors="replace")
-            if e.code == 404:
-                last_err = f"모델 없음: {model_name}"; continue
-            if e.code == 429:
-                raise RuntimeError(f"API 할당량 초과(429) — 내일 다시 시도하세요.")
-            raise RuntimeError(f"Gemini API 오류 {e.code}: {body[:300]}")
-        except urllib.error.URLError as e:
-            raise RuntimeError(f"네트워크 오류: {e.reason}")
-    raise RuntimeError(f"사용 가능한 모델 없음. 마지막 오류: {last_err}")
+        for i in range(n):
+            api_key = keys[(start + i) % n]
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model_name}:generateContent?key={api_key}")
+            payload = json.dumps({
+                "contents": [{"parts": [{"text": prompt}]}],
+                "generationConfig": {"maxOutputTokens": 4096, "temperature": 0.7},
+            }).encode("utf-8")
+            req = urllib.request.Request(url, data=payload,
+                headers={"Content-Type": "application/json"}, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                return data["candidates"][0]["content"]["parts"][0]["text"], model_name
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", errors="replace")
+                if e.code == 404:
+                    last_err = f"모델 없음: {model_name}"
+                    break  # 모델 자체가 없으면 다음 모델로
+                if e.code == 429:
+                    last_err = f"키 {(start+i)%n+1}/{n} 할당량 초과"
+                    continue  # 다음 키 시도
+                if e.code in (500, 503):
+                    last_err = f"{model_name} 서버 오류 {e.code}"
+                    continue  # 다음 키 시도
+                last_err = f"Gemini API 오류 {e.code}: {body[:200]}"
+                continue
+            except urllib.error.URLError as e:
+                last_err = f"네트워크 오류: {e.reason}"
+                continue
+            except (TimeoutError, OSError) as e:
+                last_err = f"{model_name} 타임아웃"
+                continue
+    raise RuntimeError(
+        f"모든 키({n}개) × 모든 모델({len(_ARTICLE_MODELS)}개) 시도 실패. "
+        f"마지막: {last_err}"
+    )
 
 
 def _parse_article_json(text: str) -> dict:
@@ -558,6 +610,7 @@ class DartHandler(BaseHTTPRequestHandler):
             "/report_work":        "report_work.html",
             "/corp_work":          "corp_work.html",
             "/quality_review":     "quality_review.html",
+            "/scoop":              "scoop.html",
         }
         if path in _spa:
             f = WEB_ROOT / _spa[path]
@@ -596,11 +649,18 @@ class DartHandler(BaseHTTPRequestHandler):
                     " (biz_content IS NOT NULL AND biz_content != ''))"
                 ).fetchone()[0]
                 supply_chain = db.execute("SELECT COUNT(*) FROM supply_chain").fetchone()[0]
+                # 호환성 — 기존 응답 키 유지
                 annual  = db.execute("SELECT COUNT(*) FROM reports WHERE report_type='2025_annual'").fetchone()[0]
                 q3      = db.execute("SELECT COUNT(*) FROM reports WHERE report_type='2025_q3'").fetchone()[0]
                 h1      = db.execute("SELECT COUNT(*) FROM reports WHERE report_type='2025_h1'").fetchone()[0]
                 q1      = db.execute("SELECT COUNT(*) FROM reports WHERE report_type='2025_q1'").fetchone()[0]
                 old_a   = db.execute("SELECT COUNT(*) FROM reports WHERE report_type='A'").fetchone()[0]
+                # 동적 by_type — 모든 보고서 종류 자동 카운트 (새 분기 추가 시 자동 반영)
+                by_type = {}
+                for t in _PAIR_TYPE_ORDER:
+                    n = db.execute("SELECT COUNT(*) FROM reports WHERE report_type=?", [t]).fetchone()[0]
+                    if n:
+                        by_type[t] = n
                 self._json({
                     "total": total,
                     "with_text": with_content,
@@ -611,6 +671,7 @@ class DartHandler(BaseHTTPRequestHandler):
                     "h1_2025": h1,
                     "q1_2025": q1,
                     "legacy_A": old_a,
+                    "by_type": by_type,
                 })
             except Exception as e:
                 self._json({"error": str(e)}, 500)
@@ -722,6 +783,13 @@ class DartHandler(BaseHTTPRequestHandler):
                 count_sql = f"SELECT COUNT(DISTINCT corp_code) FROM reports WHERE {where_sql}"
                 total = db.execute(count_sql, params).fetchone()[0]
 
+                # 호환성 — 기존 응답 키(annual_cnt/q3_cnt/h1_cnt/q1_cnt/legacy_cnt) 유지하면서
+                # _PAIR_TYPE_ORDER 모든 종류에 대한 by_type_cnt도 동적으로 추가.
+                _all_types = list(_PAIR_TYPE_ORDER.keys())
+                _dyn_sum = ",\n                        ".join(
+                    f"SUM(CASE WHEN report_type=? THEN 1 ELSE 0 END) as cnt_{t}"
+                    for t in _all_types
+                )
                 sql = f"""
                     SELECT
                         corp_code,
@@ -732,6 +800,7 @@ class DartHandler(BaseHTTPRequestHandler):
                         SUM(CASE WHEN report_type='2025_h1'     THEN 1 ELSE 0 END) as h1_cnt,
                         SUM(CASE WHEN report_type='2025_q1'     THEN 1 ELSE 0 END) as q1_cnt,
                         SUM(CASE WHEN report_type='A'           THEN 1 ELSE 0 END) as legacy_cnt,
+                        {_dyn_sum},
                         MAX(rcept_dt) as last_rcept_dt
                     FROM reports
                     WHERE {where_sql}
@@ -741,7 +810,9 @@ class DartHandler(BaseHTTPRequestHandler):
                         MAX(corp_name) COLLATE NOCASE
                     LIMIT ? OFFSET ?
                 """
-                rows = db.execute(sql, params + [limit, offset]).fetchall()
+                # 동적 SUM의 placeholder ?에 보낼 type 인자들을 params 앞 쪽에 prepend
+                _dyn_params = list(_all_types)
+                rows = db.execute(sql, _dyn_params + params + [limit, offset]).fetchall()
                 companies = [dict(r) for r in rows]
                 self._json({"companies": companies, "total": total, "offset": offset, "limit": limit})
             except Exception as e:
@@ -977,6 +1048,81 @@ class DartHandler(BaseHTTPRequestHandler):
             return
 
         # ── /api/leads ─────────────────────────────────────────────────────
+        # ── /api/scoop ── N-1 검증 완료 출고 후보 (newsability_score >= min) ──
+        if path == "/api/scoop":
+            try:
+                db = get_db()
+                min_score = int(qs.get("min_score", [7])[0])
+                limit     = int(qs.get("limit", [200])[0])
+                valence   = (qs.get("valence", [None])[0] or "").strip()  # GOOD|BAD|MIXED
+                risk      = (qs.get("risk", [None])[0] or "").strip()     # LOW|MEDIUM|HIGH
+
+                where = ["sl.n1_verified_at IS NOT NULL",
+                         "sl.newsability_score >= ?"]
+                params = [min_score]
+                if valence in ("GOOD", "BAD", "MIXED"):
+                    where.append("sl.valence = ?"); params.append(valence)
+                if risk in ("LOW", "MEDIUM", "HIGH"):
+                    where.append("sl.publish_risk = ?"); params.append(risk)
+
+                rows = db.execute(f"""
+                    SELECT sl.id, sl.corp_code, sl.corp_name, sl.lead_type, sl.severity,
+                           sl.title, sl.headline_ko, sl.story_angle,
+                           sl.newsability_score, sl.valence, sl.publish_risk,
+                           sl.missing_verification, sl.already_public,
+                           sl.value_direction, sl.industry_alignment,
+                           sl.short_term, sl.medium_term, sl.long_term,
+                           sl.cross_verified, sl.fact_match_label, sl.info_gap_label,
+                           sl.news_status, sl.actual_news_count,
+                           sl.comparison_id, sl.report_type_a, sl.report_type_b,
+                           sl.value_rationale_ai,
+                           sl.n1_verified_at, sl.created_at,
+                           (SELECT COUNT(*) FROM article_drafts ad
+                              WHERE ad.lead_id = sl.id
+                                AND ad.status IN ('draft','edited','approved','published')) AS draft_count
+                    FROM story_leads sl
+                    WHERE {' AND '.join(where)}
+                    ORDER BY sl.newsability_score DESC,
+                             (sl.publish_risk='LOW') DESC,
+                             (sl.publish_risk='MEDIUM') DESC,
+                             sl.severity DESC, sl.id DESC
+                    LIMIT ?
+                """, params + [limit]).fetchall()
+
+                # 통계
+                stats = {
+                    "score_8_plus": db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE n1_verified_at IS NOT NULL AND newsability_score >= 8"
+                    ).fetchone()[0],
+                    "score_7":      db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE n1_verified_at IS NOT NULL AND newsability_score = 7"
+                    ).fetchone()[0],
+                    "score_6":      db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE n1_verified_at IS NOT NULL AND newsability_score = 6"
+                    ).fetchone()[0],
+                    "gold":         db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE info_gap_label='HIGH_CONFIRMED' "
+                        "AND fact_match_label IN ('EXACT','STRONG')"
+                    ).fetchone()[0],
+                    "ultra_gold":   db.execute(
+                        "SELECT COUNT(*) FROM story_leads WHERE info_gap_label='HIGH_CONFIRMED' "
+                        "AND fact_match_label IN ('EXACT','STRONG') AND cross_verified='CONFIRMED'"
+                    ).fetchone()[0],
+                    "total":        len(rows),
+                }
+                # valence 분포
+                val_dist = {}
+                for r in rows:
+                    v = r["valence"] or "?"
+                    val_dist[v] = val_dist.get(v, 0) + 1
+                stats["valence"] = val_dist
+
+                self._json({"items": [dict(r) for r in rows], "stats": stats})
+            except Exception as e:
+                log.exception("scoop error")
+                self._json({"error": str(e)}, 500)
+            return
+
         if path == "/api/leads":
             try:
                 db = get_db()
@@ -1442,7 +1588,7 @@ class DartHandler(BaseHTTPRequestHandler):
                 self._json({"items": [], "total": 0, "error": str(e)}, 500)
             return
 
-        # ── /api/dashboard/q1_progress (Q1 마감 카운트다운용 일일 진척) ──────
+        # ── /api/dashboard/q1_progress (현 active 페어 기준 일일 진척) ──────
         if path == "/api/dashboard/q1_progress":
             try:
                 db = get_db()
@@ -1453,45 +1599,44 @@ class DartHandler(BaseHTTPRequestHandler):
                 today = "date('now', 'localtime')"
                 yday = "date('now', '-1 day', 'localtime')"
 
+                # 자동 페어 — 새 보고서가 들어오면 자동 갱신 (예: 2026_h1 발간 시 페어 전환)
+                _pair = _current_pair(db)
+                _latest_type = _pair[1] if _pair else "2026_q1"
+
                 out = {
-                    # 2026 Q1 보고서 — updated_at 일자 기준 (DB 적재 시각)
-                    "new_reports_today": _c(f"""
-                        SELECT COUNT(*) FROM reports
-                        WHERE report_type='2026_q1' AND date(updated_at)={today}
-                    """),
-                    "new_reports_yday": _c(f"""
-                        SELECT COUNT(*) FROM reports
-                        WHERE report_type='2026_q1' AND date(updated_at)={yday}
-                    """),
+                    "active_pair_type_b": _latest_type,
+                    # 현 active 페어의 신규 보고서 — updated_at 일자 기준
+                    "new_reports_today": _c(
+                        f"SELECT COUNT(*) FROM reports WHERE report_type=? AND date(updated_at)={today}",
+                        [_latest_type]),
+                    "new_reports_yday": _c(
+                        f"SELECT COUNT(*) FROM reports WHERE report_type=? AND date(updated_at)={yday}",
+                        [_latest_type]),
 
-                    "new_comparisons_today": _c(f"""
-                        SELECT COUNT(*) FROM ai_comparisons
-                        WHERE report_type_b='2026_q1' AND date(analyzed_at)={today}
-                    """),
-                    "new_comparisons_yday": _c(f"""
-                        SELECT COUNT(*) FROM ai_comparisons
-                        WHERE report_type_b='2026_q1' AND date(analyzed_at)={yday}
-                    """),
+                    "new_comparisons_today": _c(
+                        f"SELECT COUNT(*) FROM ai_comparisons WHERE report_type_b=? AND date(analyzed_at)={today}",
+                        [_latest_type]),
+                    "new_comparisons_yday": _c(
+                        f"SELECT COUNT(*) FROM ai_comparisons WHERE report_type_b=? AND date(analyzed_at)={yday}",
+                        [_latest_type]),
 
-                    "new_leads_today": _c(f"""
-                        SELECT COUNT(*) FROM story_leads
-                        WHERE report_type_b='2026_q1' AND date(created_at)={today}
-                    """),
-                    "new_leads_yday": _c(f"""
-                        SELECT COUNT(*) FROM story_leads
-                        WHERE report_type_b='2026_q1' AND date(created_at)={yday}
-                    """),
+                    "new_leads_today": _c(
+                        f"SELECT COUNT(*) FROM story_leads WHERE report_type_b=? AND date(created_at)={today}",
+                        [_latest_type]),
+                    "new_leads_yday": _c(
+                        f"SELECT COUNT(*) FROM story_leads WHERE report_type_b=? AND date(created_at)={yday}",
+                        [_latest_type]),
 
                     "new_drafts_today": _c(f"""
                         SELECT COUNT(*) FROM article_drafts ad
                         JOIN story_leads sl ON sl.id = ad.lead_id
-                        WHERE sl.report_type_b='2026_q1' AND date(ad.created_at)={today}
-                    """),
+                        WHERE sl.report_type_b=? AND date(ad.created_at)={today}
+                    """, [_latest_type]),
                     "new_drafts_yday": _c(f"""
                         SELECT COUNT(*) FROM article_drafts ad
                         JOIN story_leads sl ON sl.id = ad.lead_id
-                        WHERE sl.report_type_b='2026_q1' AND date(ad.created_at)={yday}
-                    """),
+                        WHERE sl.report_type_b=? AND date(ad.created_at)={yday}
+                    """, [_latest_type]),
 
                     "new_questionnaires_today": _c(f"""
                         SELECT COUNT(*) FROM ir_questionnaires
