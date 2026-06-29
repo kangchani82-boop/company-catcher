@@ -368,13 +368,16 @@ _LEAD_TYPE_KO = {
     "numeric_change":  "수치 급변",
     "supply_chain":    "공급망 변화",
 }
-_ARTICLE_STYLE_GUIDE = """[기사 작성 지침]
-- 매체: 파이낸스코프 (finscope.co.kr) / 기자: 고종민
-- 문체: 연합뉴스·중앙일보 경제면 스타일 (간결, 객관, 사실 중심)
-- 제목: 30자 이내, 핵심 사실 중심 (과장 금지)
-- 부제: 15자 이내
-- 본문: 400~600자, 역피라미드 구조 (리드→구체내용→의미→전망)
-- 주의: DART 공시 내용만 근거, 추측 시 '~것으로 분석된다' 표현"""
+# 고종민 기자 스타일 SSOT (config/journalist_styles.py) — 풍부한 스타일 블록 로드
+try:
+    from config.journalist_styles import build_style_block
+    _ARTICLE_STYLE_GUIDE = build_style_block(include_fewshot=True, n_fewshot=2)
+except Exception:
+    _ARTICLE_STYLE_GUIDE = """[기사 작성 지침]
+- 매체: 파이낸스스코프 (finscope.co.kr) / 기자: 고종민
+- 문체: 간결·객관·사실 중심, 구체 수치 강조
+- 제목 30자 이내, 본문 400~600자 역피라미드 구조
+- DART 공시 내용만 근거"""
 
 
 def _build_article_prompt(lead, ai_result: str) -> str:
@@ -384,10 +387,11 @@ def _build_article_prompt(lead, ai_result: str) -> str:
         kw_list = ", ".join(json.loads(lead["keywords"] or "[]"))
     except Exception:
         kw_list = lead["keywords"] or ""
-    return f"""당신은 파이낸스코프(finscope.co.kr)의 경제 전문 기자 고종민입니다.
-아래 DART 공시 분석 데이터를 바탕으로 한국어 경제 기사 초안을 작성하세요.
+    return f"""{_ARTICLE_STYLE_GUIDE}
 
-{_ARTICLE_STYLE_GUIDE}
+═══════════════════════════════
+아래 DART 공시 분석 데이터를 바탕으로 위 고종민 기자 스타일로 경제 기사 초안을 작성하세요.
+**[취재 단서]·[AI 분석]에 없는 정보는 쓰지 마세요.** 수치·출처는 입력 자료에서만.
 
 ═══════════════════════════════
 [취재 단서]

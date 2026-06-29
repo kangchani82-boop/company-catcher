@@ -248,3 +248,57 @@ python scripts/_finalize_after_chain.py
 ---
 
 **작성: 2026-06-06 (오늘 작업 종료, 내일 재개 예정)**
+
+---
+
+## 9. 06-08~17 후속 작업 결과
+
+### 9.1 사이트 보완 (Phase A/B) + Cleanup 완료
+- `/scoop` 출고 후보 전용 페이지 + `/api/scoop` 신규
+- 회사 상세 페어별 비교분석 히스토리 그룹
+- leads 카드 N1점수/valence/헤드라인 배지
+- home_v2 SCOOP/GOLD KPI 5종
+- server.py: **모든 Gemini 키(3개) fallback 수정** (KEY_3 인식 안 되던 버그 + 429 시 즉시 raise 하던 버그 수정)
+- server.py 하드코딩 페어 → 자동 페어(`_compare_pair`) 전환
+- Cleanup: 옛 chain 스크립트 3개 / 옛 docx 4개 / 일회성 task / logs 7일+ / `__pycache__` 정리
+- DB 정제: `deprecated_label_flip` 608건 삭제, `HALLUCINATION_LOW` 737건 삭제, VACUUM
+
+### 9.2 분석 파이프라인 대폭 확장
+detect_leads가 batch 신규분에서 단서 668건 추가 추출 → SQL 매핑 + 후속 chain:
+
+| 지표 | 06-06 | 06-09~17 | 증가 |
+|------|-------|---------|------|
+| batch ok | 2089 | **2179** | +90 (100% 가까이) |
+| story_leads | 686 | **1354** | +668 |
+| _j1 fact_verified | 894 | **985** | +91 |
+| **🏆 GOLD** | 70 | **330** | **+260 (4.7배)** |
+| **🏆 ULTRA GOLD** | 9 | **30** | **+21** |
+| _n1 처리 | 65 | **142** | +77 |
+
+### 9.3 출고 라인업 (06-17 기준)
+- 🚨 **8점 SCOOP: 9건**
+- ⭐ **7점 출고: 50건**
+- 📰 **6점 추가취재: 60건**
+- valence: BAD 58 / GOOD 45 / MIXED 16
+
+### 9.4 연합뉴스 초안 (`generate_yonhap_draft.py`)
+- NEW/REMOVED/EXPANDED 포인트 추출 + 연합뉴스 포맷 ((서울=연합뉴스) 리드 + 5단락)
+- 완성 5건: 에스퓨얼셀(사명변경), 알톤, YW, 국영지앤엠, 클립스비엔씨
+- HS효성 1건 (사이트 버튼으로 생성)
+
+### 9.5 산출물
+- `output/scoop_candidates_20260617_1327.csv` (119건, 6점+)
+
+### 9.6 남은 작업 (quota 회복 시)
+- **_n1 잔여 GOLD 188건** → SCOOP 후보 추가 증가
+- **_l2 미분류 69건** / **_k3 NEED_MORE 163건**
+- **HIGH_PARTIAL(EXACT/STRONG) 202건 / HIGH_REPORTED 285건** — 출고 풀 확장 후보
+- 연합뉴스 초안 — 8점 9건 중 4건 + 7점 50건
+- **걸림돌**: Gemini 무료 quota가 분당(RPM)·일일(RPD) 한도로 자주 끊김 → 여러 날 나눠 실행 필요
+
+### 9.7 운영 결정
+- `dart-pipeline-morning/evening` 예약 작업은 **disabled 유지** (수동 작업 중 quota 충돌 방지). 수동 작업 일단락 후 enable 예정.
+
+---
+
+**갱신: 2026-06-17**

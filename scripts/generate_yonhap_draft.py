@@ -49,6 +49,14 @@ except Exception:
 ROOT = Path(__file__).parent.parent
 DB_PATH = ROOT / "data" / "dart" / "dart_reports.db"
 
+# 고종민 기자 스타일 SSOT
+sys.path.insert(0, str(ROOT))
+try:
+    from config.journalist_styles import build_style_block
+except Exception:
+    def build_style_block(*a, **k):
+        return ""
+
 # .env 로드
 _env_path = ROOT / ".env"
 if _env_path.exists():
@@ -78,7 +86,7 @@ def call_gemini_article(prompt: str, max_wait: int = 2):
                 payload = json.dumps({
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "maxOutputTokens": 4096,
+                        "maxOutputTokens": 6144,
                         "temperature": 0.4,
                         "responseMimeType": "application/json",
                     },
@@ -118,15 +126,37 @@ def parse_json(txt: str):
     if s.startswith("```"):
         s = re.sub(r"^```[a-z]*\n?", "", s)
         s = re.sub(r"\n?```$", "", s)
+    # 1차: 그대로
     try:
         return json.loads(s)
     except Exception:
-        m = re.search(r"\{.*\}", s, re.DOTALL)
-        if m:
-            try:
-                return json.loads(m.group(0))
-            except Exception:
-                return None
+        pass
+    # 2차: 첫 { ~ 마지막 } 블록
+    m = re.search(r"\{.*\}", s, re.DOTALL)
+    if m:
+        block = m.group(0)
+        try:
+            return json.loads(block)
+        except Exception:
+            pass
+        # 3차: 흔한 깨짐 보정 — trailing comma 제거, 제어문자 정리
+        fixed = re.sub(r",\s*([}\]])", r"\1", block)
+        fixed = fixed.replace("\n", "\\n").replace("\r", "")
+        # 다시 escape된 \\n 이중처리 방지
+        fixed = fixed.replace('\\\\n', '\\n')
+        try:
+            return json.loads(fixed)
+        except Exception:
+            pass
+    # 4차: 필드별 정규식 추출 (body 누락돼도 부분 복구)
+    out = {}
+    for field in ["headline", "subheadline", "lead", "body"]:
+        fm = re.search(rf'"{field}"\s*:\s*"((?:[^"\\]|\\.)*)"', s, re.DOTALL)
+        if fm:
+            out[field] = fm.group(1).replace('\\n', '\n').replace('\\"', '"').strip()
+    # lead + body 합쳐 본문 구성 (body 없으면 lead라도)
+    if out.get("body") or out.get("lead"):
+        return out
     return None
 
 
@@ -241,13 +271,21 @@ def build_yonhap_prompt(lead: sqlite3.Row, ai_result: str,
     except Exception:
         pass
 
-    return f"""당신은 **연합뉴스 경제부 단신 기자**입니다.
-사업보고서(과거: 2025) → 1분기보고서(최신: 2026) 변화를 기사화합니다.
+    # 단서 valence(GOOD/BAD/MIXED)에 맞는 고종민 스타일 예시 선택
+    _style_block = build_style_block(include_fewshot=True, n_fewshot=3,
+                                     valence=(lead["valence"] or None))
+
+    return f"""{_style_block}
+
+═══════════════════════════════════════════
+이번 기사는 **사업보고서(과거: 2025) → 1분기보고서(최신: 2026) 변화**를 다룹니다.
+**포맷은 연합뉴스 단신 형식**(제목 / (서울=연합뉴스) 리드 / 단락 본문)을 따르되,
+**문체·어휘·구성은 위 고종민 기자 스타일을 그대로** 적용하세요.
 
 [핵심 원칙]
-1. **[입력 자료]에 없는 정보는 절대 사용 금지.** 평가/추측/전망 표현 금지.
+1. **[입력 자료]에 없는 정보는 절대 사용 금지.** 근거 없는 추측·과장 금지.
 2. 핵심은 **NEW / REMOVED / EXPANDED — 새로 생기거나 사라지거나 성장한 것**.
-3. 수치는 반드시 "이전 → 현재" 병기.
+3. 수치는 반드시 "이전 → 현재" 병기 (고종민 스타일: 구체 수치·전망·비교 강조).
 4. 회사 측 입장은 보고서 인용으로 처리 ("회사는 보고서에서 ~밝혔다").
 
 ═══════════════════════════════════════════
@@ -439,9 +477,12 @@ def main():
                   flush=True)
             text, model = call_gemini_article(prompt)
             parsed = parse_json(text)
-            if not parsed or not parsed.get("body"):
+            # body 누락 시 lead로 최소 복구 (완전 실패만 skip)
+            if parsed and not parsed.get("body") and parsed.get("lead"):
+                parsed["body"] = parsed["lead"]
+            if not parsed or not (parsed.get("body") or parsed.get("lead")):
                 err += 1
-                print(f"    ✗ JSON 파싱 실패 또는 body 누락")
+                print(f"    ✗ JSON 파싱 실패 또는 본문 누락 (resp {len(text)}자)")
                 continue
             save_draft(db, lead, parsed, model)
             ok += 1

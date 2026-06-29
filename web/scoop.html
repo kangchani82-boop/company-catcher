@@ -43,6 +43,14 @@
     .missing-block { font-size: 11px; color: #e67e22; margin-top: 6px; padding: 6px 10px; background: rgba(230,126,34,.08); border-radius: 4px; border-left: 2px solid #e67e22; }
     .ir-q { font-size: 11px; color: #3498db; margin-top: 4px; padding: 6px 10px; background: rgba(52,152,219,.08); border-radius: 4px; }
     .empty { text-align: center; color: var(--txt2); padding: 40px; font-size: 14px; }
+    .card-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .btn-draft { font-size: 12px; padding: 6px 14px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border); transition: all .15s; }
+    .btn-draft.gen { background: var(--acc); color: #fff; border-color: var(--acc); font-weight: 600; }
+    .btn-draft.gen:hover { opacity: .85; }
+    .btn-draft.view { background: rgba(46,204,113,.15); color: #2ecc71; border-color: rgba(46,204,113,.4); font-weight: 600; }
+    .btn-draft.detail { background: var(--bg3); color: var(--txt2); }
+    .btn-draft.detail:hover { background: var(--bg4); color: var(--txt1); }
+    .btn-draft:disabled { opacity: .6; cursor: wait; }
   </style>
 </head>
 <body>
@@ -132,9 +140,38 @@
               <span><strong>페어</strong> ${escapeHTML(it.report_type_a || '?')} → ${escapeHTML(it.report_type_b || '?')}</span>
             </div>
             ${it.missing_verification ? `<div class="missing-block">⚠ 추가 확인: ${escapeHTML(it.missing_verification)}</div>` : ''}
+            <div class="card-actions" onclick="event.stopPropagation()">
+              ${it.draft_count > 0
+                ? `<button class="btn-draft view" onclick="event.stopPropagation(); location.href='/articles?corp_code=${encodeURIComponent(it.corp_code)}'">📄 초안 보기 (${it.draft_count})</button>`
+                : `<button class="btn-draft gen" onclick="event.stopPropagation(); genDraft(${it.id}, this)">✍ 기사 초안 생성</button>`}
+              <button class="btn-draft detail" onclick="event.stopPropagation(); location.href='/lead_detail?id=${it.id}'">↗ 상세</button>
+              ${it.comparison_id ? `<button class="btn-draft detail" onclick="event.stopPropagation(); location.href='/comparison_detail?id=${it.comparison_id}'">📊 비교</button>` : ''}
+            </div>
           </div>
         `;
       }).join('');
+    }
+
+    async function genDraft(leadId, btn) {
+      const orig = btn.textContent;
+      btn.disabled = true; btn.textContent = '⏳ 생성 중…';
+      try {
+        const res = await fetch(`/api/leads/${leadId}/draft`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Api-Key': 'local' }
+        });
+        const d = await res.json();
+        if (!res.ok || d.error) throw new Error(d.error || '서버 오류');
+        btn.textContent = '✅ 생성됨';
+        btn.className = 'btn-draft view';
+        const drf = d.draft || {};
+        // 간단 미리보기
+        alert(`초안 생성 완료\n\n[${drf.headline || ''}]\n\n${(drf.content || '').slice(0, 300)}…`);
+        setTimeout(load, 600);
+      } catch (e) {
+        btn.disabled = false; btn.textContent = orig;
+        alert('초안 생성 오류: ' + e.message);
+      }
     }
 
     async function load() {
