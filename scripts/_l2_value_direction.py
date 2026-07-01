@@ -1,10 +1,10 @@
 """
-L-2: Gemini 정밀 미래 가치 분류
-- 입력: 골드 102건 단서 + 재무 + sector
+L-2: Gemini 정밀 미래 가치 분류 (배치 버전)
+- 입력: 골드 단서(HIGH_CONFIRMED + EXACT/STRONG) 중 industry_alignment IS NULL
 - 출력: 산업 트렌드 대비 방향 + 단/중/장기 + 시총 영향
+- ★ 배치: 10건을 한 Gemini 호출로 묶어 처리 (호출 1/10) — scripts/_gemini_batch.py 사용
 """
-import sqlite3, json, os, sys, time, io, re
-import urllib.request, urllib.error
+import sqlite3, json, os, sys, io, time
 from pathlib import Path
 from datetime import datetime
 
@@ -12,13 +12,12 @@ try: sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="
 except: pass
 
 ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
 DB_PATH = ROOT / "data" / "dart" / "dart_reports.db"
-_env_path = ROOT / ".env"
-if _env_path.exists():
-    for line in _env_path.read_text(encoding="utf-8").splitlines():
-        line=line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k,v=line.split("=",1); os.environ.setdefault(k.strip(), v.strip())
+
+from scripts._gemini_batch import process_in_batches
+
+BATCH_SIZE = 10  # _l2 단건 출력 ~300토큰 → 10건 ≈ 3000토큰 (8192 한도 내)
 
 db = sqlite3.connect(str(DB_PATH))
 db.row_factory = sqlite3.Row
@@ -32,76 +31,73 @@ for col in NEW_COLS:
     if col not in cols:
         db.execute(f'ALTER TABLE story_leads ADD COLUMN {col} TEXT')
 
-KEYS = [os.environ.get(k,"").strip() for k in ["GEMINI_API_KEY","GEMINI_API_KEY_2","GEMINI_API_KEY_3"]]
-KEYS = [k for k in KEYS if k]
-MODELS = ["gemini-flash-latest","gemini-2.5-flash-lite","gemini-2.5-flash","gemini-3-flash-preview","gemini-3.1-flash-lite"]
+INSTRUCTION = """당신은 증권사 산업 분석가입니다. 각 회사의 사업보고서 변화 시그널을 평가하세요.
 
-def call_gemini(prompt):
-    for model in MODELS:
-        for k in KEYS:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={k}"
-            payload = json.dumps({
-                "contents":[{"parts":[{"text":prompt}]}],
-                "generationConfig":{"maxOutputTokens":1024,"temperature":0.2}
-            }).encode("utf-8")
-            req = urllib.request.Request(url, data=payload, headers={"Content-Type":"application/json"}, method="POST")
-            try:
-                with urllib.request.urlopen(req, timeout=60) as r:
-                    d = json.loads(r.read().decode("utf-8"))
-                return d["candidates"][0]["content"]["parts"][0]["text"], model
-            except urllib.error.HTTPError as e:
-                if e.code in (429,503): continue
-                continue
-            except Exception: continue
-    raise RuntimeError("모든 모델·키 소진")
+평가 기준:
+- value_direction: 회사 가치에 명확히 긍정(POSITIVE_GROWTH)/부정(NEGATIVE_DECLINE)/전환(TRANSFORMATION)/리스크(RISK_WARNING)/불확실(UNCERTAIN)
+- industry_alignment: 산업 트렌드와 같은 방향(ALIGNED) / 역행(CONTRARIAN) / 무관(NEUTRAL)
+- impact_magnitude: 시총 5%+ 영향(STRONG) / 1-5%(MEDIUM) / <1%(WEAK)
+- 단/중/장기 영향은 구체적으로 (예: "신제품 인지도 확산", "경쟁사 진입으로 점유율 압박")"""
 
-def parse_json(txt):
-    s = txt.strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```[a-z]*\n?","",s); s = re.sub(r"\n?```$","",s)
-    try: return json.loads(s)
-    except:
-        m = re.search(r'\{.*\}', s, re.DOTALL)
-        if m:
-            try: return json.loads(m.group(0))
-            except: return None
-    return None
-
-PROMPT = """당신은 증권사 산업 분석가입니다. 아래 회사의 사업보고서 변화 시그널을 평가해주세요.
-
-[회사] {corp_name}  /  [업종] {sector}  /  [시장] {market}
-[최근 재무] 매출 {revenue}억, 영업이익 {oi}억, 영업이익률 {om}%
-
-[단서 제목] {title}
-[Evidence]
-{evidence}
-
-[원문 발췌]
-{evidence_deep}
-
-──────────────────────────────────
-다음 JSON으로만 응답:
-
-{{
+OUTPUT_EXAMPLE = """{
+  "id": <입력 id 그대로>,
   "value_direction": "POSITIVE_GROWTH|NEGATIVE_DECLINE|TRANSFORMATION|RISK_WARNING|UNCERTAIN",
   "confidence": 1~5,
   "industry_alignment": "ALIGNED|CONTRARIAN|NEUTRAL",
   "industry_trend": "이 업종의 최근 일반 트렌드 (1문장)",
-  "short_term": "단기 (1-3개월) 영향 한 문장",
-  "medium_term": "중기 (6-12개월) 영향 한 문장",
-  "long_term": "장기 (1년+) 영향 한 문장",
+  "short_term": "단기(1-3개월) 영향 한 문장",
+  "medium_term": "중기(6-12개월) 영향 한 문장",
+  "long_term": "장기(1년+) 영향 한 문장",
   "impact_magnitude": "STRONG|MEDIUM|WEAK",
-  "rationale": "종합 판단 근거 (2-3 문장, 산업 트렌드 대비)"
-}}
+  "rationale": "종합 판단 근거 (2-3문장, 산업 트렌드 대비)"
+}"""
 
-평가 기준:
-- value_direction: 회사 가치에 명확히 긍정/부정/전환/리스크인지
-- industry_alignment: 산업 트렌드와 같은 방향(ALIGNED) / 역행(CONTRARIAN) / 무관(NEUTRAL)
-- impact_magnitude: 시총 5%+ 영향(STRONG) / 1-5%(MEDIUM) / <1%(WEAK)
-- 단기/중기/장기 영향은 구체적으로 (예: "신제품 인지도 확산", "경쟁사 진입으로 점유율 압박")
-"""
 
-# 골드 102건 (cross_verified=null 인 것만)
+def render_item(r):
+    ctx = {}
+    try:
+        ctx = json.loads(r['company_context'] or '{}') if r['company_context'] else {}
+    except Exception:
+        pass
+    fin = ctx.get('recent_financials') or {}
+    return (f"[회사] {r['corp_name']}  /  [업종] {ctx.get('sector','-')}  /  [시장] {ctx.get('market','-')}\n"
+            f"[최근 재무] 매출 {fin.get('revenue_billion_krw','-')}억, "
+            f"영업이익 {fin.get('operating_income_billion_krw','-')}억, "
+            f"영업이익률 {fin.get('operating_margin','-')}%\n"
+            f"[단서 제목] {r['title'] or ''}\n"
+            f"[Evidence] {(r['evidence'] or '')[:400]}\n"
+            f"[원문 발췌] {(r['evidence_deep'] or '')[:1200]}")
+
+
+stats = {}
+
+
+def on_results(matched):
+    cnt = 0
+    for r, o in matched:
+        vd = o.get('value_direction', 'UNCERTAIN')
+        stats[vd] = stats.get(vd, 0) + 1
+        db.execute("""UPDATE story_leads SET
+                        value_direction=?, industry_alignment=?,
+                        short_term=?, medium_term=?, long_term=?,
+                        impact_magnitude=?, value_confidence=?,
+                        value_rationale_ai=?, value_classified_at=?
+                      WHERE id=?""",
+                   [vd,
+                    o.get('industry_alignment', 'NEUTRAL'),
+                    (o.get('short_term', '') or '')[:300],
+                    (o.get('medium_term', '') or '')[:300],
+                    (o.get('long_term', '') or '')[:300],
+                    o.get('impact_magnitude', 'MEDIUM'),
+                    str(o.get('confidence', 0)),
+                    json.dumps({'trend': o.get('industry_trend', ''),
+                                'rationale': o.get('rationale', '')}, ensure_ascii=False),
+                    now, r['id']])
+        cnt += 1
+    db.commit()
+    return cnt
+
+
 rows = db.execute("""
     SELECT sl.id, sl.corp_name, sl.title, sl.severity, sl.evidence, sl.evidence_deep,
            sl.company_context
@@ -110,64 +106,25 @@ rows = db.execute("""
       AND sl.fact_match_label IN ('EXACT','STRONG')
       AND sl.industry_alignment IS NULL
 """).fetchall()
-print(f'대상: {len(rows)}건')
+print(f'대상: {len(rows)}건  (배치 크기 {BATCH_SIZE} → 예상 호출 ~{(len(rows)+BATCH_SIZE-1)//BATCH_SIZE}회)')
 
-stats = {}
-ok = err = 0
 t0 = time.time()
-for i, r in enumerate(rows, 1):
-    # 컨텍스트 추출
-    ctx = json.loads(r['company_context'] or '{}') if r['company_context'] else {}
-    fin = ctx.get('recent_financials') or {}
-    rev = fin.get('revenue_billion_krw','-')
-    oi = fin.get('operating_income_billion_krw','-')
-    om = fin.get('operating_margin','-')
 
-    prompt = PROMPT.format(
-        corp_name=r['corp_name'], sector=ctx.get('sector','-'), market=ctx.get('market','-'),
-        revenue=rev, oi=oi, om=om,
-        title=r['title'] or '', evidence=(r['evidence'] or '')[:400],
-        evidence_deep=(r['evidence_deep'] or '')[:1200])
-    try:
-        resp, model = call_gemini(prompt)
-        parsed = parse_json(resp)
-        if not parsed:
-            err += 1
-            continue
-        vd = parsed.get('value_direction','UNCERTAIN')
-        stats[vd] = stats.get(vd,0) + 1
-        db.execute("""UPDATE story_leads SET
-                        value_direction=?,
-                        industry_alignment=?,
-                        short_term=?, medium_term=?, long_term=?,
-                        impact_magnitude=?, value_confidence=?,
-                        value_rationale_ai=?,
-                        value_classified_at=?
-                      WHERE id=?""",
-                   [vd,
-                    parsed.get('industry_alignment','NEUTRAL'),
-                    (parsed.get('short_term','') or '')[:300],
-                    (parsed.get('medium_term','') or '')[:300],
-                    (parsed.get('long_term','') or '')[:300],
-                    parsed.get('impact_magnitude','MEDIUM'),
-                    str(parsed.get('confidence',0)),
-                    json.dumps({
-                      'trend': parsed.get('industry_trend',''),
-                      'rationale': parsed.get('rationale','')
-                    }, ensure_ascii=False),
-                    now, r['id']])
-        db.commit()
-        ok += 1
-        if i % 10 == 0:
-            el = (time.time()-t0)/60
-            print(f'  [{i:>3}/{len(rows)}] ok={ok} err={err} {el:.1f}분')
-    except RuntimeError:
-        print(f'  [{i}] 한도 소진 — 종료')
-        break
-    except Exception as e:
-        err += 1
+def progress(ok, fail, calls, exhausted=False):
+    el = (time.time() - t0) / 60
+    tag = ' (한도 소진)' if exhausted else ''
+    print(f'  ok={ok} fail={fail} 호출={calls} ({el:.1f}분){tag}')
 
-print(f'\n[완료] ok={ok} err={err}  소요 {(time.time()-t0)/60:.1f}분')
+ok = err = 0
+try:
+    ok, err, calls = process_in_batches(
+        rows, item_id=lambda r: r['id'], render_item=render_item,
+        instruction=INSTRUCTION, output_example=OUTPUT_EXAMPLE,
+        on_results=on_results, max_items=BATCH_SIZE, max_output_tokens=8192,
+        temperature=0.2, throttle=4.0, progress=progress)
+    print(f'\n[완료] ok={ok} fail={err} 호출={calls}회  소요 {(time.time()-t0)/60:.1f}분')
+except RuntimeError:
+    print(f'\n[중단] Gemini 한도 소진 — 다음 실행 시 이어서 처리(증분)')
 print('\n[방향 분포]')
 for k,v in sorted(stats.items(), key=lambda x:-x[1]):
     print(f'  {k:<22} {v}')
